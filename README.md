@@ -54,11 +54,20 @@ export APPROX_PRESELECT=1000
 
 ## Quick Start
 
-Recommended: use with IDE agents (Roo Code, Cline)
-- Set Qdrant URL to `http://localhost:8080` in the plugin settings.
-- API key is optional; this server doesn’t enforce auth.
+### Use with IDE agents (Roo Code, Cline)
 
-Optional: cURL smoke test
+**Option 1: Public Demo (No setup required)**
+- Set Qdrant URL to `http://ydb-qdrant.tech:8080`
+- No API key needed
+- Free to use for testing and development
+- Shared instance - use `X-Tenant-Id` header for isolation
+
+**Option 2: Self-hosted (Local)**
+- Set Qdrant URL to `http://localhost:8080`
+- API key optional (not enforced)
+- Full control and privacy
+
+### cURL smoke test (Self-hosted)
 ```bash
 # 1) Install & run
 npm install
@@ -104,14 +113,7 @@ Health check:
 curl -s http://localhost:8080/health
 ```
 
-## Qdrant-compatible base URL
-Point Qdrant-compatible tools (e.g., Roo Code) at your local proxy:
-
-- Base URL: `http://localhost:8080`
-- Example collection name: `mycol`
-- Tenancy (optional): pass `X-Tenant-Id: <tenant>`
-
-## Minimal API
+## API Reference
 
 Create collection (PUT /collections/{collection}):
 ```bash

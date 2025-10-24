@@ -2,10 +2,12 @@
 A small Node.js service that exposes a minimal Qdrant‑compatible REST API and stores/searches vectors in YDB. Intended as a drop‑in base URL for tools expecting Qdrant (e.g., Roo Code) while persisting to a remote YDB instance.
 
 ## Quick facts
-- Base URL: `http://localhost:8080`
-- Tenancy: per‑client isolation via header `X-Tenant-Id`; each tenant+collection maps to its own YDB table.
-- Approx search: coarse‑to‑fine without vector index. Quantized `embedding_u8` for preselect; float `embedding` for refine. Metrics cosine / inner_product / euclidean / manhattan.
-- Vectors stored as binary strings using Knn::ToBinaryStringFloat (float) and Knn::ToBinaryStringUint8 (quantized).
+- **Base URLs**:
+  - Public demo: `http://ydb-qdrant.tech:8080` (no setup, free to use)
+  - Self-hosted: `http://localhost:8080` (default)
+- **Tenancy**: per‑client isolation via header `X-Tenant-Id`; each tenant+collection maps to its own YDB table.
+- **Approx search**: coarse‑to‑fine without vector index. Quantized `embedding_u8` for preselect; float `embedding` for refine. Metrics cosine / inner_product / euclidean / manhattan.
+- **Vectors**: stored as binary strings using Knn::ToBinaryStringFloat (float) and Knn::ToBinaryStringUint8 (quantized).
 
 ## API (Qdrant‑compatible subset)
 - PUT `/collections/{collection}`
@@ -90,8 +92,17 @@ Notes
 - PUT `/collections/{collection}/index` → no‑op (compat only)
 
 ## Plugin integration (Roo Code, Cline)
-- Set Qdrant URL to `http://localhost:8080`; collection created on first use.
-- API key optional (no auth enforced); optional `X-Tenant-Id` header for isolation.
+**Public demo (no setup required)**:
+- Qdrant URL: `http://ydb-qdrant.tech:8080`
+- API key: Leave empty or use any value (not enforced)
+- Isolation: Use unique collection names or `X-Tenant-Id` header
+
+**Self-hosted**:
+- Qdrant URL: `http://localhost:8080`
+- API key: Optional (not enforced)
+- Isolation: Full control via `X-Tenant-Id` header
+
+Collection created automatically on first use.
 
 ## Logging & diagnostics
 - JSON logs via pino middleware (method, url, tenant, status, ms). Search logs vector len, dimension, metric/type, hits, validation issues.
