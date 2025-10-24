@@ -1,9 +1,8 @@
-import { Types, TypedValues, withSession } from "../ydb/client";
-import { buildJsonOrEmpty, buildVectorParam } from "../ydb/helpers";
+import { Types, TypedValues, withSession } from "../ydb/client.js";
+import { buildJsonOrEmpty, buildVectorParam } from "../ydb/helpers.js";
 import type { VectorType, DistanceKind } from "../types";
 import { logger } from "../logging/logger";
-import { INDEX_REBUILD_ON_UPSERT } from "../config/env";
-import { APPROX_PRESELECT } from "../config/env";
+import { APPROX_PRESELECT } from "../config/env.js";
 
 export async function upsertPoints(
   tableName: string,

@@ -1,7 +1,7 @@
 import type { Session } from "ydb-sdk";
 import { createRequire } from "module";
-import { YDB_DATABASE, YDB_ENDPOINT } from "../config/env";
-import { logger } from "../logging/logger";
+import { YDB_DATABASE, YDB_ENDPOINT } from "../config/env.js";
+import { logger } from "../logging/logger.js";
 
 const require = createRequire(import.meta.url);
 // eslint-disable-next-line @typescript-eslint/no-var-requires

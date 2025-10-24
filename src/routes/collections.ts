@@ -4,20 +4,20 @@ import {
   sanitizeTenantId,
   metaKeyFor,
   tableNameFor,
-} from "../utils/tenant";
+} from "../utils/tenant.js";
 import {
   CreateCollectionReq,
   type DistanceKind,
   type VectorType,
-} from "../types";
-import { ensureMetaTable } from "../ydb/schema";
+} from "../types.js";
+import { ensureMetaTable } from "../ydb/schema.js";
 // Index ops are no-ops in approximate mode
 import {
   createCollection as repoCreate,
   getCollectionMeta,
   deleteCollection as repoDelete,
-} from "../repositories/collectionsRepo";
-import { logger } from "../logging/logger";
+} from "../repositories/collectionsRepo.js";
+import { logger } from "../logging/logger.js";
 
 export const collectionsRouter = Router();
 

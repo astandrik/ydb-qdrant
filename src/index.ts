@@ -1,10 +1,10 @@
 import "dotenv/config";
 import type { Server } from "http";
-import { buildServer } from "./server";
-import { PORT } from "./config/env";
-import { logger } from "./logging/logger";
-import { readyOrThrow } from "./ydb/client";
-import { ensureMetaTable } from "./ydb/schema";
+import { buildServer } from "./server.js";
+import { PORT } from "./config/env.js";
+import { logger } from "./logging/logger.js";
+import { readyOrThrow } from "./ydb/client.js";
+import { ensureMetaTable } from "./ydb/schema.js";
 
 let server: Server | undefined;
 

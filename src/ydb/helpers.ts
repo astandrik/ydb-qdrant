@@ -1,4 +1,4 @@
-import { Types, TypedValues } from "./client";
+import { Types, TypedValues } from "./client.js";
 
 export function buildVectorParam(
   vector: number[],

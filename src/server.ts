@@ -1,8 +1,8 @@
 import express from "express";
 import type { Request, Response } from "express";
-import { collectionsRouter } from "./routes/collections";
-import { pointsRouter } from "./routes/points";
-import { requestLogger } from "./middleware/requestLogger";
+import { collectionsRouter } from "./routes/collections.js";
+import { pointsRouter } from "./routes/points.js";
+import { requestLogger } from "./middleware/requestLogger.js";
 
 export function buildServer() {
   const app = express();

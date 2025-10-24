@@ -1,6 +1,6 @@
 # YDB Qdrant-compatible Proxy (Node.js)
 
-Qdrant-compatible Node.js server storing/searching vectors in YDB
+Qdrant-compatible Node.js/TypeScript server storing/searching vectors in YDB using approximate coarse-to-fine vector search (quantized uint8 preselect + float refine). Topics: ydb, vector-search, qdrant-compatible, nodejs, typescript, express, yql, ann, semantic-search, rag.
 
 ## Requirements
 - Node.js 18+

@@ -3,8 +3,8 @@ import {
   sanitizeCollectionName,
   sanitizeTenantId,
   metaKeyFor,
-} from "../utils/tenant";
-import { DeletePointsReq, SearchReq, UpsertPointsReq } from "../types";
+} from "../utils/tenant.js";
+import { DeletePointsReq, SearchReq, UpsertPointsReq } from "../types.js";
 function isNumArray(v: unknown): v is number[] {
   return Array.isArray(v) && v.every((x) => typeof x === "number");
 }
@@ -34,14 +34,14 @@ function extractVectorLoose(body: any, depth = 0): number[] | undefined {
   return undefined;
 }
 
-import { ensureMetaTable } from "../ydb/schema";
-import { getCollectionMeta } from "../repositories/collectionsRepo";
+import { ensureMetaTable } from "../ydb/schema.js";
+import { getCollectionMeta } from "../repositories/collectionsRepo.js";
 import {
   deletePoints as repoDelete,
   searchPoints as repoSearch,
   upsertPoints as repoUpsert,
-} from "../repositories/pointsRepo";
-import { logger } from "../logging/logger";
+} from "../repositories/pointsRepo.js";
+import { logger } from "../logging/logger.js";
 
 export const pointsRouter = Router();
 

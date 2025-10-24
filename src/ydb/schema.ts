@@ -1,5 +1,5 @@
-import { withSession, TableDescription, Column, Types } from "./client";
-import { logger } from "../logging/logger";
+import { withSession, TableDescription, Column, Types } from "./client.js";
+import { logger } from "../logging/logger.js";
 
 export async function ensureMetaTable(): Promise<void> {
   try {

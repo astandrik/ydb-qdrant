@@ -4,7 +4,7 @@ import {
   withSession,
   TableDescription,
   Column,
-} from "../ydb/client";
+} from "../ydb/client.js";
 import type { DistanceKind, VectorType } from "../types";
 
 export async function createCollection(
