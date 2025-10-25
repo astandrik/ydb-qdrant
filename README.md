@@ -2,6 +2,8 @@
 
 Qdrant-compatible Node.js/TypeScript server storing/searching vectors in YDB using approximate coarse-to-fine vector search (quantized uint8 preselect + float refine). Topics: ydb, vector-search, qdrant-compatible, nodejs, typescript, express, yql, ann, semantic-search, rag.
 
+Promo site: [ydb-qdrant.tech](http://ydb-qdrant.tech)
+
 ## Requirements
 - Node.js 18+
 - A YDB endpoint and database path
