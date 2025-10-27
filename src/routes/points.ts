@@ -42,6 +42,7 @@ import {
   upsertPoints as repoUpsert,
 } from "../repositories/pointsRepo.js";
 import { logger } from "../logging/logger.js";
+import { requestIndexBuild } from "../indexing/IndexScheduler.js";
 
 export const pointsRouter = Router();
 
@@ -67,6 +68,13 @@ pointsRouter.put("/:collection/points", async (req: Request, res: Response) => {
       parsed.data.points,
       meta.vectorType,
       meta.dimension
+    );
+    // schedule index build after quiet window
+    requestIndexBuild(
+      meta.table,
+      meta.dimension,
+      meta.distance,
+      meta.vectorType
     );
     res.json({ status: "ok", result: { upserted: n } });
   } catch (err: any) {
@@ -100,6 +108,13 @@ pointsRouter.post(
         parsed.data.points,
         meta.vectorType,
         meta.dimension
+      );
+      // schedule index build after quiet window
+      requestIndexBuild(
+        meta.table,
+        meta.dimension,
+        meta.distance,
+        meta.vectorType
       );
       res.json({ status: "ok", result: { upserted: n } });
     } catch (err: any) {

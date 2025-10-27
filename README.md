@@ -49,9 +49,6 @@ Optional env:
 # Server
 export PORT=8080
 export LOG_LEVEL=info
-
-# Approximate search coarse preselect size (default 1000)
-export APPROX_PRESELECT=1000
 ```
 
 ## Quick Start
@@ -161,9 +158,11 @@ curl -X POST http://localhost:8080/collections/mycol/points/delete \
 
 ## Notes
 - One YDB table is created per collection; metadata is tracked in table `qdr__collections`.
-- Each collection table schema: `point_id Utf8` (PK), `embedding String` (binary), `embedding_u8 String` (binary), `payload JsonDocument`.
-- Vectors are serialized with `Knn::ToBinaryStringFloat` (full precision) and a quantized copy `Knn::ToBinaryStringUint8` for approximate search.
-- Search uses approximate coarse-to-fine without vector index: preselect on quantized vectors, refine on float vectors (see below).
+- Each collection table schema: `point_id Utf8` (PK), `embedding String` (binary), `payload JsonDocument`.
+- Vectors are serialized with `Knn::ToBinaryStringFloat` (or `Knn::ToBinaryStringUint8` if collection uses uint8).
+- Search uses a single-phase top‑k over `embedding` with automatic YDB vector index (`emb_idx`) when available; falls back to table scan if missing.
+- **Vector index auto-build**: After ≥100 points upserted + 5s quiet window, a `vector_kmeans_tree` index (levels=1, clusters=128) is built automatically. Incremental updates (<100 points) skip index rebuild.
+- **Concurrency**: During index rebuilds, YDB may return transient `Aborted`/schema metadata errors. Upserts include bounded retries with backoff to handle this automatically.
 - Filters are not yet modeled; can be added if needed.
 
 ## Scoring semantics
@@ -187,13 +186,14 @@ Compatibility notes:
 - Accepts `POST /collections/:collection/points/query` as an alias of search.
 - Accepts `limit` as an alias of `top`; honors `score_threshold`.
 - Search response shape: `{ status: "ok", result: { points: [{ id, score, payload? }] } }`.
-- `PUT /collections/:collection/index` is a no-op (compatibility only); this project uses approximate search without a vector index.
+- `PUT /collections/:collection/index` is a no-op (Qdrant compatibility; Roo Code calls this for payload indexes). The YDB vector index (`emb_idx`) is built automatically after ≥100 points are upserted + 5-second quiet window. Incremental updates (<100 points) skip rebuild.
 
 For broader Qdrant API coverage, extend routes in `src/routes/*`.
 
 ## References
 - YDB docs (overview): https://ydb.tech/docs/en/
-- Vector search concepts (approximate without index): https://ydb.tech/docs/ru/concepts/vector_search#vector-search-approximate
+- YDB vector indexes (vector_kmeans_tree): https://ydb.tech/docs/en/dev/vector-indexes
+- YDB VIEW syntax for indexes: https://ydb.tech/docs/en/yql/reference/syntax/select/secondary_index
 - YQL getting started: https://ydb.tech/docs/en/getting_started/yql/
 - YQL reference (syntax, functions): https://ydb.tech/docs/en/yql/reference/
 - YQL functions index: https://ydb.tech/docs/en/yql/reference/functions/

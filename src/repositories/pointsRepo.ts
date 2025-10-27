@@ -1,8 +1,9 @@
-import { Types, TypedValues, withSession } from "../ydb/client.js";
+import { TypedValues, withSession } from "../ydb/client.js";
 import { buildJsonOrEmpty, buildVectorParam } from "../ydb/helpers.js";
 import type { VectorType, DistanceKind } from "../types";
 import { logger } from "../logging/logger";
 import { APPROX_PRESELECT } from "../config/env.js";
+import { notifyUpsert } from "../indexing/IndexScheduler.js";
 
 export async function upsertPoints(
   tableName: string,
@@ -23,37 +24,58 @@ export async function upsertPoints(
           `Vector dimension mismatch for id=${id}: got ${p.vector.length}, expected ${dimension}`
         );
       }
-      // Ensure embedding_u8 column exists (best-effort; ignore failures on existing tables)
-      try {
-        await s.executeQuery(
-          `ALTER TABLE ${tableName} ADD COLUMN embedding_u8 String;` as any
-        );
-      } catch {}
       const ddl = `
         DECLARE $id AS Utf8;
         DECLARE $vec AS List<${vectorType === "uint8" ? "Uint8" : "Float"}>;
-        DECLARE $vec_u8 AS List<Uint8>;
         DECLARE $payload AS JsonDocument;
-        UPSERT INTO ${tableName} (point_id, embedding, embedding_u8, payload)
+        UPSERT INTO ${tableName} (point_id, embedding, payload)
         VALUES (
           $id,
           Untag(Knn::ToBinaryString${
             vectorType === "uint8" ? "Uint8" : "Float"
           }($vec), "${vectorType === "uint8" ? "Uint8Vector" : "FloatVector"}"),
-          Untag(Knn::ToBinaryStringUint8($vec_u8), "Uint8Vector"),
           $payload
         );
       `;
       const params = {
         $id: TypedValues.utf8(id),
         $vec: buildVectorParam(p.vector, vectorType),
-        $vec_u8: buildVectorParam(p.vector, "uint8"),
         $payload: buildJsonOrEmpty(p.payload),
       } as const;
-      await s.executeQuery(ddl, params as any);
+
+      // Retry on transient schema/metadata mismatches during index rebuild
+      const maxRetries = 6; // ~ up to ~ (0.25 + jitter) * 2^5 ≈ few seconds
+      let attempt = 0;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        try {
+          await s.executeQuery(ddl, params as any);
+          break;
+        } catch (e: any) {
+          const msg = String(e?.message ?? e);
+          const isTransient =
+            /Aborted|schema version mismatch|Table metadata loading|Failed to load metadata/i.test(
+              msg
+            );
+          if (!isTransient || attempt >= maxRetries) {
+            throw e;
+          }
+          const backoffMs = Math.floor(
+            250 * Math.pow(2, attempt) + Math.random() * 100
+          );
+          logger.warn(
+            { tableName, id, attempt, backoffMs },
+            "upsert aborted due to schema/metadata change; retrying"
+          );
+          await new Promise((r) => setTimeout(r, backoffMs));
+          attempt += 1;
+        }
+      }
       upserted += 1;
     }
   });
+  // notify scheduler for potential end-of-batch index build
+  notifyUpsert(tableName, upserted);
   // No index rebuild; approximate search does not require it
   return upserted;
 }
@@ -77,42 +99,53 @@ export async function searchPoints(
     );
   }
   const { fn, order } = mapDistanceToKnnFn(distance);
-  // Coarse-to-fine approximate search without index (quantized uint8 first, then refine on float)
+  // Single-phase search over embedding using vector index if present
   const preselect = Math.min(APPROX_PRESELECT, Math.max(top * 10, top));
-  const yql = `
+
+  const qf = buildVectorParam(queryVector, vectorType);
+  const params = {
+    $qf: qf,
+    $k2: TypedValues.uint32(top),
+  } as any;
+
+  const buildQuery = (useIndex: boolean) => `
     DECLARE $qf AS List<${vectorType === "uint8" ? "Uint8" : "Float"}>;
-    DECLARE $qu8 AS List<Uint8>;
-    DECLARE $k1 AS Uint32;
     DECLARE $k2 AS Uint32;
     $qbinf = Knn::ToBinaryString${
       vectorType === "uint8" ? "Uint8" : "Float"
     }($qf);
-    $qbinu8 = Knn::ToBinaryStringUint8($qu8);
-    $candidates = (
-      SELECT point_id, ${fn}(embedding_u8, $qbinu8) AS coarse
-      FROM ${tableName}
-      ORDER BY coarse ${order}
-      LIMIT $k1
-    );
-    SELECT t.point_id, ${
-      withPayload ? "t.payload," : ""
-    } ${fn}(t.embedding, $qbinf) AS score
-    FROM ${tableName} AS t
-    INNER JOIN $candidates AS c ON c.point_id = t.point_id
+    SELECT point_id, ${
+      withPayload ? "payload, " : ""
+    }${fn}(embedding, $qbinf) AS score
+    FROM ${tableName}${useIndex ? " VIEW emb_idx" : ""}
     ORDER BY score ${order}
     LIMIT $k2;
   `;
-  const qf = buildVectorParam(queryVector, vectorType);
-  // For uint8 collections, reuse the same; for float, quantize to uint8
-  const qu8 = buildVectorParam(queryVector, "uint8");
-  const rs = await withSession(async (s) => {
-    return await s.executeQuery(yql, {
-      $qf: qf,
-      $qu8: qu8,
-      $k1: TypedValues.uint32(preselect),
-      $k2: TypedValues.uint32(top),
-    } as any);
-  });
+
+  let rs;
+  try {
+    // Try with vector index first
+    rs = await withSession(async (s) => {
+      return await s.executeQuery(buildQuery(true), params);
+    });
+    logger.info({ tableName }, "vector index found; using index for search");
+  } catch (e: any) {
+    const msg = String(e?.message ?? e);
+    // Fallback to table scan if index not found or not ready
+    if (
+      /not found|does not exist|no such index|is not ready to use/i.test(msg)
+    ) {
+      logger.info(
+        { tableName },
+        "vector index not available (missing or building); falling back to table scan"
+      );
+      rs = await withSession(async (s) => {
+        return await s.executeQuery(buildQuery(false), params);
+      });
+    } else {
+      throw e;
+    }
+  }
   const rowset = rs.resultSets?.[0];
   const rows = (rowset?.rows ?? []) as any[];
   return rows.map((row) => {

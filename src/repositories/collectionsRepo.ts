@@ -6,6 +6,7 @@ import {
   Column,
 } from "../ydb/client.js";
 import type { DistanceKind, VectorType } from "../types";
+import { withSession as _withSession } from "../ydb/client.js";
 
 export async function createCollection(
   metaKey: string,
@@ -19,7 +20,6 @@ export async function createCollection(
       .withColumns(
         new Column("point_id", Types.UTF8),
         new Column("embedding", Types.BYTES),
-        new Column("embedding_u8", Types.BYTES),
         new Column("payload", Types.JSON_DOCUMENT)
       )
       .withPrimaryKey("point_id");
@@ -90,6 +90,53 @@ export async function deleteCollection(metaKey: string): Promise<void> {
   `;
   await withSession(async (s) => {
     await s.executeQuery(delMeta, { $collection: TypedValues.utf8(metaKey) });
+  });
+}
+
+export async function buildVectorIndex(
+  tableName: string,
+  dimension: number,
+  distance: DistanceKind,
+  vectorType: VectorType
+): Promise<void> {
+  const distParam = mapDistanceToIndexParam(distance);
+  // defaults for <100k vectors
+  const levels = 1;
+  const clusters = 128;
+
+  await withSession(async (s) => {
+    // Drop existing index if present
+    const dropDdl = `ALTER TABLE ${tableName} DROP INDEX emb_idx;`;
+    try {
+      const dropReq = { sessionId: (s as any).sessionId, yqlText: dropDdl };
+      await (s as any).api.executeSchemeQuery(dropReq);
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      // ignore if index doesn't exist
+      if (!/not found|does not exist|no such index/i.test(msg)) {
+        throw e;
+      }
+    }
+
+    // Create new index
+    const createDdl = `
+      ALTER TABLE ${tableName}
+      ADD INDEX emb_idx GLOBAL SYNC USING vector_kmeans_tree
+      ON (embedding)
+      WITH (
+        ${
+          distParam === "inner_product"
+            ? `similarity="inner_product"`
+            : `distance="${distParam}"`
+        },
+        vector_type="${vectorType}",
+        vector_dimension=${dimension},
+        clusters=${clusters},
+        levels=${levels}
+      );
+    `;
+    const createReq = { sessionId: (s as any).sessionId, yqlText: createDdl };
+    await (s as any).api.executeSchemeQuery(createReq);
   });
 }
 

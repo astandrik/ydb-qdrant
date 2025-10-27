@@ -34,7 +34,7 @@ collectionsRouter.put(
         return res
           .status(404)
           .json({ status: "error", error: "collection not found" });
-      // Acknowledge for clients expecting this endpoint
+      // No-op for Qdrant compatibility (Roo Code calls this for payload indexes)
       res.json({ status: "ok", result: { acknowledged: true } });
     } catch (err: any) {
       logger.error({ err }, "build index failed");
@@ -60,6 +60,27 @@ collectionsRouter.put("/:collection", async (req: Request, res: Response) => {
     const dim = parsed.data.vectors.size;
     const distance = parsed.data.vectors.distance as DistanceKind;
     const vectorType = (parsed.data.vectors.data_type as VectorType) ?? "float";
+
+    // Check if collection already exists (idempotent create)
+    const existing = await getCollectionMeta(metaKey);
+    if (existing) {
+      // Verify config matches
+      if (
+        existing.dimension === dim &&
+        existing.distance === distance &&
+        existing.vectorType === vectorType
+      ) {
+        // Config matches; return success (no-op)
+        return res.json({ status: "ok", result: { name: collection, tenant } });
+      } else {
+        // Config mismatch
+        return res.status(400).json({
+          status: "error",
+          error: `Collection already exists with different config: dimension=${existing.dimension}, distance=${existing.distance}, type=${existing.vectorType}`,
+        });
+      }
+    }
+
     const tableName = tableNameFor(tenant, collection);
     await repoCreate(metaKey, dim, distance, vectorType, tableName);
     res.json({ status: "ok", result: { name: collection, tenant } });
