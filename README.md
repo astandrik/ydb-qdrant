@@ -1,6 +1,6 @@
-# YDB Qdrant-compatible Service (Node.js)
+<img src="./logo.svg" alt="YDB Qdrant logo" height="56"> 
 
-<img src="./logo.svg" alt="YDB Qdrant logo" height="56">
+# YDB Qdrant-compatible Service (Node.js)
 
 Qdrant-compatible Node.js/TypeScript service exposing a minimal REST API that stores and searches vectors in YDB using single‑phase top‑k with an automatic YDB vector index (`vector_kmeans_tree`) and table‑scan fallback. Topics: ydb, vector-search, qdrant-compatible, nodejs, typescript, express, yql, ann, semantic-search, rag.
 
