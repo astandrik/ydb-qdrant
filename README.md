@@ -1,6 +1,8 @@
-# YDB Qdrant-compatible Proxy (Node.js)
+# YDB Qdrant-compatible Service (Node.js)
 
-Qdrant-compatible Node.js/TypeScript server storing/searching vectors in YDB using single‑phase top‑k with an automatic YDB vector index (`vector_kmeans_tree`) and table‑scan fallback. Topics: ydb, vector-search, qdrant-compatible, nodejs, typescript, express, yql, ann, semantic-search, rag.
+<img src="./logo.svg" alt="YDB Qdrant logo" height="56">
+
+Qdrant-compatible Node.js/TypeScript service exposing a minimal REST API that stores and searches vectors in YDB using single‑phase top‑k with an automatic YDB vector index (`vector_kmeans_tree`) and table‑scan fallback. Topics: ydb, vector-search, qdrant-compatible, nodejs, typescript, express, yql, ann, semantic-search, rag.
 
 Promo site: [ydb-qdrant.tech](http://ydb-qdrant.tech)
 
@@ -179,7 +181,7 @@ curl -X POST http://localhost:8080/collections/mycol/points/delete \
 - Extracts query vector from common shapes: `vector`, `embedding`, `query.vector`, `query.nearest.vector`, or nested keys.
 
 ## Qdrant compatibility scope
-This proxy implements a minimal subset expected by common tooling:
+This service implements a minimal subset expected by common tooling:
 - Create/get/delete collection
 - Upsert points
 - Top‑k search with optional payload
