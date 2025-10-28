@@ -4,6 +4,10 @@ Qdrant-compatible Node.js/TypeScript server storing/searching vectors in YDB usi
 
 Promo site: [ydb-qdrant.tech](http://ydb-qdrant.tech)
 
+## How it works
+
+![Architecture diagram](./diagram.svg)
+
 ## Requirements
 - Node.js 18+
 - A YDB endpoint and database path
