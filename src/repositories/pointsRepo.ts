@@ -133,7 +133,7 @@ export async function searchPoints(
     const msg = String(e?.message ?? e);
     // Fallback to table scan if index not found or not ready
     if (
-      /not found|does not exist|no such index|is not ready to use/i.test(msg)
+      /not found|does not exist|no such index|no global index|is not ready to use/i.test(msg)
     ) {
       logger.info(
         { tableName },
