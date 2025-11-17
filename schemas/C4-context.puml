@@ -1,0 +1,17 @@
+@startuml C4_Context
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+title System Context Diagram for YDB-Qdrant Service
+
+Person(developer, "AI Coding Tool User", "Developer using Roo Code, Cline, or other Qdrant-compatible AI coding assistants")
+
+System(ydbQdrant, "YDB-Qdrant Service", "Qdrant-compatible REST API proxy that stores and searches vectors in YDB with automatic vector indexing (Node.js/Express)")
+
+System_Ext(ydb, "YDB Database", "Distributed SQL/NoSQL database providing vector search via vector_kmeans_tree indexes and YQL queries")
+
+Rel(developer, ydbQdrant, "Makes API requests", "HTTPS/REST (Qdrant-compatible)")
+Rel(ydbQdrant, ydb, "Stores/searches vectors, manages tables and indexes", "gRPC/YDB SDK")
+
+SHOW_LEGEND()
+
+@enduml

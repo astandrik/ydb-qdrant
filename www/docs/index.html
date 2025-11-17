@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<title>YDB Qdrant diagrams</title>
+<style>
+  :root{--bg:#0b0f14;--fg:#e6edf3;--muted:#9da7b3;--acc:#00e5a8}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,'Helvetica Neue',Arial}
+  a{color:var(--acc);text-decoration:none}
+  .wrap{max-width:960px;margin:0 auto;padding:48px 20px}
+  h1{font-size:32px;margin:0 0 12px}
+  .lead{color:var(--muted);margin:0 0 24px}
+  figure{margin:24px 0}
+  img{max-width:100%;height:auto;border:1px solid #19212b;border-radius:8px;display:block;margin:0 auto}
+  .muted{color:var(--muted)}
+  .nav{margin-bottom:24px;font-size:14px}
+</style>
+</head>
+<body>
+  <main class="wrap">
+    <div class="nav muted">
+      <a href="/">Home</a> ·
+      <a href="/en/">English landing</a> ·
+      <a href="/ru/">Русская страница</a>
+    </div>
+
+    <h1>Architecture diagrams</h1>
+    <p class="lead">Pre‑rendered diagrams generated from the PlantUML sources in <code>schemas/</code> via <code>npm run diagrams</code>.</p>
+
+    <section>
+      <h2>Context (C4)</h2>
+      <figure>
+        <img src="/assets/C4_Context.svg" alt="C4 context diagram for YDB Qdrant-compatible service">
+        <figcaption class="muted">High-level C4 context diagram.</figcaption>
+      </figure>
+    </section>
+
+    <section>
+      <h2>Containers</h2>
+      <figure>
+        <img src="/assets/C4_Container.svg" alt="C4 container diagram for YDB-Qdrant service components">
+        <figcaption class="muted">C4 container diagram showing service components, repositories, index scheduler, YDB client, and YDB.</figcaption>
+      </figure>
+    </section>
+
+    <section>
+      <h2>Entity–Relationship (ER) diagram</h2>
+      <figure>
+        <img src="/assets/ER_Diagram.svg" alt="ER diagram of YDB tables used by the service">
+        <figcaption class="muted">ER diagram of the YDB metadata and collection tables.</figcaption>
+      </figure>
+    </section>
+  </main>
+</body>
+</html>
+
+

@@ -1,0 +1,115 @@
+@startuml C4_Container
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+title Container Diagram for YDB-Qdrant Service
+
+Person(developer, "AI Coding Tool User", "Developer using Roo Code, Cline, or other Qdrant-compatible AI coding assistants")
+
+System_Boundary(ydbQdrant, "YDB-Qdrant Service") {
+    Container(webApp, "REST API Server", "Node.js, Express", "Exposes Qdrant-compatible HTTP API endpoints for vector operations")
+    
+    Container(routes, "HTTP Routes", "Express Router", "Handles collections and points endpoints with tenant isolation via X-Tenant-Id header")
+    
+    Container(repos, "Repository Layer", "TypeScript", "Business logic for collections and points operations; builds YQL queries")
+    
+    Container(indexScheduler, "Index Scheduler", "Node.js Worker", "Deferred vector index builder with ≥100 points threshold and 10s quiet window")
+    
+    Container(ydbClient, "YDB Client", "ydb-sdk (CJS)", "Database driver with session pooling and credential management")
+}
+
+ContainerDb(ydb, "YDB Database", "Distributed SQL/NoSQL", "Stores collection metadata (qdr__collections) and vector data (qdr_<tenant>__<collection>) with vector_kmeans_tree indexes")
+
+Rel(developer, webApp, "Makes API requests", "HTTPS/REST")
+Rel(webApp, routes, "Routes requests to", "Function calls")
+Rel(routes, repos, "Delegates operations to", "Function calls")
+Rel(repos, ydbClient, "Executes queries via", "YQL/SDK")
+Rel(repos, indexScheduler, "Triggers index builds", "Function calls")
+Rel(indexScheduler, repos, "Calls buildVectorIndex()", "Async function")
+Rel(ydbClient, ydb, "Manages connections and sessions", "gRPC/YDB Protocol")
+
+note right of webApp
+  **Startup sequence:**
+  1. readyOrThrow() - DB check
+  2. ensureMetaTable() - schema
+  3. Start Express on port 8080
+  
+  **Middleware:**
+  • JSON parser (20MB limit)
+  • Request logger (Pino)
+end note
+
+note right of routes
+  **Collections endpoints:**
+  • PUT/GET/DELETE /:collection
+  • PUT /:collection/index (no-op)
+  
+  **Points endpoints:**
+  • POST /:collection/points/upsert
+  • POST /:collection/points/search
+  • POST /:collection/points/delete
+  
+  **Compatibility aliases:**
+  • PUT /:collection/points → upsert
+  • POST /:collection/points/query → search
+end note
+
+note right of repos
+  **Collections Repository:**
+  • createCollection() - table + metadata
+  • getCollectionMeta() - read metadata
+  • deleteCollection() - drop table
+  • buildVectorIndex() - DROP/ADD INDEX
+  
+  **Points Repository:**
+  • upsertPoints() - with dimension check
+  • searchPoints() - VIEW emb_idx or scan
+  • deletePoints() - by point IDs
+  
+  **Vector serialization:**
+  Knn::ToBinaryString{Float|Uint8}
+end note
+
+note right of indexScheduler
+  **Build policy:**
+  • Tracks upsert counts per table
+  • Threshold: ≥100 points
+  • Quiet window: 10 seconds
+  • Auto-triggers after bulk upserts
+  
+  **Index spec:**
+  • Type: vector_kmeans_tree
+  • Levels: 1, Clusters: 128
+  • Mode: GLOBAL SYNC
+end note
+
+note right of ydbClient
+  **Session management:**
+  • withSession(fn, 15000ms)
+  • Auto-pool via tableClient
+  
+  **Auth methods (first match):**
+  1. Service account key file
+  2. Metadata service (YC VM)
+  3. Access token (short-lived)
+  4. Anonymous (dev only)
+end note
+
+note right of ydb
+  **Tables:**
+  • qdr__collections (metadata)
+    PK: collection (tenant/name)
+  • qdr_<tenant>__<collection> (data)
+    PK: point_id, embedding, payload
+    INDEX: emb_idx (vector_kmeans_tree)
+  
+  **Search modes:**
+  • With index: VIEW emb_idx
+  • Fallback: full table scan
+  
+  **Distance metrics:**
+  Cosine, Euclid, Dot, Manhattan
+end note
+
+SHOW_LEGEND()
+
+@enduml

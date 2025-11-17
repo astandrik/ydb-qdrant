@@ -1,6 +1,7 @@
 # Node dependencies
 node_modules/
 .npm-cache/
+yandex_d6*
 
 # Build outputs
 dist/

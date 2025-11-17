@@ -1,0 +1,87 @@
+@startuml ER_Diagram
+!define TABLE_BACKGROUND #E8F4F8
+!define PK_BACKGROUND #FFE4B5
+
+hide circle
+skinparam linetype ortho
+skinparam class {
+    BackgroundColor TABLE_BACKGROUND
+    BorderColor Black
+    ArrowColor Blue
+}
+
+title Entity Relationship Diagram for YDB-Qdrant Service\n(Physical Data Model - YDB Tables)
+
+entity "qdr__collections" as collections <<Metadata Table>> {
+  * collection : Utf8 <<PK>>
+  --
+  table_name : Utf8
+  vector_dimension : Uint32
+  distance : Utf8 {Cosine|Euclid|Dot|Manhattan}
+  vector_type : Utf8 {float|uint8}
+  created_at : Timestamp
+}
+
+entity "qdr_<tenant>__<collection>" as collection_table <<Dynamic Per-Collection Table>> {
+  * point_id : Utf8 <<PK>>
+  --
+  embedding : String (binary)
+  payload : JsonDocument
+  ..
+  INDEX: emb_idx (vector_kmeans_tree)
+}
+
+collections ||--|| collection_table : "references\nvia table_name"
+
+note right of collections
+  **Primary Key Format:**
+  collection = "<tenant>/<collection>"
+  
+  **Examples:**
+  • "default/my_vectors"
+  • "user123/embeddings"
+  
+  Tenant/collection names are 
+  sanitized to [a-z0-9_]
+end note
+
+note right of collection_table
+  **Naming Convention:**
+  Table name: qdr_<tenant>__<collection>
+  
+  **Examples:**
+  • qdr_default__my_vectors
+  • qdr_user123__embeddings
+  
+  **Vector Index (emb_idx):**
+  • Type: vector_kmeans_tree (GLOBAL SYNC)
+  • Auto-created after ≥100 points
+  • Defaults: levels=1, clusters=128
+  • Build trigger: 5s quiet window
+  
+  **Embedding Storage:**
+  Binary string via Knn::ToBinaryString{Float|Uint8}
+  
+  **Search:**
+  • With index: SELECT ... VIEW emb_idx ORDER BY Knn::<Fn>
+  • Fallback: table scan without VIEW
+end note
+
+legend right
+  **Cardinality:**
+  • One qdr__collections row → One collection table
+  • Dynamic tables created on collection creation
+  • Deleted when collection is deleted
+  
+  **Data Types:**
+  • Utf8 = String
+  • String (binary) = Binary byte array
+  • JsonDocument = Arbitrary JSON structure
+  • Timestamp = DateTime with timezone
+  
+  **Sources:**
+  • PlantUML ER: https://plantuml.com/er-diagram
+  • YDB Types: https://ydb.tech/docs/en/yql/reference/types/
+endlegend
+
+@enduml
