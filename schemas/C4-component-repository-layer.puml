@@ -1,0 +1,106 @@
+@startuml C4-Component-Repository-Layer
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+LAYOUT_WITH_LEGEND()
+
+title Component Diagram: Repository Layer (Business Logic & Data Access)
+
+Container_Boundary(repo_layer, "Repository Layer") {
+    Component(collections_repo, "Collections Repository", "TypeScript Module", "Collection lifecycle management and vector index operations")
+    
+    Component(points_repo, "Points Repository", "TypeScript Module", "Point CRUD operations and vector search with index fallback")
+    
+    Component(utils_tenant, "Tenant Utils", "TypeScript Module", "Tenant/collection name sanitization and key generation")
+    
+    Component(types_schemas, "Types & Schemas", "TypeScript/Zod", "Shared types and request validation schemas")
+    
+    ComponentDb(ydb_schema, "Schema Manager", "TypeScript Module", "Ensures qdr__collections metadata table exists")
+}
+
+Container(ydb_client, "YDB Client", "ydb-sdk Driver", "Database session management")
+Container(index_scheduler, "Index Scheduler", "Node.js Worker", "Deferred index builds")
+
+Rel(collections_repo, ydb_client, "Uses", "withSession() for YQL queries")
+Rel(collections_repo, utils_tenant, "Uses", "tableNameFor(), metaKeyFor()")
+Rel(collections_repo, types_schemas, "Uses", "DistanceKind, VectorType")
+
+Rel(points_repo, ydb_client, "Uses", "withSession() for YQL queries")
+Rel(points_repo, index_scheduler, "Notifies", "notifyUpsert() after each point")
+Rel(points_repo, types_schemas, "Uses", "VectorType, DistanceKind")
+
+Rel(ydb_schema, ydb_client, "Uses", "withSession() to create table")
+
+note right of collections_repo
+  **Key Functions:**
+  - createCollection(metaKey, dim, distance, vectorType, tableName)
+  - getCollectionMeta(metaKey) → {table, dimension, distance, vectorType}
+  - deleteCollection(metaKey)
+  - buildVectorIndex(tableName, dim, distance, vectorType)
+  
+  **Collection Creation Flow:**
+  1. Create YDB table with TableDescription
+     - Columns: point_id (PK), embedding, payload
+  2. UPSERT metadata into qdr__collections
+  
+  **Index Build Process:**
+  1. DROP INDEX emb_idx (ignore if not exists)
+  2. ADD INDEX emb_idx GLOBAL SYNC
+     - Type: vector_kmeans_tree
+     - Config: levels=1, clusters=128
+     - Distance mapping:
+       * Cosine → cosine
+       * Dot → inner_product
+       * Euclid → euclidean
+       * Manhattan → manhattan
+end note
+
+note left of points_repo
+  **Key Functions:**
+  - upsertPoints(table, points[], vectorType, dim) → count
+  - searchPoints(table, queryVec, top, withPayload, distance, vectorType, dim) → hits[]
+  - deletePoints(table, ids[]) → count
+  
+  **Upsert Flow:**
+  1. Validate vector dimension
+  2. For each point:
+     - Serialize vector to binary via Knn::ToBinaryString{Float|Uint8}
+     - UPSERT with exponential backoff retry (max 6)
+       (handles transient schema errors during index rebuild)
+  3. Call notifyUpsert() for scheduler
+  
+  **Search Strategy:**
+  1. Try: SELECT ... FROM table VIEW emb_idx (indexed)
+  2. If index missing/building:
+     - Fallback: SELECT ... FROM table (table scan)
+  3. Parse results with score extraction
+  
+  **Distance Function Mapping:**
+  - Cosine → Knn::CosineSimilarity (DESC)
+  - Dot → Knn::InnerProductSimilarity (DESC)
+  - Euclid → Knn::EuclideanDistance (ASC)
+  - Manhattan → Knn::ManhattanDistance (ASC)
+end note
+
+note bottom of utils_tenant
+  **Sanitization:**
+  - Input → [a-z0-9_] only, lowercase
+  - Multiple underscores → single
+  - Remove leading underscores
+  - Default: "default" (tenant), "collection" (name)
+  
+  **Key Generators:**
+  - metaKeyFor(tenant, coll) → "tenant/collection"
+  - tableNameFor(tenant, coll) → "qdr_tenant__collection"
+end note
+
+note top of ydb_schema
+  **ensureMetaTable():**
+  - Check if qdr__collections exists via describeTable()
+  - If not: create with schema:
+    * collection (PK)
+    * table_name, vector_dimension
+    * distance, vector_type, created_at
+  - Idempotent; errors ignored if table exists
+end note
+
+@enduml

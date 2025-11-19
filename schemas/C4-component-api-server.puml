@@ -1,0 +1,93 @@
+@startuml C4-Component-API-Server
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+LAYOUT_WITH_LEGEND()
+
+title Component Diagram: REST API Server (Express Application)
+
+Container_Boundary(api_server, "REST API Server") {
+    Component(express_app, "Express Application", "Express.js", "HTTP server instance with JSON parsing (20mb limit) and middleware stack")
+    
+    Component(request_logger, "Request Logger", "Express Middleware", "Logs incoming requests and responses with method, URL, tenant, status, duration (ms)")
+    
+    Component(health_endpoint, "Health Check", "Express Route Handler", "Returns { status: 'ok' } for monitoring")
+    
+    Component(collections_router, "Collections Router", "Express Router", "Routes for /collections/:collection endpoints (PUT, GET, DELETE, PUT /index)")
+    
+    Component(points_router, "Points Router", "Express Router", "Routes for /collections/:collection/points/* endpoints (upsert, search, delete, query alias)")
+    
+    Rel(express_app, request_logger, "Uses", "Middleware chain")
+    Rel(express_app, health_endpoint, "Mounts", "GET /health")
+    Rel(express_app, collections_router, "Mounts", "/collections")
+    Rel(express_app, points_router, "Mounts", "/collections")
+    
+    Rel(request_logger, collections_router, "Passes to", "After logging")
+    Rel(request_logger, points_router, "Passes to", "After logging")
+}
+
+Container(collections_repo, "Collections Repository", "TypeScript Module", "Business logic for collection operations")
+Container(points_repo, "Points Repository", "TypeScript Module", "Business logic for point operations")
+Container(index_scheduler, "Index Scheduler", "Node.js Worker", "Deferred vector index building")
+
+Rel(collections_router, collections_repo, "Calls", "createCollection(), getCollectionMeta(), deleteCollection()")
+Rel(points_router, points_repo, "Calls", "upsertPoints(), searchPoints(), deletePoints()")
+Rel(points_router, index_scheduler, "Notifies", "requestIndexBuild() after upserts")
+
+note right of express_app
+  **Startup Sequence:**
+  1. Load environment config
+  2. Initialize YDB driver
+  3. Ensure metadata table exists
+  4. Build Express app (buildServer())
+  5. Listen on PORT (default 8080)
+  
+  **Middleware Stack:**
+  1. express.json({ limit: "20mb" })
+  2. requestLogger middleware
+  3. Route handlers
+end note
+
+note right of request_logger
+  **Logs Include:**
+  - Request: method, url, tenant, contentLength, queryKeys
+  - Response: method, url, tenant, status, ms
+  
+  **Tenant Extraction:**
+  - From X-Tenant-Id header
+  - Defaults to "default"
+end note
+
+note right of collections_router
+  **Endpoints:**
+  - PUT /:collection → Create collection
+  - GET /:collection → Get collection metadata
+  - DELETE /:collection → Delete collection & table
+  - PUT /:collection/index → No-op (Qdrant compatibility)
+  
+  **Request Processing:**
+  1. Extract tenant from X-Tenant-Id header
+  2. Sanitize tenant & collection names
+  3. Validate request body (Zod schemas)
+  4. Call repository methods
+  5. Return JSON response
+end note
+
+note left of points_router
+  **Endpoints:**
+  - PUT /:collection/points → Upsert (alias)
+  - POST /:collection/points/upsert → Upsert points
+  - POST /:collection/points/search → Vector search
+  - POST /:collection/points/query → Search (alias)
+  - POST /:collection/points/delete → Delete points
+  
+  **Request Normalization:**
+  - Accepts 'limit' as alias of 'top'
+  - Treats object/array with_payload as true
+  - Extracts vector from multiple paths
+  
+  **Score Threshold Semantics:**
+  - Cosine/Dot: >= (higher is better)
+  - Euclid/Manhattan: <= (lower is better)
+end note
+
+@enduml

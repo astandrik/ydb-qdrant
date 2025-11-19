@@ -1,0 +1,111 @@
+@startuml C4-Component-YDB-Integration
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+LAYOUT_WITH_LEGEND()
+
+title Component Diagram: YDB Integration Layer (Database Client & Helpers)
+
+Container_Boundary(ydb_integration, "YDB Integration Layer") {
+    Component(ydb_client, "YDB Driver", "ydb-sdk (CJS interop)", "Manages database connection pool and session lifecycle with 15s timeout")
+    
+    Component(ydb_helpers, "YDB Helpers", "TypeScript Module", "Vector serialization and payload conversion utilities")
+    
+    Component(schema_mgr, "Schema Manager", "TypeScript Module", "Ensures metadata table qdr__collections exists")
+    
+    Component(env_config, "Environment Config", "TypeScript Module", "Loads and validates environment variables via dotenv")
+    
+    Component(logger, "Pino Logger", "pino", "Structured JSON logging with configurable log level")
+}
+
+ContainerDb(ydb_database, "YDB Database", "Distributed SQL/NoSQL", "Stores metadata and vector data")
+
+Rel(ydb_client, env_config, "Reads", "YDB_ENDPOINT, YDB_DATABASE")
+Rel(ydb_client, ydb_database, "Connects to", "Driver.ready(10s), getCredentialsFromEnv()")
+
+Rel(ydb_helpers, ydb_client, "Uses", "Types, TypedValues for YQL parameters")
+
+Rel(schema_mgr, ydb_client, "Uses", "withSession() to check/create table")
+Rel(schema_mgr, logger, "Logs to", "Table creation events")
+
+note right of ydb_client
+  **Driver Initialization:**
+  - Uses createRequire() for CJS interop
+  - Required from ydb-sdk: Driver, getCredentialsFromEnv,
+    Types, TypedValues, TableDescription, Column
+  - Config: { endpoint, database, authService }
+  
+  **Session Management:**
+  - withSession<T>(fn, timeout=15000ms)
+  - Auto-pooling via driver.tableClient
+  - Re-exports: Types, TypedValues, TableDescription, Column
+  
+  **Auth Chain (getCredentialsFromEnv):**
+  1. YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS
+  2. YDB_METADATA_CREDENTIALS (YC VM/Functions)
+  3. YDB_ACCESS_TOKEN_CREDENTIALS
+  4. YDB_ANONYMOUS_CREDENTIALS (dev only)
+  
+  **Ready Check:**
+  - readyOrThrow() → 10s timeout
+  - Throws if driver not ready
+end note
+
+note left of ydb_helpers
+  **buildVectorParam(vec, type):**
+  - float: TypedValues.list(Types.FLOAT, vec)
+  - uint8: Auto-quantization if needed
+    * Detect range: [0,1], [-1,1], or general
+    * [0,1] → v*255
+    * [-1,1] → (v+1)*127.5
+    * General → ((v-min)/(max-min))*255
+    * Already quantized [0,255] → pass-through
+  - Returns TypedValues.list(Types.UINT8/FLOAT, list)
+  
+  **buildJsonOrEmpty(payload?):**
+  - Returns TypedValues.jsonDocument(JSON.stringify(payload ?? {}))
+  - Ensures valid JSON even for undefined payloads
+end note
+
+note bottom of schema_mgr
+  **ensureMetaTable():**
+  1. Try s.describeTable("qdr__collections")
+  2. If fails (not found):
+     - Create TableDescription with columns:
+       * collection (PK, UTF8)
+       * table_name, vector_dimension (UINT32)
+       * distance, vector_type, created_at (TIMESTAMP)
+     - Call s.createTable("qdr__collections", desc)
+  3. Idempotent; errors ignored if exists
+end note
+
+note top of env_config
+  **Required:**
+  - YDB_ENDPOINT (string)
+  - YDB_DATABASE (string)
+  
+  **Optional:**
+  - PORT (default 8080)
+  - LOG_LEVEL (default "info")
+  - APPROX_PRESELECT (1-5000, default 1000)
+  
+  **Loading:**
+  - Uses dotenv/config for .env file
+  - Exports constants for consumption
+end note
+
+note right of logger
+  **Configuration:**
+  - Level from LOG_LEVEL env var
+  - JSON structured logs (pino format)
+  
+  **Common Fields:**
+  - method, url, tenant
+  - status, ms (response time)
+  - err (error details when applicable)
+  
+  **Usage:**
+  - logger.info/warn/error/debug
+  - Middleware logs all requests/responses
+end note
+
+@enduml
