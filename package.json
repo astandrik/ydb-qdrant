@@ -10,7 +10,8 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "logo.svg"
   ],
   "scripts": {
     "test": "vitest run",
