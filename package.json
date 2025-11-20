@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "diagrams:svg": "cd schemas && plantuml -tsvg -o ../www/assets *.puml",
+    "diagrams:svg": "cd schemas && plantuml -tsvg -o ../../ydb-qdrant-ui/assets *.puml",
     "diagrams": "npm run diagrams:svg",
     "build": "npm run diagrams && tsc -p tsconfig.json",
     "dev": "tsx watch src/index.ts",
