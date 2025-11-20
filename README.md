@@ -197,6 +197,20 @@ Compatibility notes:
 
 For broader Qdrant API coverage, extend routes in `src/routes/*`.
 
+## Releasing & publishing (maintainers)
+
+- **Versioning**
+  - Use semantic versioning as described in the npm docs.
+  - From `ydb-qdrant/`, run `npm version patch|minor|major` to bump the version and create a git tag (for example, `ydb-qdrant-v0.2.0`).
+- **Manual publish**
+  - Ensure you are logged in to npm (`npm whoami`).
+  - From `ydb-qdrant/`, run:
+    - `npm publish`  
+    This will run tests and build via the `prepublishOnly` script before uploading the tarball.
+- **CI publish**
+  - GitHub Actions workflow `.github/workflows/publish-ydb-qdrant.yml` publishes on tags matching `ydb-qdrant-v*`.
+  - Configure the `NPM_TOKEN` secret in the repository; the workflow runs `npm ci`, `npm test`, `npm run build`, and `npm publish`.
+
 ## References
 - YDB docs (overview): https://ydb.tech/docs/en/
 - YDB vector indexes (vector_kmeans_tree): https://ydb.tech/docs/en/dev/vector-indexes

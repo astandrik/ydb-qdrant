@@ -1,7 +1,7 @@
 import { TypedValues, withSession } from "../ydb/client.js";
 import { buildJsonOrEmpty, buildVectorParam } from "../ydb/helpers.js";
 import type { VectorType, DistanceKind } from "../types";
-import { logger } from "../logging/logger";
+import { logger } from "../logging/logger.js";
 import { APPROX_PRESELECT } from "../config/env.js";
 import { notifyUpsert } from "../indexing/IndexScheduler.js";
 
