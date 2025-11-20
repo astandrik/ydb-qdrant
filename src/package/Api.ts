@@ -131,7 +131,7 @@ export async function createYdbQdrantClient(
     },
 
     forTenant(tenantId: string): YdbQdrantTenantClient {
-      const tenant = resolveTenant(tenantId);
+      const tenant = tenantId;
       return {
         createCollection(
           collection: string,
