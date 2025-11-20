@@ -1,9 +1,8 @@
 name: Publish ydb-qdrant to npm
 
 on:
-  push:
-    tags:
-      - "ydb-qdrant-v*"
+  release:
+    types: [created]
 
 jobs:
   publish:
@@ -12,6 +11,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
