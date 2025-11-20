@@ -13,7 +13,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "vitest",
+    "test": "vitest run",
     "build": "tsc -p tsconfig.json",
     "dev": "tsx watch src/index.ts",
     "start": "node --experimental-specifier-resolution=node --enable-source-maps dist/index.js",

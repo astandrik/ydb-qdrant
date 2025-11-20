@@ -17,6 +17,13 @@ Architecture diagrams: [docs page](http://ydb-qdrant.tech/docs/)
 - One of the supported auth methods (via environment)
 
 ## Install
+
+As a dependency in another project (npm package):
+```bash
+npm install ydb-qdrant
+```
+
+For local development of this repo:
 ```bash
 npm install
 ```
@@ -57,6 +64,54 @@ Optional env:
 export PORT=8080
 export LOG_LEVEL=info
 ```
+
+## Use as a Node.js library (npm package)
+
+The package entrypoint exports a programmatic API that mirrors the Qdrant HTTP semantics.
+
+- Import and initialize a client (reuses the same YDB env vars as the server):
+  ```ts
+  import { createYdbQdrantClient } from "ydb-qdrant";
+
+  async function main() {
+    // defaultTenant is optional; defaults to "default"
+    const client = await createYdbQdrantClient({ defaultTenant: "myapp" });
+
+    await client.createCollection("documents", {
+      vectors: {
+        size: 1536,
+        distance: "Cosine",
+        data_type: "float",
+      },
+    });
+
+    await client.upsertPoints("documents", {
+      points: [
+        { id: "doc-1", vector: [/* embedding */], payload: { title: "Doc 1" } },
+      ],
+    });
+
+    const result = await client.searchPoints("documents", {
+      vector: [/* query embedding */],
+      top: 10,
+      with_payload: true,
+    });
+
+    console.log(result.points);
+  }
+  ```
+
+- Multi-tenant usage with `forTenant`:
+  ```ts
+  const client = await createYdbQdrantClient();
+  const tenantClient = client.forTenant("tenant-a");
+
+  await tenantClient.upsertPoints("sessions", {
+    points: [{ id: "s1", vector: [/* ... */] }],
+  });
+  ```
+
+The request/response shapes follow the same schemas as the HTTP API (`CreateCollectionReq`, `UpsertPointsReq`, `SearchReq`, `DeletePointsReq`), so code written against the REST API can usually be translated directly to the library calls.
 
 ## Quick Start
 
