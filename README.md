@@ -1,15 +1,23 @@
-<img src="./logo.svg" alt="YDB Qdrant logo" height="56"> 
+<img src="https://ydb-qdrant.tech/logo.svg" alt="YDB Qdrant logo" height="56"> 
 
-# YDB Qdrant-compatible Service (Node.js)
+[![CI](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-ydb-qdrant.yml/badge.svg)](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-ydb-qdrant.yml)
+[![npm version](https://img.shields.io/npm/v/ydb-qdrant.svg)](https://www.npmjs.com/package/ydb-qdrant)
+[![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://opensource.org/licenses/ISC)
 
-Qdrant-compatible Node.js/TypeScript service exposing a minimal REST API that stores and searches vectors in YDB using single‑phase top‑k with an automatic YDB vector index (`vector_kmeans_tree`) and table‑scan fallback. Topics: ydb, vector-search, qdrant-compatible, nodejs, typescript, express, yql, ann, semantic-search, rag.
+# YDB Qdrant-compatible Service
+
+Qdrant-compatible Node.js/TypeScript **service and npm library** that stores and searches vectors in YDB using single‑phase top‑k with an automatic YDB vector index (`vector_kmeans_tree`) and table‑scan fallback. Topics: ydb, vector-search, qdrant-compatible, nodejs, typescript, express, yql, ann, semantic-search, rag.
+
+Modes:
+- **HTTP server**: Qdrant-compatible REST API (`/collections`, `/points/*`) on top of YDB.
+- **Node.js package**: programmatic client via `createYdbQdrantClient` for direct YDB-backed vector search without running a separate service.
 
 Promo site: [ydb-qdrant.tech](http://ydb-qdrant.tech)  
 Architecture diagrams: [docs page](http://ydb-qdrant.tech/docs/)
 
 ## How it works
 
-![Architecture diagram](./diagram.svg)
+![Architecture diagram](https://ydb-qdrant.tech/assets/diagram.svg)
 
 ## Requirements
 - Node.js 18+
@@ -17,6 +25,13 @@ Architecture diagrams: [docs page](http://ydb-qdrant.tech/docs/)
 - One of the supported auth methods (via environment)
 
 ## Install
+
+As a dependency in another project (npm package):
+```bash
+npm install ydb-qdrant
+```
+
+For local development of this repo:
 ```bash
 npm install
 ```
@@ -57,6 +72,54 @@ Optional env:
 export PORT=8080
 export LOG_LEVEL=info
 ```
+
+## Use as a Node.js library (npm package)
+
+The package entrypoint exports a programmatic API that mirrors the Qdrant HTTP semantics.
+
+- Import and initialize a client (reuses the same YDB env vars as the server):
+  ```ts
+  import { createYdbQdrantClient } from "ydb-qdrant";
+
+  async function main() {
+    // defaultTenant is optional; defaults to "default"
+    const client = await createYdbQdrantClient({ defaultTenant: "myapp" });
+
+    await client.createCollection("documents", {
+      vectors: {
+        size: 1536,
+        distance: "Cosine",
+        data_type: "float",
+      },
+    });
+
+    await client.upsertPoints("documents", {
+      points: [
+        { id: "doc-1", vector: [/* embedding */], payload: { title: "Doc 1" } },
+      ],
+    });
+
+    const result = await client.searchPoints("documents", {
+      vector: [/* query embedding */],
+      top: 10,
+      with_payload: true,
+    });
+
+    console.log(result.points);
+  }
+  ```
+
+- Multi-tenant usage with `forTenant`:
+  ```ts
+  const client = await createYdbQdrantClient();
+  const tenantClient = client.forTenant("tenant-a");
+
+  await tenantClient.upsertPoints("sessions", {
+    points: [{ id: "s1", vector: [/* ... */] }],
+  });
+  ```
+
+The request/response shapes follow the same schemas as the HTTP API (`CreateCollectionReq`, `UpsertPointsReq`, `SearchReq`, `DeletePointsReq`), so code written against the REST API can usually be translated directly to the library calls.
 
 ## Quick Start
 
@@ -196,6 +259,20 @@ Compatibility notes:
 - `PUT /collections/:collection/index` is a no-op (Qdrant compatibility; Roo Code calls this for payload indexes). The YDB vector index (`emb_idx`) is built automatically after ≥100 points are upserted + 5-second quiet window. Incremental updates (<100 points) skip rebuild.
 
 For broader Qdrant API coverage, extend routes in `src/routes/*`.
+
+## Releasing & publishing (maintainers)
+
+- **Versioning**
+  - Use semantic versioning as described in the npm docs.
+  - From `ydb-qdrant/`, run `npm version patch|minor|major` to bump the version and create a git tag (for example, `ydb-qdrant-v0.2.0`).
+- **Manual publish**
+  - Ensure you are logged in to npm (`npm whoami`).
+  - From `ydb-qdrant/`, run:
+    - `npm publish`  
+    This will run tests and build via the `prepublishOnly` script before uploading the tarball.
+- **CI publish**
+  - GitHub Actions workflow `.github/workflows/publish-ydb-qdrant.yml` publishes on tags matching `ydb-qdrant-v*`.
+  - Configure the `NPM_TOKEN` secret in the repository; the workflow runs `npm ci`, `npm test`, `npm run build`, and `npm publish`.
 
 ## References
 - YDB docs (overview): https://ydb.tech/docs/en/

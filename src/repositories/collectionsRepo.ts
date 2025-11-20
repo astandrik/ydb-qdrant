@@ -6,7 +6,6 @@ import {
   Column,
 } from "../ydb/client.js";
 import type { DistanceKind, VectorType } from "../types";
-import { withSession as _withSession } from "../ydb/client.js";
 
 export async function createCollection(
   metaKey: string,
@@ -67,7 +66,15 @@ export async function getCollectionMeta(metaKey: string): Promise<{
   });
   const rowset = res.resultSets?.[0];
   if (!rowset || rowset.rows?.length !== 1) return null;
-  const row = rowset.rows[0] as any;
+  const row = rowset.rows[0] as {
+    items?: Array<
+      | {
+          textValue?: string;
+          uint32Value?: number;
+        }
+      | undefined
+    >;
+  };
   const table = row.items?.[0]?.textValue as string;
   const dimension = Number(
     row.items?.[1]?.uint32Value ?? row.items?.[1]?.textValue
@@ -107,11 +114,20 @@ export async function buildVectorIndex(
   await withSession(async (s) => {
     // Drop existing index if present
     const dropDdl = `ALTER TABLE ${tableName} DROP INDEX emb_idx;`;
+    const rawSession = s as unknown as {
+      sessionId: string;
+      api: {
+        executeSchemeQuery: (req: {
+          sessionId: string;
+          yqlText: string;
+        }) => Promise<unknown>;
+      };
+    };
     try {
-      const dropReq = { sessionId: (s as any).sessionId, yqlText: dropDdl };
-      await (s as any).api.executeSchemeQuery(dropReq);
-    } catch (e: any) {
-      const msg = String(e?.message ?? e);
+      const dropReq = { sessionId: rawSession.sessionId, yqlText: dropDdl };
+      await rawSession.api.executeSchemeQuery(dropReq);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
       // ignore if index doesn't exist
       if (!/not found|does not exist|no such index/i.test(msg)) {
         throw e;
@@ -135,8 +151,8 @@ export async function buildVectorIndex(
         levels=${levels}
       );
     `;
-    const createReq = { sessionId: (s as any).sessionId, yqlText: createDdl };
-    await (s as any).api.executeSchemeQuery(createReq);
+    const createReq = { sessionId: rawSession.sessionId, yqlText: createDdl };
+    await rawSession.api.executeSchemeQuery(createReq);
   });
 }
 

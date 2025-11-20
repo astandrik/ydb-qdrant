@@ -1,9 +1,11 @@
 import { TypedValues, withSession } from "../ydb/client.js";
+import type { Ydb } from "ydb-sdk";
 import { buildJsonOrEmpty, buildVectorParam } from "../ydb/helpers.js";
 import type { VectorType, DistanceKind } from "../types";
-import { logger } from "../logging/logger";
-import { APPROX_PRESELECT } from "../config/env.js";
+import { logger } from "../logging/logger.js";
 import { notifyUpsert } from "../indexing/IndexScheduler.js";
+
+type QueryParams = { [key: string]: Ydb.ITypedValue };
 
 export async function upsertPoints(
   tableName: string,
@@ -37,22 +39,21 @@ export async function upsertPoints(
           $payload
         );
       `;
-      const params = {
+      const params: QueryParams = {
         $id: TypedValues.utf8(id),
         $vec: buildVectorParam(p.vector, vectorType),
         $payload: buildJsonOrEmpty(p.payload),
-      } as const;
+      };
 
       // Retry on transient schema/metadata mismatches during index rebuild
       const maxRetries = 6; // ~ up to ~ (0.25 + jitter) * 2^5 ≈ few seconds
       let attempt = 0;
-      // eslint-disable-next-line no-constant-condition
       while (true) {
         try {
-          await s.executeQuery(ddl, params as any);
+          await s.executeQuery(ddl, params);
           break;
-        } catch (e: any) {
-          const msg = String(e?.message ?? e);
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
           const isTransient =
             /Aborted|schema version mismatch|Table metadata loading|Failed to load metadata/i.test(
               msg
@@ -100,13 +101,11 @@ export async function searchPoints(
   }
   const { fn, order } = mapDistanceToKnnFn(distance);
   // Single-phase search over embedding using vector index if present
-  const preselect = Math.min(APPROX_PRESELECT, Math.max(top * 10, top));
-
   const qf = buildVectorParam(queryVector, vectorType);
-  const params = {
+  const params: QueryParams = {
     $qf: qf,
     $k2: TypedValues.uint32(top),
-  } as any;
+  };
 
   const buildQuery = (useIndex: boolean) => `
     DECLARE $qf AS List<${vectorType === "uint8" ? "Uint8" : "Float"}>;
@@ -129,11 +128,13 @@ export async function searchPoints(
       return await s.executeQuery(buildQuery(true), params);
     });
     logger.info({ tableName }, "vector index found; using index for search");
-  } catch (e: any) {
-    const msg = String(e?.message ?? e);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
     // Fallback to table scan if index not found or not ready
     if (
-      /not found|does not exist|no such index|no global index|is not ready to use/i.test(msg)
+      /not found|does not exist|no such index|no global index|is not ready to use/i.test(
+        msg
+      )
     ) {
       logger.info(
         { tableName },
@@ -147,13 +148,24 @@ export async function searchPoints(
     }
   }
   const rowset = rs.resultSets?.[0];
-  const rows = (rowset?.rows ?? []) as any[];
+  const rows = (rowset?.rows ?? []) as Array<{
+    items?: Array<
+      | {
+          textValue?: string;
+          floatValue?: number;
+        }
+      | undefined
+    >;
+  }>;
   return rows.map((row) => {
-    const id = row.items?.[0]?.textValue as string;
+    const id = row.items?.[0]?.textValue;
+    if (typeof id !== "string") {
+      throw new Error("point_id is missing in YDB search result");
+    }
     let payload: Record<string, unknown> | undefined;
     let scoreIdx = 1;
     if (withPayload) {
-      const payloadText = row.items?.[1]?.textValue as string | undefined;
+      const payloadText = row.items?.[1]?.textValue;
       if (payloadText) {
         try {
           payload = JSON.parse(payloadText) as Record<string, unknown>;
@@ -181,7 +193,10 @@ export async function deletePoints(
         DECLARE $id AS Utf8;
         DELETE FROM ${tableName} WHERE point_id = $id;
       `;
-      await s.executeQuery(yql, { $id: TypedValues.utf8(String(id)) } as any);
+      const params: QueryParams = {
+        $id: TypedValues.utf8(String(id)),
+      };
+      await s.executeQuery(yql, params);
       deleted += 1;
     }
   });
