@@ -2,7 +2,7 @@ name: Publish ydb-qdrant to npm
 
 on:
   release:
-    types: [created]
+    types: [published]
 
 jobs:
   publish:
