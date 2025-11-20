@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 1.0.0 (2025-11-20)
+
+
+### Features
+
+* add link to promo ([87fb655](https://github.com/astandrik/ydb-qdrant/commit/87fb6558309b10e081a93badb76e4e9fcdc6a58a))
+* add vector index ([1713bfd](https://github.com/astandrik/ydb-qdrant/commit/1713bfdeed4facf958e6cab44607e1434437db64))
+* ydb-qdrant as package ([#10](https://github.com/astandrik/ydb-qdrant/issues/10)) ([2ae5b51](https://github.com/astandrik/ydb-qdrant/commit/2ae5b51345d931f6c9245ef0781ca4bac4615067))
+
+
+### Bug Fixes
+
+* async logging ([16727a8](https://github.com/astandrik/ydb-qdrant/commit/16727a86d4c620113090819052309d02469ed233))
+* build ([947f1b9](https://github.com/astandrik/ydb-qdrant/commit/947f1b94d772c0f758ec0da3ac264697292da792))
+* index detection fix ([60224b9](https://github.com/astandrik/ydb-qdrant/commit/60224b9015d2c14025a3c96b6f17d4906492828b))
+* more precise readme ([9950a5f](https://github.com/astandrik/ydb-qdrant/commit/9950a5f2593358d1e3ca4a79bbeb90a2fc9aeacd))
+* u8 ([be4128d](https://github.com/astandrik/ydb-qdrant/commit/be4128dde56473698f6ec941d71fe2728fad2cb2))
+
 ## [0.1.0] - 2025-10-27
 
 ### Added
@@ -53,4 +71,3 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `src/indexing/IndexScheduler.ts` - threshold logic, point counting
 - `README.md` - documentation updates
 - `AGENTS.md` - documentation updates
-
