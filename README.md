@@ -1,8 +1,16 @@
 <img src="https://ydb-qdrant.tech/logo.svg" alt="YDB Qdrant logo" height="56"> 
 
+[![CI](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-ydb-qdrant.yml/badge.svg)](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-ydb-qdrant.yml)
+[![npm version](https://img.shields.io/npm/v/ydb-qdrant.svg)](https://www.npmjs.com/package/ydb-qdrant)
+[![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://opensource.org/licenses/ISC)
+
 # YDB Qdrant-compatible Service
 
-Qdrant-compatible Node.js/TypeScript service exposing a minimal REST API that stores and searches vectors in YDB using single‑phase top‑k with an automatic YDB vector index (`vector_kmeans_tree`) and table‑scan fallback. Topics: ydb, vector-search, qdrant-compatible, nodejs, typescript, express, yql, ann, semantic-search, rag.
+Qdrant-compatible Node.js/TypeScript **service and npm library** that stores and searches vectors in YDB using single‑phase top‑k with an automatic YDB vector index (`vector_kmeans_tree`) and table‑scan fallback. Topics: ydb, vector-search, qdrant-compatible, nodejs, typescript, express, yql, ann, semantic-search, rag.
+
+Modes:
+- **HTTP server**: Qdrant-compatible REST API (`/collections`, `/points/*`) on top of YDB.
+- **Node.js package**: programmatic client via `createYdbQdrantClient` for direct YDB-backed vector search without running a separate service.
 
 Promo site: [ydb-qdrant.tech](http://ydb-qdrant.tech)  
 Architecture diagrams: [docs page](http://ydb-qdrant.tech/docs/)

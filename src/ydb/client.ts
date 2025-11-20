@@ -1,10 +1,8 @@
-import type { Session } from "ydb-sdk";
+import type { Session, IAuthService } from "ydb-sdk";
 import { createRequire } from "module";
 import { YDB_DATABASE, YDB_ENDPOINT } from "../config/env.js";
-import { logger } from "../logging/logger.js";
 
 const require = createRequire(import.meta.url);
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 const {
   Driver,
   getCredentialsFromEnv,
@@ -12,18 +10,52 @@ const {
   TypedValues,
   TableDescription,
   Column,
-} = require("ydb-sdk");
+} = require("ydb-sdk") as typeof import("ydb-sdk");
 
 export { Types, TypedValues, TableDescription, Column };
 
-export const driver = new (Driver as new (args: any) => any)({
-  endpoint: YDB_ENDPOINT,
-  database: YDB_DATABASE,
-  authService: getCredentialsFromEnv(),
-});
+type DriverConfig = {
+  endpoint?: string;
+  database?: string;
+  connectionString?: string;
+  authService?: IAuthService;
+};
+
+let overrideConfig: DriverConfig | undefined;
+let driver: InstanceType<typeof Driver> | undefined;
+
+export function configureDriver(config: DriverConfig): void {
+  if (driver) {
+    // Driver already created; keep existing connection settings.
+    return;
+  }
+  overrideConfig = config;
+}
+
+function getOrCreateDriver(): InstanceType<typeof Driver> {
+  if (driver) {
+    return driver;
+  }
+
+  const base =
+    overrideConfig?.connectionString != null
+      ? { connectionString: overrideConfig.connectionString }
+      : {
+          endpoint: overrideConfig?.endpoint ?? YDB_ENDPOINT,
+          database: overrideConfig?.database ?? YDB_DATABASE,
+        };
+
+  driver = new Driver({
+    ...base,
+    authService: overrideConfig?.authService ?? getCredentialsFromEnv(),
+  });
+
+  return driver;
+}
 
 export async function readyOrThrow(): Promise<void> {
-  const ok = await driver.ready(10000);
+  const d = getOrCreateDriver();
+  const ok = await d.ready(10000);
   if (!ok) {
     throw new Error(
       "YDB driver is not ready in 10s. Check connectivity and credentials."
@@ -34,5 +66,6 @@ export async function readyOrThrow(): Promise<void> {
 export async function withSession<T>(
   fn: (s: Session) => Promise<T>
 ): Promise<T> {
-  return await driver.tableClient.withSession(fn as any, 15000);
+  const d = getOrCreateDriver();
+  return await d.tableClient.withSession(fn, 15000);
 }

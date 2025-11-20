@@ -20,14 +20,13 @@ collectionsRouter.put(
         collection: String(req.params.collection),
       });
       res.json({ status: "ok", result });
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (err instanceof QdrantServiceError) {
         return res.status(err.statusCode).json(err.payload);
       }
       logger.error({ err }, "build index failed");
-      res
-        .status(500)
-        .json({ status: "error", error: String(err?.message ?? err) });
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ status: "error", error: errorMessage });
     }
   }
 );
@@ -38,14 +37,13 @@ collectionsRouter.put("/:collection", async (req: Request, res: Response) => {
     const collection = sanitizeCollectionName(String(req.params.collection));
     const result = await createCollection({ tenant, collection }, req.body);
     res.json({ status: "ok", result });
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (err instanceof QdrantServiceError) {
       return res.status(err.statusCode).json(err.payload);
     }
     logger.error({ err }, "create collection failed");
-    res
-      .status(500)
-      .json({ status: "error", error: String(err?.message ?? err) });
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ status: "error", error: errorMessage });
   }
 });
 
@@ -55,14 +53,13 @@ collectionsRouter.get("/:collection", async (req: Request, res: Response) => {
     const collection = sanitizeCollectionName(String(req.params.collection));
     const result = await getCollection({ tenant, collection });
     res.json({ status: "ok", result });
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (err instanceof QdrantServiceError) {
       return res.status(err.statusCode).json(err.payload);
     }
     logger.error({ err }, "get collection failed");
-    res
-      .status(500)
-      .json({ status: "error", error: String(err?.message ?? err) });
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ status: "error", error: errorMessage });
   }
 });
 
@@ -74,14 +71,13 @@ collectionsRouter.delete(
       const collection = sanitizeCollectionName(String(req.params.collection));
       const result = await deleteCollection({ tenant, collection });
       res.json({ status: "ok", result });
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (err instanceof QdrantServiceError) {
         return res.status(err.statusCode).json(err.payload);
       }
       logger.error({ err }, "delete collection failed");
-      res
-        .status(500)
-        .json({ status: "error", error: String(err?.message ?? err) });
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ status: "error", error: errorMessage });
     }
   }
 );

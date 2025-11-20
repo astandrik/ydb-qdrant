@@ -82,7 +82,7 @@ export function requestIndexBuild(
     void buildVectorIndex(tableName, dimension, distance, vectorType)
       .then(() => {
         logger.info({ tableName }, "index build (scheduled) completed");
-        state[tableName]!.pointsUpserted = 0;
+        state[tableName].pointsUpserted = 0;
       })
       .catch((err: unknown) =>
         logger.error({ err, tableName }, "index build (scheduled) failed")

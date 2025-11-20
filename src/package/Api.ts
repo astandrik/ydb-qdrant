@@ -1,7 +1,7 @@
-import { readyOrThrow } from "./ydb/client.js";
-import { ensureMetaTable } from "./ydb/schema.js";
+import { readyOrThrow, configureDriver } from "../ydb/client.js";
+import type { IAuthService } from "ydb-sdk";
+import { ensureMetaTable } from "../ydb/schema.js";
 import {
-  QdrantServiceError,
   createCollection as serviceCreateCollection,
   deleteCollection as serviceDeleteCollection,
   getCollection as serviceGetCollection,
@@ -9,15 +9,15 @@ import {
   upsertPoints as serviceUpsertPoints,
   searchPoints as serviceSearchPoints,
   deletePoints as serviceDeletePoints,
-} from "./services/QdrantService.js";
+} from "../services/QdrantService.js";
 
-export { QdrantServiceError } from "./services/QdrantService.js";
+export { QdrantServiceError } from "../services/QdrantService.js";
 export {
   CreateCollectionReq,
   UpsertPointsReq,
   SearchReq,
   DeletePointsReq,
-} from "./types.js";
+} from "../types.js";
 
 type CreateCollectionResult = Awaited<
   ReturnType<typeof serviceCreateCollection>
@@ -33,6 +33,10 @@ type DeletePointsResult = Awaited<ReturnType<typeof serviceDeletePoints>>;
 
 export interface YdbQdrantClientOptions {
   defaultTenant?: string;
+  endpoint?: string;
+  database?: string;
+  connectionString?: string;
+  authService?: IAuthService;
 }
 
 export interface YdbQdrantTenantClient {
@@ -43,18 +47,9 @@ export interface YdbQdrantTenantClient {
   getCollection(collection: string): Promise<GetCollectionResult>;
   deleteCollection(collection: string): Promise<DeleteCollectionResult>;
   putCollectionIndex(collection: string): Promise<PutIndexResult>;
-  upsertPoints(
-    collection: string,
-    body: unknown
-  ): Promise<UpsertPointsResult>;
-  searchPoints(
-    collection: string,
-    body: unknown
-  ): Promise<SearchPointsResult>;
-  deletePoints(
-    collection: string,
-    body: unknown
-  ): Promise<DeletePointsResult>;
+  upsertPoints(collection: string, body: unknown): Promise<UpsertPointsResult>;
+  searchPoints(collection: string, body: unknown): Promise<SearchPointsResult>;
+  deletePoints(collection: string, body: unknown): Promise<DeletePointsResult>;
 }
 
 export interface YdbQdrantClient extends YdbQdrantTenantClient {
@@ -64,13 +59,26 @@ export interface YdbQdrantClient extends YdbQdrantTenantClient {
 export async function createYdbQdrantClient(
   options: YdbQdrantClientOptions = {}
 ): Promise<YdbQdrantClient> {
+  if (
+    options.endpoint !== undefined ||
+    options.database !== undefined ||
+    options.connectionString !== undefined ||
+    options.authService !== undefined
+  ) {
+    configureDriver({
+      endpoint: options.endpoint,
+      database: options.database,
+      connectionString: options.connectionString,
+      authService: options.authService,
+    });
+  }
+
   await readyOrThrow();
   await ensureMetaTable();
 
   const defaultTenant = options.defaultTenant ?? "default";
 
-  const resolveTenant = (tenant?: string): string =>
-    tenant ?? defaultTenant;
+  const resolveTenant = (tenant?: string): string => tenant ?? defaultTenant;
 
   const client: YdbQdrantClient = {
     async createCollection(
@@ -93,9 +101,7 @@ export async function createYdbQdrantClient(
       return await serviceDeleteCollection({ tenant, collection });
     },
 
-    async putCollectionIndex(
-      collection: string
-    ): Promise<PutIndexResult> {
+    async putCollectionIndex(collection: string): Promise<PutIndexResult> {
       const tenant = resolveTenant(undefined);
       return await servicePutCollectionIndex({ tenant, collection });
     },
@@ -138,15 +144,11 @@ export async function createYdbQdrantClient(
           return serviceGetCollection({ tenant, collection });
         },
 
-        deleteCollection(
-          collection: string
-        ): Promise<DeleteCollectionResult> {
+        deleteCollection(collection: string): Promise<DeleteCollectionResult> {
           return serviceDeleteCollection({ tenant, collection });
         },
 
-        putCollectionIndex(
-          collection: string
-        ): Promise<PutIndexResult> {
+        putCollectionIndex(collection: string): Promise<PutIndexResult> {
           return servicePutCollectionIndex({ tenant, collection });
         },
 
@@ -176,5 +178,3 @@ export async function createYdbQdrantClient(
 
   return client;
 }
-
-

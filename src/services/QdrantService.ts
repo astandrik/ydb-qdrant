@@ -34,7 +34,11 @@ export class QdrantServiceError extends Error {
   readonly statusCode: number;
   readonly payload: QdrantServiceErrorPayload;
 
-  constructor(statusCode: number, payload: QdrantServiceErrorPayload, message?: string) {
+  constructor(
+    statusCode: number,
+    payload: QdrantServiceErrorPayload,
+    message?: string
+  ) {
     super(message ?? String(payload.error));
     this.statusCode = statusCode;
     this.payload = payload;
@@ -52,7 +56,9 @@ interface NormalizedCollectionContext {
   metaKey: string;
 }
 
-function normalizeCollectionContext(input: CollectionContextInput): NormalizedCollectionContext {
+function normalizeCollectionContext(
+  input: CollectionContextInput
+): NormalizedCollectionContext {
   const tenant = sanitizeTenantId(input.tenant);
   const collection = sanitizeCollectionName(input.collection);
   const metaKey = metaKeyFor(tenant, collection);
@@ -120,9 +126,7 @@ export async function createCollection(
   return { name: normalized.collection, tenant: normalized.tenant };
 }
 
-export async function getCollection(
-  ctx: CollectionContextInput
-): Promise<{
+export async function getCollection(ctx: CollectionContextInput): Promise<{
   name: string;
   vectors: { size: number; distance: DistanceKind; data_type: string };
 }> {
@@ -154,7 +158,7 @@ export async function deleteCollection(
   return { acknowledged: true };
 }
 
-interface PointsContextInput extends CollectionContextInput {}
+type PointsContextInput = CollectionContextInput;
 
 interface SearchNormalizationResult {
   vector: number[] | undefined;
@@ -178,9 +182,9 @@ function extractVectorLoose(body: unknown, depth = 0): number[] | undefined {
 
   const query = obj.query as Record<string, unknown> | undefined;
   if (query) {
-    const queryVector = (query as any).vector;
+    const queryVector = query["vector"];
     if (isNumberArray(queryVector)) return queryVector;
-    const nearest = (query as any).nearest as Record<string, unknown> | undefined;
+    const nearest = query["nearest"] as Record<string, unknown> | undefined;
     if (nearest && isNumberArray(nearest.vector)) {
       return nearest.vector;
     }
@@ -211,44 +215,81 @@ function extractVectorLoose(body: unknown, depth = 0): number[] | undefined {
   return undefined;
 }
 
-function normalizeSearchBodyForSearch(body: unknown): SearchNormalizationResult {
-  const b = body as any;
-  const vector = Array.isArray(b?.vector) ? b.vector : undefined;
-  const topFromTop = typeof b?.top === "number" ? b.top : undefined;
-  const topFromLimit = typeof b?.limit === "number" ? b.limit : undefined;
+function normalizeSearchBodyForSearch(
+  body: unknown
+): SearchNormalizationResult {
+  if (!body || typeof body !== "object") {
+    return {
+      vector: undefined,
+      top: undefined,
+      withPayload: undefined,
+      scoreThreshold: undefined,
+    };
+  }
+  const b = body as Record<string, unknown>;
+  const rawVector = b["vector"];
+  const vector = isNumberArray(rawVector) ? rawVector : undefined;
+  const rawTop = b["top"];
+  const rawLimit = b["limit"];
+  const topFromTop = typeof rawTop === "number" ? rawTop : undefined;
+  const topFromLimit = typeof rawLimit === "number" ? rawLimit : undefined;
   const top = topFromTop ?? topFromLimit;
 
   let withPayload: boolean | undefined;
-  const rawWithPayload = b?.with_payload;
+  const rawWithPayload = b["with_payload"];
   if (typeof rawWithPayload === "boolean") {
     withPayload = rawWithPayload;
-  } else if (Array.isArray(rawWithPayload) || typeof rawWithPayload === "object") {
+  } else if (
+    Array.isArray(rawWithPayload) ||
+    typeof rawWithPayload === "object"
+  ) {
     withPayload = true;
   }
 
-  const thresholdValue = Number(b?.score_threshold);
-  const scoreThreshold = Number.isFinite(thresholdValue) ? thresholdValue : undefined;
+  const thresholdRaw = b["score_threshold"];
+  const thresholdValue =
+    typeof thresholdRaw === "number" ? thresholdRaw : Number(thresholdRaw);
+  const scoreThreshold = Number.isFinite(thresholdValue)
+    ? thresholdValue
+    : undefined;
 
   return { vector, top, withPayload, scoreThreshold };
 }
 
 function normalizeSearchBodyForQuery(body: unknown): SearchNormalizationResult {
-  const b = body as any;
+  if (!body || typeof body !== "object") {
+    return {
+      vector: undefined,
+      top: undefined,
+      withPayload: undefined,
+      scoreThreshold: undefined,
+    };
+  }
+  const b = body as Record<string, unknown>;
   const vector = extractVectorLoose(b);
-  const topFromTop = typeof b?.top === "number" ? b.top : undefined;
-  const topFromLimit = typeof b?.limit === "number" ? b.limit : undefined;
+  const rawTop = b["top"];
+  const rawLimit = b["limit"];
+  const topFromTop = typeof rawTop === "number" ? rawTop : undefined;
+  const topFromLimit = typeof rawLimit === "number" ? rawLimit : undefined;
   const top = topFromTop ?? topFromLimit;
 
   let withPayload: boolean | undefined;
-  const rawWithPayload = b?.with_payload;
+  const rawWithPayload = b["with_payload"];
   if (typeof rawWithPayload === "boolean") {
     withPayload = rawWithPayload;
-  } else if (Array.isArray(rawWithPayload) || typeof rawWithPayload === "object") {
+  } else if (
+    Array.isArray(rawWithPayload) ||
+    typeof rawWithPayload === "object"
+  ) {
     withPayload = true;
   }
 
-  const thresholdValue = Number(b?.score_threshold);
-  const scoreThreshold = Number.isFinite(thresholdValue) ? thresholdValue : undefined;
+  const thresholdRaw = b["score_threshold"];
+  const thresholdValue =
+    typeof thresholdRaw === "number" ? thresholdRaw : Number(thresholdRaw);
+  const scoreThreshold = Number.isFinite(thresholdValue)
+    ? thresholdValue
+    : undefined;
 
   return { vector, top, withPayload, scoreThreshold };
 }
@@ -282,12 +323,7 @@ export async function upsertPoints(
     meta.dimension
   );
 
-  requestIndexBuild(
-    meta.table,
-    meta.dimension,
-    meta.distance,
-    meta.vectorType
-  );
+  requestIndexBuild(meta.table, meta.dimension, meta.distance, meta.vectorType);
 
   return { upserted };
 }
@@ -296,7 +332,13 @@ async function executeSearch(
   ctx: PointsContextInput,
   normalizedSearch: SearchNormalizationResult,
   source: "search" | "query"
-): Promise<{ points: Array<{ id: string; score: number; payload?: Record<string, unknown> }> }> {
+): Promise<{
+  points: Array<{
+    id: string;
+    score: number;
+    payload?: Record<string, unknown>;
+  }>;
+}> {
   await ensureMetaTable();
   const normalized = normalizeCollectionContext(ctx);
 
@@ -308,7 +350,11 @@ async function executeSearch(
   const meta = await getCollectionMeta(normalized.metaKey);
   if (!meta) {
     logger.warn(
-      { tenant: normalized.tenant, collection: normalized.collection, metaKey: normalized.metaKey },
+      {
+        tenant: normalized.tenant,
+        collection: normalized.collection,
+        metaKey: normalized.metaKey,
+      },
       `${source}: collection not found`
     );
     throw new QdrantServiceError(404, {
@@ -375,7 +421,11 @@ async function executeSearch(
         });
 
   logger.info(
-    { tenant: normalized.tenant, collection: normalized.collection, hits: hits.length },
+    {
+      tenant: normalized.tenant,
+      collection: normalized.collection,
+      hits: hits.length,
+    },
     `${source}: completed`
   );
 
@@ -385,7 +435,13 @@ async function executeSearch(
 export async function searchPoints(
   ctx: PointsContextInput,
   body: unknown
-): Promise<{ points: Array<{ id: string; score: number; payload?: Record<string, unknown> }> }> {
+): Promise<{
+  points: Array<{
+    id: string;
+    score: number;
+    payload?: Record<string, unknown>;
+  }>;
+}> {
   const normalizedSearch = normalizeSearchBodyForSearch(body);
   return await executeSearch(ctx, normalizedSearch, "search");
 }
@@ -393,7 +449,13 @@ export async function searchPoints(
 export async function queryPoints(
   ctx: PointsContextInput,
   body: unknown
-): Promise<{ points: Array<{ id: string; score: number; payload?: Record<string, unknown> }> }> {
+): Promise<{
+  points: Array<{
+    id: string;
+    score: number;
+    payload?: Record<string, unknown>;
+  }>;
+}> {
   const normalizedSearch = normalizeSearchBodyForQuery(body);
   return await executeSearch(ctx, normalizedSearch, "query");
 }
@@ -423,5 +485,3 @@ export async function deletePoints(
   const deleted = await repoDeletePoints(meta.table, parsed.data.points);
   return { deleted };
 }
-
-

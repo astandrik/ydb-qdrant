@@ -21,14 +21,13 @@ pointsRouter.put("/:collection/points", async (req: Request, res: Response) => {
       req.body
     );
     res.json({ status: "ok", result });
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (err instanceof QdrantServiceError) {
       return res.status(err.statusCode).json(err.payload);
     }
     logger.error({ err }, "upsert points (PUT) failed");
-    res
-      .status(500)
-      .json({ status: "error", error: String(err?.message ?? err) });
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ status: "error", error: errorMessage });
   }
 });
 
@@ -44,14 +43,13 @@ pointsRouter.post(
         req.body
       );
       res.json({ status: "ok", result });
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (err instanceof QdrantServiceError) {
         return res.status(err.statusCode).json(err.payload);
       }
       logger.error({ err }, "upsert points failed");
-      res
-        .status(500)
-        .json({ status: "error", error: String(err?.message ?? err) });
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ status: "error", error: errorMessage });
     }
   }
 );
@@ -68,14 +66,13 @@ pointsRouter.post(
         req.body
       );
       res.json({ status: "ok", result });
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (err instanceof QdrantServiceError) {
         return res.status(err.statusCode).json(err.payload);
       }
       logger.error({ err }, "search points failed");
-      res
-        .status(500)
-        .json({ status: "error", error: String(err?.message ?? err) });
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ status: "error", error: errorMessage });
     }
   }
 );
@@ -93,14 +90,13 @@ pointsRouter.post(
         req.body
       );
       res.json({ status: "ok", result });
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (err instanceof QdrantServiceError) {
         return res.status(err.statusCode).json(err.payload);
       }
       logger.error({ err }, "search points (query) failed");
-      res
-        .status(500)
-        .json({ status: "error", error: String(err?.message ?? err) });
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ status: "error", error: errorMessage });
     }
   }
 );
@@ -117,14 +113,13 @@ pointsRouter.post(
         req.body
       );
       res.json({ status: "ok", result });
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (err instanceof QdrantServiceError) {
         return res.status(err.statusCode).json(err.payload);
       }
       logger.error({ err }, "delete points failed");
-      res
-        .status(500)
-        .json({ status: "error", error: String(err?.message ?? err) });
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ status: "error", error: errorMessage });
     }
   }
 );

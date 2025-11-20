@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { createYdbQdrantClient } from "./Api.js";
+import { createYdbQdrantClient } from "./package/Api.js";
 
 async function main(): Promise<void> {
   const tenant = process.env.SMOKE_TENANT ?? "smoke";
@@ -36,12 +36,10 @@ async function main(): Promise<void> {
     with_payload: true,
   });
 
-  // eslint-disable-next-line no-console
   console.log(JSON.stringify(result, null, 2));
 }
 
 void main().catch((err) => {
-  // eslint-disable-next-line no-console
   console.error(err);
   process.exitCode = 1;
 });

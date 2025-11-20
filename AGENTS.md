@@ -1,5 +1,7 @@
 ## Purpose
-A small Node.js service that exposes a minimal Qdrant‑compatible REST API and stores/searches vectors in YDB. Intended as a drop‑in base URL for tools expecting Qdrant (e.g., Roo Code) while persisting to a remote YDB instance.
+A small Node.js service and npm library that exposes a minimal Qdrant‑compatible REST API and stores/searches vectors in YDB. Intended as either:
+- A drop‑in Qdrant base URL for tools expecting Qdrant (e.g., Roo Code) while persisting to a remote YDB instance.
+- A programmatic client that can be imported directly from Node.js code without running a separate HTTP service.
 
 ## Quick facts
 - **Base URLs**:
@@ -79,6 +81,10 @@ Notes
 - `routes/points.ts` — Express router for points endpoints; calls `requestIndexBuild()` after upserts.
 - `server.ts` — builds Express app, mounts routes, health endpoint.
 - `index.ts` — bootstrap: ready check, ensure metadata table, start server.
+- `services/QdrantService.ts` — shared service layer wrapping repositories and request normalization; used by both HTTP routes and the programmatic API.
+- `Api.ts` — public programmatic API (`createYdbQdrantClient`, tenant‑scoped helpers) exposing Qdrant‑like operations directly to Node.js callers.
+- `SmokeTest.ts` — minimal example/smoke test using the programmatic API to create a collection, upsert points, and run a search.
+- `test/Api.test.ts`, `test/QdrantService.test.ts` — Vitest unit tests for the service layer and programmatic API (repositories and YDB mocked).
 
 ## Conventions & constraints
 - Tenancy via `X-Tenant-Id`; table names: `qdr_<tenant>__<collection>`.
@@ -123,6 +129,25 @@ Collection created automatically on first use.
 - Use `withSession(fn, 15000)` for queries and declare parameters in YQL with `DECLARE`.
 - Prefer repository layer for YDB access; routes should remain thin.
 - Keep edits behavior‑preserving; avoid changing endpoint contracts without approval.
+- The npm package entrypoint is the programmatic API (`dist/Api.js`); HTTP server entry (`dist/server.js` and `dist/index.js`) must remain stable so that `npm start` and existing deployments continue to work.
+- Programmatic API consumers are expected to use `createYdbQdrantClient(options?)` and optional `client.forTenant(tenantId)`; keep these names and shapes stable unless doing a major version bump.
+
+## Programmatic npm package
+
+- Package name: `ydb-qdrant`.
+- Default entry: programmatic API (`createYdbQdrantClient`) that:
+  - Reuses the same YDB env configuration as the server (`YDB_ENDPOINT`, `YDB_DATABASE`, `YDB_*_CREDENTIALS`).
+  - Exposes Qdrant‑like methods: `createCollection`, `getCollection`, `deleteCollection`, `upsertPoints`, `searchPoints`, `deletePoints`.
+  - Supports multi‑tenant usage via `defaultTenant` option and `forTenant(tenantId)`.
+- HTTP routes now delegate to `QdrantService`, so the same logic is used by both HTTP and programmatic paths.
+
+## CI and release
+
+- CI:
+  - Workflow `ci-ydb-qdrant.yml` runs `npm ci`, `npm run lint`, `npm test`, and `npm run build` on pushes and pull requests targeting `main`.
+- Release:
+  - Workflow `publish-ydb-qdrant.yml` runs on tags matching `ydb-qdrant-v*` and publishes the package to npm with `npm publish` (using `NPM_TOKEN`).
+  - `prepublishOnly` script in `package.json` enforces `npm test` and `npm run build` before any manual `npm publish`.
 
 ## References
 - YDB docs (overview): https://ydb.tech/docs/en/

@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 
 vi.mock("../src/ydb/client.js", () => ({
   readyOrThrow: vi.fn().mockResolvedValue(undefined),
+  configureDriver: vi.fn(),
 }));
 
 vi.mock("../src/ydb/schema.js", () => ({
@@ -20,7 +21,9 @@ vi.mock("../src/logging/logger.js", () => ({
 vi.mock("../src/services/QdrantService.js", () => {
   return {
     QdrantServiceError: class QdrantServiceError extends Error {},
-    createCollection: vi.fn().mockResolvedValue({ name: "col", tenant: "tenant_default" }),
+    createCollection: vi
+      .fn()
+      .mockResolvedValue({ name: "col", tenant: "tenant_default" }),
     getCollection: vi.fn().mockResolvedValue({
       name: "col",
       vectors: { size: 4, distance: "Cosine", data_type: "float" },
@@ -34,7 +37,7 @@ vi.mock("../src/services/QdrantService.js", () => {
 });
 
 import * as service from "../src/services/QdrantService.js";
-import { createYdbQdrantClient } from "../src/Api.js";
+import { createYdbQdrantClient } from "../src/package/Api.js";
 
 describe("YdbQdrantClient (programmatic API, mocked YDB)", () => {
   it("uses default tenant when none specified", async () => {
@@ -68,5 +71,3 @@ describe("YdbQdrantClient (programmatic API, mocked YDB)", () => {
     );
   });
 });
-
-
