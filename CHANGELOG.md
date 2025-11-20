@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.1.2](https://github.com/astandrik/ydb-qdrant/compare/v2.1.1...v2.1.2) (2025-11-20)
+
+
+### Bug Fixes
+
+* release ([#15](https://github.com/astandrik/ydb-qdrant/issues/15)) ([12f4b05](https://github.com/astandrik/ydb-qdrant/commit/12f4b05ec1c51c3427f262286187fb1537f67efd))
+
 ## [0.1.0] - 2025-10-27
 
 ### Added
@@ -53,4 +60,3 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `src/indexing/IndexScheduler.ts` - threshold logic, point counting
 - `README.md` - documentation updates
 - `AGENTS.md` - documentation updates
-
