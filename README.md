@@ -83,7 +83,11 @@ The package entrypoint exports a programmatic API that mirrors the Qdrant HTTP s
 
   async function main() {
     // defaultTenant is optional; defaults to "default"
-    const client = await createYdbQdrantClient({ defaultTenant: "myapp" });
+    const client = await createYdbQdrantClient({
+      defaultTenant: "myapp",
+      endpoint: "grpcs://lb.etn01g9tcilcon2mrt3h.ydb.mdb.yandexcloud.net:2135",
+      database: "/ru-central1/b1ge4v9r1l3h1q4njclp/etn01g9tcilcon2mrt3h",
+    });
 
     await client.createCollection("documents", {
       vectors: {
@@ -111,7 +115,10 @@ The package entrypoint exports a programmatic API that mirrors the Qdrant HTTP s
 
 - Multi-tenant usage with `forTenant`:
   ```ts
-  const client = await createYdbQdrantClient();
+  const client = await createYdbQdrantClient({
+    endpoint: "grpcs://lb.etn01g9tcilcon2mrt3h.ydb.mdb.yandexcloud.net:2135",
+    database: "/ru-central1/b1ge4v9r1l3h1q4njclp/etn01g9tcilcon2mrt3h",
+  });
   const tenantClient = client.forTenant("tenant-a");
 
   await tenantClient.upsertPoints("sessions", {
@@ -132,7 +139,11 @@ let clientPromise: ReturnType<typeof createYdbQdrantClient> | null = null;
 
 async function getClient() {
   if (!clientPromise) {
-    clientPromise = createYdbQdrantClient({defaultTenant: 'myapp'});
+    clientPromise = createYdbQdrantClient({
+      defaultTenant: 'myapp',
+      endpoint: 'grpcs://lb.etn01g9tcilcon2mrt3h.ydb.mdb.yandexcloud.net:2135',
+      database: '/ru-central1/b1ge4v9r1l3h1q4njclp/etn01g9tcilcon2mrt3h',
+    });
   }
   return clientPromise;
 }
