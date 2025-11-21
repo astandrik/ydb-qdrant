@@ -31,4 +31,4 @@ pnpm-debug.log*
 
 # Misc caches
 .cache/
-
+ydb-sa.json

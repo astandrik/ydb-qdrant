@@ -121,6 +121,37 @@ The package entrypoint exports a programmatic API that mirrors the Qdrant HTTP s
 
 The request/response shapes follow the same schemas as the HTTP API (`CreateCollectionReq`, `UpsertPointsReq`, `SearchReq`, `DeletePointsReq`), so code written against the REST API can usually be translated directly to the library calls.
 
+### Example: in-process points search with a shared client
+
+In a typical server application you create a single `ydb-qdrant` client once and reuse it across requests. Then you can perform vector search (points search) directly in your business logic:
+
+```ts
+import {createYdbQdrantClient} from 'ydb-qdrant';
+
+let clientPromise: ReturnType<typeof createYdbQdrantClient> | null = null;
+
+async function getClient() {
+  if (!clientPromise) {
+    clientPromise = createYdbQdrantClient({defaultTenant: 'myapp'});
+  }
+  return clientPromise;
+}
+
+export async function searchDocuments(collection: string, queryEmbedding: number[], top: number) {
+  const client = await getClient();
+
+  const result = await client.searchPoints(collection, {
+    vector: queryEmbedding,
+    top,
+    with_payload: true,
+  });
+
+  return result.points ?? [];
+}
+```
+
+This pattern avoids running a separate HTTP service: vector search is executed directly against YDB via the shared `createYdbQdrantClient` instance, while the rest of your code works with plain TypeScript functions.
+
 ## Quick Start
 
 ### Use with IDE agents (Roo Code, Cline)
