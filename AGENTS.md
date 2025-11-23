@@ -94,7 +94,11 @@ Notes
 - `services/QdrantService.ts` — shared service layer wrapping repositories and request normalization; used by both HTTP routes and the programmatic API.
 - `Api.ts` — public programmatic API (`createYdbQdrantClient`, tenant‑scoped helpers) exposing Qdrant‑like operations directly to Node.js callers.
 - `SmokeTest.ts` — minimal example/smoke test using the programmatic API to create a collection, upsert points, and run a search.
-- `test/Api.test.ts`, `test/QdrantService.test.ts` — Vitest unit tests for the service layer and programmatic API (repositories and YDB mocked).
+- `test/api/Api.test.ts` — Vitest unit tests for the programmatic API client (`createYdbQdrantClient`, `forTenant`, driver/schema wiring; YDB and service mocked).
+- `test/services/QdrantService.test.ts` — service‑layer tests for collections and points (create/get/delete, upsert/search/delete, query alias, thresholds, error paths; repositories/YDB mocked).
+- `test/routes/collections.test.ts`, `test/routes/points.test.ts` — HTTP route tests for Express routers (status codes, payload shapes, `QdrantServiceError` handling; service and logger mocked).
+- `test/repositories/collectionsRepo.test.ts`, `test/repositories/pointsRepo.test.ts` — repository tests for YDB integration (`withSession`, YQL, vector index DDL, upsert/delete loops, index fallback).
+- `test/ydb/helpers.test.ts` — tests for YDB helper utilities (`buildVectorParam`, `buildJsonOrEmpty`).
 
 ## Conventions & constraints
 - Tenancy via `X-Tenant-Id`; table names: `qdr_<tenant>__<collection>`.

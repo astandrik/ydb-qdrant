@@ -1,6 +1,8 @@
 <img src="https://ydb-qdrant.tech/logo.svg" alt="YDB Qdrant logo" height="56"> 
 
-[![CI](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-ydb-qdrant.yml/badge.svg)](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-ydb-qdrant.yml)
+[![Build](https://img.shields.io/github/actions/workflow/status/astandrik/ydb-qdrant/ci-ydb-qdrant.yml?branch=main&label=build)](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-ydb-qdrant.yml)
+[![Tests](https://img.shields.io/github/actions/workflow/status/astandrik/ydb-qdrant/ci-ydb-qdrant.yml?branch=main&label=tests)](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-ydb-qdrant.yml)
+[![Coverage](https://codecov.io/gh/astandrik/ydb-qdrant/branch/main/graph/badge.svg)](https://codecov.io/gh/astandrik/ydb-qdrant)
 [![npm version](https://img.shields.io/npm/v/ydb-qdrant.svg)](https://www.npmjs.com/package/ydb-qdrant)
 [![Docker Image](https://img.shields.io/badge/docker-ghcr.io%2Fastandrik%2Fydb--qdrant-blue?logo=docker)](https://github.com/users/astandrik/packages/container/package/ydb-qdrant)
 [![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://opensource.org/licenses/ISC)
