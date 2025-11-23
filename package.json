@@ -16,6 +16,7 @@
   "scripts": {
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:integration": "vitest run test/integration/YdbRealIntegration.test.ts",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/index.ts",
