@@ -15,6 +15,7 @@
   ],
   "scripts": {
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/index.ts",
@@ -67,6 +68,7 @@
     "@eslint/js": "^9.39.1",
     "@types/express": "^5.0.3",
     "@types/node": "^24.9.1",
+    "@vitest/coverage-v8": "^4.0.12",
     "docsify-cli": "^4.4.4",
     "eslint": "^9.39.1",
     "husky": "^9.1.7",
