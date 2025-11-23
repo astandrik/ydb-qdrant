@@ -1,5 +1,8 @@
-import { beforeAll, afterAll, describe, it, expect } from "vitest";
+import { beforeAll, afterAll, describe, it, expect, vi } from "vitest";
 import { createYdbQdrantClient } from "../../src/package/Api.js";
+import { logger } from "../../src/logging/logger.js";
+import { metaKeyFor } from "../../src/utils/tenant.js";
+import { getCollectionMeta } from "../../src/repositories/collectionsRepo.js";
 
 describe("YDB integration (real database via programmatic API)", () => {
   const tenant = process.env.YDB_QDRANT_INTEGRATION_TENANT ?? "itest_tenant";
@@ -223,6 +226,133 @@ describe("YDB integration (real database via programmatic API)", () => {
         ],
       })
     ).rejects.toThrow("Vector dimension mismatch for id=b1: got 4, expected 5");
+
+    try {
+      await client.deleteCollection(col);
+    } catch {
+      // ignore cleanup failures
+    }
+  });
+
+  it("falls back to table scan when vector index is not present", async () => {
+    const col = `${collectionBase}_no_index_${Date.now()}`;
+
+    await client.createCollection(col, {
+      vectors: {
+        size: 4,
+        distance: "Cosine",
+        data_type: "float",
+      },
+    });
+
+    await client.upsertPoints(col, {
+      points: [
+        { id: "p1", vector: [0, 0, 0, 1], payload: { label: "p1" } },
+        { id: "p2", vector: [0, 0, 1, 0], payload: { label: "p2" } },
+      ],
+    });
+
+    // Wait longer than QUIET_MS (10s) to allow scheduler to consider an index build.
+    // Since we are below MIN_POINTS_THRESHOLD (100), it should skip building the index.
+    await new Promise((resolve) => setTimeout(resolve, 11000));
+
+    const metaKey = metaKeyFor(tenant, col);
+    const meta = await getCollectionMeta(metaKey);
+    if (!meta) {
+      throw new Error("collection meta not found for no-index test");
+    }
+
+    const infoSpy = vi.spyOn(logger, "info");
+    infoSpy.mockClear();
+
+    await client.searchPoints(col, {
+      vector: [0, 0, 0, 1],
+      top: 2,
+      with_payload: true,
+    });
+
+    const callsForTable = infoSpy.mock.calls.filter(([ctx]) => {
+      const c = ctx as { tableName?: string } | undefined;
+      return c?.tableName === meta.table;
+    });
+
+    const usedIndex = callsForTable.some(
+      ([, msg]) => msg === "vector index found; using index for search"
+    );
+    const fellBack = callsForTable.some(
+      ([, msg]) =>
+        msg ===
+        "vector index not available (missing or building); falling back to table scan"
+    );
+
+    expect(usedIndex).toBe(false);
+    expect(fellBack).toBe(true);
+
+    infoSpy.mockRestore();
+
+    try {
+      await client.deleteCollection(col);
+    } catch {
+      // ignore cleanup failures
+    }
+  });
+
+  it("uses vector index emb_idx when it is built", async () => {
+    const col = `${collectionBase}_with_index_${Date.now()}`;
+
+    await client.createCollection(col, {
+      vectors: {
+        size: 4,
+        distance: "Cosine",
+        data_type: "float",
+      },
+    });
+
+    const points = Array.from({ length: 120 }, (_, i) => ({
+      id: `p${i}`,
+      vector: [i, i + 1, i + 2, i + 3],
+      payload: { label: `p${i}` },
+    }));
+
+    await client.upsertPoints(col, { points });
+
+    // Wait longer than QUIET_MS (10s) so that the scheduler, seeing >= MIN_POINTS_THRESHOLD
+    // upserts for this table, will trigger a scheduled index build.
+    await new Promise((resolve) => setTimeout(resolve, 11000));
+
+    const metaKey = metaKeyFor(tenant, col);
+    const meta = await getCollectionMeta(metaKey);
+    if (!meta) {
+      throw new Error("collection meta not found for with-index test");
+    }
+
+    const infoSpy = vi.spyOn(logger, "info");
+    infoSpy.mockClear();
+
+    await client.searchPoints(col, {
+      vector: [0, 0, 0, 1],
+      top: 2,
+      with_payload: true,
+    });
+
+    const callsForTable = infoSpy.mock.calls.filter(([ctx]) => {
+      const c = ctx as { tableName?: string } | undefined;
+      return c?.tableName === meta.table;
+    });
+
+    const usedIndex = callsForTable.some(
+      ([, msg]) => msg === "vector index found; using index for search"
+    );
+    const fellBack = callsForTable.some(
+      ([, msg]) =>
+        msg ===
+        "vector index not available (missing or building); falling back to table scan"
+    );
+
+    expect(usedIndex).toBe(true);
+    expect(fellBack).toBe(false);
+
+    infoSpy.mockRestore();
 
     try {
       await client.deleteCollection(col);
