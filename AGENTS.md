@@ -51,7 +51,7 @@ Notes
 - Minimal `docker-compose.yml` (for users/tools that prefer compose):
   - Service `ydb-qdrant` with `image: ghcr.io/astandrik/ydb-qdrant:latest`, `ports: ["8080:8080"]`, `env_file: [.env]`, env keys `YDB_ENDPOINT`, `YDB_DATABASE`, `YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS=/sa-key.json`, and a volume `${YDB_SA_KEY_PATH}:/sa-key.json:ro`.
 - Updating to a newer image when using compose (no rebuild):
-  - `docker compose pull ydb-qdrant && docker compose up -d ydb-qdrant` (or the `docker-compose` equivalents).
+  - `docker-compose pull ydb-qdrant && docker-compose up -d ydb-qdrant`.
 - For agents that need a Qdrant base URL, point them at `http://localhost:8080` when this container/compose stack is running.
 
 ## Data model
