@@ -51,10 +51,6 @@ describe("QdrantService (with mocked YDB)", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(collectionsRepo.getCollectionMeta).mockReset();
-    vi.mocked(pointsRepo.upsertPoints).mockReset();
-    vi.mocked(pointsRepo.searchPoints).mockReset();
-    vi.mocked(pointsRepo.deletePoints).mockReset();
   });
 
   it("creates a new collection when metadata is missing", async () => {

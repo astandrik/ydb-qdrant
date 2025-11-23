@@ -11,6 +11,9 @@ on:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - name: Checkout
@@ -35,11 +38,12 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: github.ref == 'refs/heads/main'
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           files: ./coverage/lcov.info
           flags: unittests
           fail_ci_if_error: false
+          use_oidc: true
 
       - name: Build
         run: npm run build

@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { Request, Response } from "express";
 
 vi.mock("../../src/logging/logger.js", () => ({
   logger: {
@@ -38,83 +37,11 @@ vi.mock("../../src/services/QdrantService.js", () => {
 import { pointsRouter } from "../../src/routes/points.js";
 import * as service from "../../src/services/QdrantService.js";
 import { logger } from "../../src/logging/logger.js";
-
-type RouteHandler = (req: Request, res: Response) => unknown;
-
-type Layer = {
-  route?: {
-    path?: string;
-    methods?: Record<string, boolean>;
-    stack?: Array<{ handle: RouteHandler }>;
-  };
-};
-
-function findHandler(
-  router: unknown,
-  method: "get" | "put" | "post" | "delete",
-  path: string
-): RouteHandler {
-  const stack = (router as { stack: Layer[] }).stack;
-  const layer = stack.find(
-    (entry) => entry.route?.path === path && entry.route.methods?.[method]
-  );
-  if (!layer?.route?.stack?.[0]?.handle) {
-    throw new Error(
-      `Route handler for ${method.toUpperCase()} ${path} not found`
-    );
-  }
-  return layer.route.stack[0].handle;
-}
-
-type MockBody = {
-  status: string;
-  result?: unknown;
-  error?: unknown;
-  message?: string;
-};
-
-type MockResponse = Response & { statusCode: number; body?: MockBody };
-
-function createMockRes(): MockResponse {
-  const res: {
-    statusCode: number;
-    body?: MockBody;
-    status: (code: number) => Response;
-    json: (payload: unknown) => Response;
-  } = {
-    statusCode: 200,
-    status(code: number) {
-      res.statusCode = code;
-      return res as unknown as Response;
-    },
-    json(payload: unknown) {
-      res.body = payload as MockBody;
-      return res as unknown as Response;
-    },
-  };
-  return res as unknown as MockResponse;
-}
-
-function createRequest(options: {
-  method: "PUT" | "GET" | "POST" | "DELETE";
-  collection: string;
-  body?: unknown;
-  tenantHeader?: string;
-}): Request {
-  const { method, collection, body, tenantHeader } = options;
-  const reqLike = {
-    method,
-    params: { collection },
-    body,
-    header(name: string) {
-      if (name.toLowerCase() === "x-tenant-id") {
-        return tenantHeader;
-      }
-      return undefined;
-    },
-  };
-  return reqLike as unknown as Request;
-}
+import {
+  findHandler,
+  createMockRes,
+  createRequest,
+} from "../helpers/routeTestHelpers.js";
 
 beforeEach(() => {
   vi.clearAllMocks();

@@ -184,5 +184,3 @@ describe("collectionsRepo (with mocked YDB)", () => {
     expect(calls[1]?.yqlText).toContain("ADD INDEX emb_idx GLOBAL SYNC");
   });
 });
-
-
