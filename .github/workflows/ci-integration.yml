@@ -1,4 +1,4 @@
-name: CI ydb-qdrant
+name: Integration tests
 
 on:
   push:
@@ -9,40 +9,6 @@ on:
       - main
 
 jobs:
-  ci:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Test (with coverage)
-        run: npm run test:coverage
-
-      - name: Upload coverage to Coveralls
-        if: github.ref == 'refs/heads/main'
-        uses: coverallsapp/github-action@v2
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path-to-lcov: ./coverage/lcov.info
-
-      - name: Build
-        run: npm run build
-
   integration_tests:
     name: YDB integration tests (local-ydb nightly)
     runs-on: ubuntu-latest
@@ -86,3 +52,5 @@ jobs:
           YDB_ENDPOINT: grpc://localhost:2136
           YDB_DATABASE: /local
           YDB_ANONYMOUS_CREDENTIALS: "1"
+
+
