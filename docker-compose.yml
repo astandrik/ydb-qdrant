@@ -1,0 +1,20 @@
+services:
+  ydb-qdrant:
+    build: .
+    image: ydb-qdrant:2.1.4
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      YDB_ENDPOINT: ${YDB_ENDPOINT}
+      YDB_DATABASE: ${YDB_DATABASE}
+      YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS: /sa-key.json
+      PORT: ${PORT:-8080}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ${YDB_SA_KEY_PATH}:/sa-key.json:ro
+    restart: unless-stopped
+
+
+

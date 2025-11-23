@@ -224,6 +224,77 @@ Health check:
 curl -s http://localhost:8080/health
 ```
 
+### Docker (self-hosted HTTP server)
+
+Published container: [`ghcr.io/astandrik/ydb-qdrant`](https://github.com/users/astandrik/packages/container/package/ydb-qdrant)
+
+**Option A – pull the published image (recommended)**
+
+```bash
+docker pull ghcr.io/astandrik/ydb-qdrant:latest
+
+docker run -d --name ydb-qdrant \
+  -p 8080:8080 \
+  -e YDB_ENDPOINT=grpcs://ydb.serverless.yandexcloud.net:2135 \
+  -e YDB_DATABASE=/ru-central1/<cloud>/<db> \
+  -e YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS=/sa-key.json \
+  -v /abs/path/sa-key.json:/sa-key.json:ro \
+  ghcr.io/astandrik/ydb-qdrant:latest
+```
+
+**Option B – build the image locally**
+
+From the `ydb-qdrant/` directory:
+
+```bash
+docker build -t ydb-qdrant:latest .
+
+docker run -d --name ydb-qdrant \
+  -p 8080:8080 \
+  -e YDB_ENDPOINT=grpcs://ydb.serverless.yandexcloud.net:2135 \
+  -e YDB_DATABASE=/ru-central1/<cloud>/<db> \
+  -e YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS=/sa-key.json \
+  -v /abs/path/sa-key.json:/sa-key.json:ro \
+  ydb-qdrant:latest
+```
+
+#### Docker Compose
+
+Example `docker-compose.yml` (can be used instead of raw `docker run`):
+
+```yaml
+services:
+  ydb-qdrant:
+    image: ghcr.io/astandrik/ydb-qdrant:latest
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      YDB_ENDPOINT: ${YDB_ENDPOINT}
+      YDB_DATABASE: ${YDB_DATABASE}
+      YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS: /sa-key.json
+      PORT: ${PORT:-8080}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ${YDB_SA_KEY_PATH}:/sa-key.json:ro
+```
+
+Example `.env` (per environment):
+
+```bash
+YDB_ENDPOINT=grpcs://ydb.serverless.yandexcloud.net:2135
+YDB_DATABASE=/ru-central1/<cloud>/<db>
+YDB_SA_KEY_PATH=/abs/path/to/ydb-sa.json
+PORT=8080
+LOG_LEVEL=info
+```
+
+- **Environment**: uses the same variables as documented in **Configure credentials** (`YDB_ENDPOINT`, `YDB_DATABASE`, one of the `YDB_*_CREDENTIALS` options, optional `PORT`/`LOG_LEVEL`).
+- **Qdrant URL for tools/clients**: set to `http://localhost:8080` (or `http://<host>:<hostPort>` if you map a different port).
+- **Health check inside container**: `GET http://localhost:8080/health`.
+
+
 ## API Reference
 
 Create collection (PUT /collections/{collection}):

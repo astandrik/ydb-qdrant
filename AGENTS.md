@@ -44,6 +44,14 @@ Notes
 - Prod: `npm start`
 - Health: `GET /health` → `{ status: "ok" }`
 
+## Docker images & compose
+- Published image: `ghcr.io/astandrik/ydb-qdrant:latest` (public, pull-only), package page: https://github.com/users/astandrik/packages/container/package/ydb-qdrant.
+- Typical `docker run`:
+  - `docker run -d --name ydb-qdrant -p 8080:8080 ghcr.io/astandrik/ydb-qdrant:latest` + required YDB env (`YDB_ENDPOINT`, `YDB_DATABASE`, and one of `YDB_*_CREDENTIALS`; optionally mount an SA JSON at `/sa-key.json` and set `YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS=/sa-key.json`).
+- Minimal `docker-compose.yml` (for users/tools that prefer compose):
+  - Service `ydb-qdrant` with `image: ghcr.io/astandrik/ydb-qdrant:latest`, `ports: ["8080:8080"]`, `env_file: [.env]`, env keys `YDB_ENDPOINT`, `YDB_DATABASE`, `YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS=/sa-key.json`, and a volume `${YDB_SA_KEY_PATH}:/sa-key.json:ro`.
+- For agents that need a Qdrant base URL, point them at `http://localhost:8080` when this container/compose stack is running.
+
 ## Data model
 - Metadata table: `qdr__collections`
   - Row key `collection`: tenant/collection string in form `<tenant>/<collection>`
