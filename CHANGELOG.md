@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.2.1](https://github.com/astandrik/ydb-qdrant/compare/v2.2.0...v2.2.1) (2025-11-23)
+
+
+### Bug Fixes
+
+* docker badge and compose fix ([#28](https://github.com/astandrik/ydb-qdrant/issues/28)) ([f46dd97](https://github.com/astandrik/ydb-qdrant/commit/f46dd9714114a29095a6ed711bc3c1b1a281c969))
+* use actual badges ([#38](https://github.com/astandrik/ydb-qdrant/issues/38)) ([7a94470](https://github.com/astandrik/ydb-qdrant/commit/7a94470cf517326327d70b1866344aa0b99480ff))
+
 ## [2.2.0](https://github.com/astandrik/ydb-qdrant/compare/v2.1.4...v2.2.0) (2025-11-23)
 
 
