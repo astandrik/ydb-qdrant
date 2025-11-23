@@ -154,7 +154,7 @@ describe("YDB integration (real database via programmatic API)", () => {
 
     await clientB.createCollection(col, {
       vectors: {
-        size: 5,
+        size: 4,
         distance: "Cosine",
         data_type: "float",
       },
@@ -194,6 +194,38 @@ describe("YDB integration (real database via programmatic API)", () => {
 
     try {
       await clientB.deleteCollection(col);
+    } catch {
+      // ignore cleanup failures
+    }
+  });
+
+  it("throws a clear error when upserting a vector with mismatched dimension", async () => {
+    const dim = 5;
+    const col = `${collectionBase}_dim_mismatch_${Date.now()}`;
+
+    await client.createCollection(col, {
+      vectors: {
+        size: dim,
+        distance: "Cosine",
+        data_type: "float",
+      },
+    });
+
+    await expect(
+      client.upsertPoints(col, {
+        points: [
+          {
+            id: "b1",
+            // length 4 instead of 5
+            vector: [0, 0, 0, 1],
+            payload: { label: "bad-dim" },
+          },
+        ],
+      })
+    ).rejects.toThrow("Vector dimension mismatch for id=b1: got 4, expected 5");
+
+    try {
+      await client.deleteCollection(col);
     } catch {
       // ignore cleanup failures
     }
