@@ -86,4 +86,3 @@ jobs:
           YDB_ENDPOINT: grpc://localhost:2136
           YDB_DATABASE: /local
           YDB_ANONYMOUS_CREDENTIALS: "1"
-          YDB_QDRANT_INTEGRATION: "1"

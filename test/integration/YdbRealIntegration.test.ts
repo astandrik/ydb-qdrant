@@ -1,15 +1,7 @@
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import { createYdbQdrantClient } from "../../src/package/Api.js";
 
-const hasEndpoint = !!process.env.YDB_ENDPOINT;
-const hasDatabase = !!process.env.YDB_DATABASE;
-const integrationFlag = process.env.YDB_QDRANT_INTEGRATION === "1";
-
-const runIntegration = hasEndpoint && hasDatabase && integrationFlag;
-
-const describeIf = runIntegration ? describe : describe.skip;
-
-describeIf("YDB integration (real database via programmatic API)", () => {
+describe("YDB integration (real database via programmatic API)", () => {
   const tenant = process.env.YDB_QDRANT_INTEGRATION_TENANT ?? "itest_tenant";
   const collectionBase =
     process.env.YDB_QDRANT_INTEGRATION_COLLECTION ?? "itest_collection";
@@ -69,5 +61,3 @@ describeIf("YDB integration (real database via programmatic API)", () => {
     expect(ids).toContain("p1");
   });
 });
-
-
