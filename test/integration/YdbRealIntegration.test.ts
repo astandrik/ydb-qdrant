@@ -154,7 +154,7 @@ describe("YDB integration (real database via programmatic API)", () => {
 
     await clientB.createCollection(col, {
       vectors: {
-        size: 4,
+        size: 5,
         distance: "Cosine",
         data_type: "float",
       },
