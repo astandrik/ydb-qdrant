@@ -43,4 +43,46 @@ jobs:
       - name: Build
         run: npm run build
 
+  integration_tests:
+    name: YDB integration tests (local-ydb nightly)
+    runs-on: ubuntu-latest
 
+    services:
+      ydb:
+        image: ghcr.io/ydb-platform/local-ydb:nightly
+        ports:
+          - 2136:2136
+        options: --hostname localhost
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Wait for YDB to be ready
+        run: |
+          echo "Waiting for YDB at grpc://localhost:2136 ..."
+          for i in {1..30}; do
+            if nc -z localhost 2136; then
+              echo "YDB is accepting connections on port 2136"
+              exit 0
+            fi
+            echo "YDB not ready yet, retrying..."
+            sleep 2
+          done
+          echo "YDB did not become ready in time"
+          exit 1
+
+      - name: Run integration tests
+        run: npm run test:integration
+        env:
+          YDB_ENDPOINT: grpc://localhost:2136
+          YDB_DATABASE: /local
+          YDB_ANONYMOUS_CREDENTIALS: "1"
