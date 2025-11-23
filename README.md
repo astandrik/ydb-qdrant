@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-ydb-qdrant.yml/badge.svg)](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-ydb-qdrant.yml)
 [![npm version](https://img.shields.io/npm/v/ydb-qdrant.svg)](https://www.npmjs.com/package/ydb-qdrant)
+[![Docker Image](https://img.shields.io/badge/docker-ghcr.io%2Fastandrik%2Fydb--qdrant-blue?logo=docker)](https://github.com/users/astandrik/packages/container/package/ydb-qdrant)
 [![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://opensource.org/licenses/ISC)
 
 # YDB Qdrant-compatible Service
@@ -293,8 +294,8 @@ LOG_LEVEL=info
 - **Updating to a newer image with Compose** (no rebuild):
   - Pull the latest tag and restart the service:
     ```bash
-    docker compose pull ydb-qdrant   # or: docker-compose pull ydb-qdrant
-    docker compose up -d ydb-qdrant  # or: docker-compose up -d ydb-qdrant
+    docker-compose pull ydb-qdrant
+    docker-compose up -d ydb-qdrant
     ```
 
 - **Environment**: uses the same variables as documented in **Configure credentials** (`YDB_ENDPOINT`, `YDB_DATABASE`, one of the `YDB_*_CREDENTIALS` options, optional `PORT`/`LOG_LEVEL`).
