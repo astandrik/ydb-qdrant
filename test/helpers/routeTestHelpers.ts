@@ -76,5 +76,3 @@ export function createRequest(options: {
   };
   return reqLike as unknown as Request;
 }
-
-

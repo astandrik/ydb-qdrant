@@ -245,5 +245,3 @@ describe("pointsRepo (with mocked YDB)", () => {
     expect(sessionMock.executeQuery).toHaveBeenCalledTimes(2);
   });
 });
-
-
