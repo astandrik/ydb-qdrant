@@ -295,7 +295,7 @@ describe("YDB integration (real database via programmatic API)", () => {
     } catch {
       // ignore cleanup failures
     }
-  });
+  }, 30000);
 
   it("uses vector index emb_idx when it is built", async () => {
     const col = `${collectionBase}_with_index_${Date.now()}`;
@@ -359,5 +359,5 @@ describe("YDB integration (real database via programmatic API)", () => {
     } catch {
       // ignore cleanup failures
     }
-  });
+  }, 30000);
 });
