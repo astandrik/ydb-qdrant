@@ -290,6 +290,13 @@ PORT=8080
 LOG_LEVEL=info
 ```
 
+- **Updating to a newer image with Compose** (no rebuild):
+  - Pull the latest tag and restart the service:
+    ```bash
+    docker compose pull ydb-qdrant   # or: docker-compose pull ydb-qdrant
+    docker compose up -d ydb-qdrant  # or: docker-compose up -d ydb-qdrant
+    ```
+
 - **Environment**: uses the same variables as documented in **Configure credentials** (`YDB_ENDPOINT`, `YDB_DATABASE`, one of the `YDB_*_CREDENTIALS` options, optional `PORT`/`LOG_LEVEL`).
 - **Qdrant URL for tools/clients**: set to `http://localhost:8080` (or `http://<host>:<hostPort>` if you map a different port).
 - **Health check inside container**: `GET http://localhost:8080/health`.

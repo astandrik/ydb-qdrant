@@ -1,7 +1,7 @@
 services:
   ydb-qdrant:
     build: .
-    image: ydb-qdrant:2.1.4
+    image: ydb-qdrant:latest
     ports:
       - "8080:8080"
     env_file:
