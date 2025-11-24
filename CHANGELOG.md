@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [2.2.2](https://github.com/astandrik/ydb-qdrant/compare/v2.2.1...v2.2.2) (2025-11-24)
+
+
+### Bug Fixes
+
+* not starting without auth ([#42](https://github.com/astandrik/ydb-qdrant/issues/42)) ([5e692f9](https://github.com/astandrik/ydb-qdrant/commit/5e692f9ca2edef01cd359040918629173a0eea4c))
+
 ## [2.2.1](https://github.com/astandrik/ydb-qdrant/compare/v2.2.0...v2.2.1) (2025-11-23)
 
 
