@@ -4,16 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+
+## [2.3.0](https://github.com/astandrik/ydb-qdrant/compare/v2.2.2...v2.3.0) (2025-11-25)
+
+
 ### Features
 
-- Make vector index building and search behavior configurable via `VECTOR_INDEX_BUILD_ENABLED` env flag (`false` by default for table-scan-only search; `true` to enable automatic `emb_idx` builds and index-first search with table-scan fallback).
-
-### Bug Fixes
-
-### Chores
-
-- Remove unused `APPROX_PRESELECT` env configuration and its mention in the YDB integration C4 diagram.
-- Add unit and integration tests covering both `VECTOR_INDEX_BUILD_ENABLED=true` and `VECTOR_INDEX_BUILD_ENABLED=false` modes.
+* Add VECTOR_INDEX_BUILD_ENABLED env flag for configurable vector ([#47](https://github.com/astandrik/ydb-qdrant/issues/47)) ([8076d88](https://github.com/astandrik/ydb-qdrant/commit/8076d88e63031f6cf2d4aea628e36a952c94442d))
 
 ## [2.2.2](https://github.com/astandrik/ydb-qdrant/compare/v2.2.1...v2.2.2) (2025-11-24)
 
