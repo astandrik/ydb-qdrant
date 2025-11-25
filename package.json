@@ -16,7 +16,7 @@
   "scripts": {
     "test": "vitest run --exclude \"test/integration/**\"",
     "test:coverage": "vitest run --coverage --exclude \"test/integration/**\"",
-    "test:integration": "vitest run test/integration/YdbRealIntegration.test.ts",
+    "test:integration": "VECTOR_INDEX_BUILD_ENABLED=false vitest run test/integration/YdbRealIntegration.index-disabled.test.ts && VECTOR_INDEX_BUILD_ENABLED=true vitest run test/integration/YdbRealIntegration.test.ts",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/index.ts",
