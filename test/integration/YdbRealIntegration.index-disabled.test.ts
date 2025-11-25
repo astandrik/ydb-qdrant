@@ -90,5 +90,3 @@ describe("YDB integration with VECTOR_INDEX_BUILD_ENABLED=false", () => {
     30000
   );
 });
-
-
