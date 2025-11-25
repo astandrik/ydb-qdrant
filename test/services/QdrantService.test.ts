@@ -13,6 +13,10 @@ vi.mock("../../src/logging/logger.js", () => ({
   },
 }));
 
+vi.mock("../../src/config/env.js", () => ({
+  VECTOR_INDEX_BUILD_ENABLED: true,
+}));
+
 vi.mock("../../src/indexing/IndexScheduler.js", () => ({
   requestIndexBuild: vi.fn(),
 }));
