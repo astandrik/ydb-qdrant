@@ -86,7 +86,6 @@ note top of env_config
   **Optional:**
   - PORT (default 8080)
   - LOG_LEVEL (default "info")
-  - APPROX_PRESELECT (1-5000, default 1000)
   
   **Loading:**
   - Uses dotenv/config for .env file

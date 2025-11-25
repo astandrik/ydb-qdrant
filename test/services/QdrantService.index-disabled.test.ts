@@ -70,5 +70,3 @@ describe("QdrantService.upsertPoints with VECTOR_INDEX_BUILD_ENABLED=false", () 
     expect(indexScheduler.requestIndexBuild).not.toHaveBeenCalled();
   });
 });
-
-
