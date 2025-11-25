@@ -92,4 +92,3 @@ describe("pointsRepo with VECTOR_INDEX_BUILD_ENABLED=false", () => {
     expect(String(firstCall)).not.toContain("VIEW emb_idx");
   });
 });
-
