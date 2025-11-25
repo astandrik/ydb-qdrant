@@ -36,7 +36,10 @@ Notes
   - `YDB_METADATA_CREDENTIALS=1` (YC VM/Functions)
   - `YDB_ACCESS_TOKEN_CREDENTIALS=<token>` (short‑lived)
   - `YDB_ANONYMOUS_CREDENTIALS=1` (dev only)
-- Optional: `PORT` (default 8080), `LOG_LEVEL`.
+- Optional:
+  - `PORT` (default 8080)
+  - `LOG_LEVEL`
+  - `VECTOR_INDEX_BUILD_ENABLED` — `"true"`/`"false"` toggle for automatic vector index builds and search behavior (default `"false"`). When `"true"`, upserts schedule automatic builds and search first uses the vector index `emb_idx`, falling back to a table scan if the index is missing. When `"false"`, no automatic builds are scheduled and search never uses the vector index (all queries are executed as table scans over `embedding`).
 
 ## Run
 - Dev: `npm run dev`  (tsx + watch)

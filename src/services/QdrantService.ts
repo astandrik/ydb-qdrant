@@ -24,6 +24,7 @@ import {
 } from "../repositories/pointsRepo.js";
 import { requestIndexBuild } from "../indexing/IndexScheduler.js";
 import { logger } from "../logging/logger.js";
+import { VECTOR_INDEX_BUILD_ENABLED } from "../config/env.js";
 
 export interface QdrantServiceErrorPayload {
   status: "error";
@@ -166,6 +167,8 @@ interface SearchNormalizationResult {
   withPayload: boolean | undefined;
   scoreThreshold: number | undefined;
 }
+
+let loggedIndexBuildDisabled = false;
 
 function isNumberArray(value: unknown): value is number[] {
   return Array.isArray(value) && value.every((x) => typeof x === "number");
@@ -323,7 +326,20 @@ export async function upsertPoints(
     meta.dimension
   );
 
-  requestIndexBuild(meta.table, meta.dimension, meta.distance, meta.vectorType);
+  if (VECTOR_INDEX_BUILD_ENABLED) {
+    requestIndexBuild(
+      meta.table,
+      meta.dimension,
+      meta.distance,
+      meta.vectorType
+    );
+  } else if (!loggedIndexBuildDisabled) {
+    logger.info(
+      { table: meta.table },
+      "vector index building disabled by env; skipping automatic emb_idx rebuilds"
+    );
+    loggedIndexBuildDisabled = true;
+  }
 
   return { upserted };
 }

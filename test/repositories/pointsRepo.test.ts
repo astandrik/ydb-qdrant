@@ -37,6 +37,11 @@ vi.mock("../../src/indexing/IndexScheduler.js", () => ({
   notifyUpsert: vi.fn(),
 }));
 
+vi.mock("../../src/config/env.js", () => ({
+  LOG_LEVEL: "info",
+  VECTOR_INDEX_BUILD_ENABLED: true,
+}));
+
 import {
   upsertPoints,
   searchPoints,
@@ -150,7 +155,7 @@ describe("pointsRepo (with mocked YDB)", () => {
       4
     );
 
-    // First attempt should succeed with index, second attempt should be fallback
+    // First attempt should succeed with index, second attempt would be fallback
     expect(result).toEqual([{ id: "p1", score: 0.9 }]);
     expect(firstSession.executeQuery).toHaveBeenCalled();
   });

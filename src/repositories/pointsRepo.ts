@@ -4,6 +4,7 @@ import { buildJsonOrEmpty, buildVectorParam } from "../ydb/helpers.js";
 import type { VectorType, DistanceKind } from "../types";
 import { logger } from "../logging/logger.js";
 import { notifyUpsert } from "../indexing/IndexScheduler.js";
+import { VECTOR_INDEX_BUILD_ENABLED } from "../config/env.js";
 
 type QueryParams = { [key: string]: Ydb.ITypedValue };
 
@@ -122,30 +123,36 @@ export async function searchPoints(
   `;
 
   let rs;
-  try {
-    // Try with vector index first
-    rs = await withSession(async (s) => {
-      return await s.executeQuery(buildQuery(true), params);
-    });
-    logger.info({ tableName }, "vector index found; using index for search");
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    // Fallback to table scan if index not found or not ready
-    if (
-      /not found|does not exist|no such index|no global index|is not ready to use/i.test(
-        msg
-      )
-    ) {
-      logger.info(
-        { tableName },
-        "vector index not available (missing or building); falling back to table scan"
-      );
+  if (VECTOR_INDEX_BUILD_ENABLED) {
+    try {
+      // Try with vector index first
       rs = await withSession(async (s) => {
-        return await s.executeQuery(buildQuery(false), params);
+        return await s.executeQuery(buildQuery(true), params);
       });
-    } else {
-      throw e;
+      logger.info({ tableName }, "vector index found; using index for search");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const indexUnavailable =
+        /not found|does not exist|no such index|no global index|is not ready to use/i.test(
+          msg
+        );
+      if (indexUnavailable) {
+        logger.info(
+          { tableName },
+          "vector index not available (missing or building); falling back to table scan"
+        );
+        rs = await withSession(async (s) => {
+          return await s.executeQuery(buildQuery(false), params);
+        });
+      } else {
+        throw e;
+      }
     }
+  } else {
+    // Vector index usage disabled: always use table scan
+    rs = await withSession(async (s) => {
+      return await s.executeQuery(buildQuery(false), params);
+    });
   }
   const rowset = rs.resultSets?.[0];
   const rows = (rowset?.rows ?? []) as Array<{
