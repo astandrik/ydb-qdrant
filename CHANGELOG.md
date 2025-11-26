@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## [3.0.0](https://github.com/astandrik/ydb-qdrant/compare/v2.3.0...v3.0.0) (2025-11-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove quantization as unused ([#52](https://github.com/astandrik/ydb-qdrant/issues/52))
+
+### Features
+
+* remove quantization as unused ([#52](https://github.com/astandrik/ydb-qdrant/issues/52)) ([07fed25](https://github.com/astandrik/ydb-qdrant/commit/07fed25f615bb13e97e3d56daf8df70ffa0054b4))
+
 ## [2.3.0](https://github.com/astandrik/ydb-qdrant/compare/v2.2.2...v2.3.0) (2025-11-25)
 
 
