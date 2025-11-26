@@ -7,7 +7,6 @@ vi.mock("../../src/ydb/client.js", () => {
       BYTES: "BYTES",
       JSON_DOCUMENT: "JSON_DOCUMENT",
       FLOAT: "FLOAT",
-      UINT8: "UINT8",
     },
     TypedValues: {
       utf8: vi.fn((v: string) => ({ type: "utf8", v })),
@@ -21,9 +20,8 @@ vi.mock("../../src/ydb/client.js", () => {
 
 vi.mock("../../src/ydb/helpers.js", () => {
   return {
-    buildVectorParam: vi.fn((vec: number[], vectorType: string) => ({
+    buildVectorParam: vi.fn((vec: number[]) => ({
       kind: "vector",
-      vectorType,
       vec,
     })),
     buildJsonOrEmpty: vi.fn((payload?: Record<string, unknown>) => ({
@@ -77,7 +75,6 @@ describe("pointsRepo with VECTOR_INDEX_BUILD_ENABLED=false", () => {
       1,
       false,
       "Cosine",
-      "float",
       4
     );
 

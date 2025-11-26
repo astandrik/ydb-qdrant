@@ -7,7 +7,6 @@ vi.mock("../../src/ydb/client.js", () => {
       BYTES: "BYTES",
       JSON_DOCUMENT: "JSON_DOCUMENT",
       FLOAT: "FLOAT",
-      UINT8: "UINT8",
     },
     TypedValues: {
       utf8: vi.fn((v: string) => ({ type: "utf8", v })),
@@ -21,9 +20,8 @@ vi.mock("../../src/ydb/client.js", () => {
 
 vi.mock("../../src/ydb/helpers.js", () => {
   return {
-    buildVectorParam: vi.fn((vec: number[], vectorType: string) => ({
+    buildVectorParam: vi.fn((vec: number[]) => ({
       kind: "vector",
-      vectorType,
       vec,
     })),
     buildJsonOrEmpty: vi.fn((payload?: Record<string, unknown>) => ({
@@ -73,7 +71,6 @@ describe("pointsRepo (with mocked YDB)", () => {
         { id: "p1", vector: [0, 0, 0, 1], payload: { a: 1 } },
         { id: 2, vector: [0, 0, 1, 0] },
       ],
-      "float",
       4
     );
 
@@ -97,7 +94,6 @@ describe("pointsRepo (with mocked YDB)", () => {
       upsertPoints(
         "qdr_tenant_a__my_collection",
         [{ id: "p1", vector: [0, 1], payload: {} }],
-        "float",
         4
       )
     ).rejects.toThrow(/Vector dimension mismatch/);
@@ -151,7 +147,6 @@ describe("pointsRepo (with mocked YDB)", () => {
       5,
       false,
       "Cosine",
-      "float",
       4
     );
 
@@ -189,7 +184,6 @@ describe("pointsRepo (with mocked YDB)", () => {
       1,
       true,
       "Cosine",
-      "float",
       4
     );
 
@@ -226,7 +220,6 @@ describe("pointsRepo (with mocked YDB)", () => {
         1,
         false,
         "Cosine",
-        "float",
         4
       )
     ).rejects.toThrow("point_id is missing in YDB search result");

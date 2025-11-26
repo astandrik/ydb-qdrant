@@ -1,7 +1,7 @@
 import { TypedValues, withSession } from "../ydb/client.js";
 import type { Ydb } from "ydb-sdk";
 import { buildJsonOrEmpty, buildVectorParam } from "../ydb/helpers.js";
-import type { VectorType, DistanceKind } from "../types";
+import type { DistanceKind } from "../types";
 import { logger } from "../logging/logger.js";
 import { notifyUpsert } from "../indexing/IndexScheduler.js";
 import { VECTOR_INDEX_BUILD_ENABLED } from "../config/env.js";
@@ -15,7 +15,6 @@ export async function upsertPoints(
     vector: number[];
     payload?: Record<string, unknown>;
   }>,
-  vectorType: VectorType,
   dimension: number
 ): Promise<number> {
   let upserted = 0;
@@ -29,20 +28,18 @@ export async function upsertPoints(
       }
       const ddl = `
         DECLARE $id AS Utf8;
-        DECLARE $vec AS List<${vectorType === "uint8" ? "Uint8" : "Float"}>;
+        DECLARE $vec AS List<Float>;
         DECLARE $payload AS JsonDocument;
         UPSERT INTO ${tableName} (point_id, embedding, payload)
         VALUES (
           $id,
-          Untag(Knn::ToBinaryString${
-            vectorType === "uint8" ? "Uint8" : "Float"
-          }($vec), "${vectorType === "uint8" ? "Uint8Vector" : "FloatVector"}"),
+          Untag(Knn::ToBinaryStringFloat($vec), "FloatVector"),
           $payload
         );
       `;
       const params: QueryParams = {
         $id: TypedValues.utf8(id),
-        $vec: buildVectorParam(p.vector, vectorType),
+        $vec: buildVectorParam(p.vector),
         $payload: buildJsonOrEmpty(p.payload),
       };
 
@@ -90,7 +87,6 @@ export async function searchPoints(
   top: number,
   withPayload: boolean | undefined,
   distance: DistanceKind,
-  vectorType: VectorType,
   dimension: number
 ): Promise<
   Array<{ id: string; score: number; payload?: Record<string, unknown> }>
@@ -102,18 +98,16 @@ export async function searchPoints(
   }
   const { fn, order } = mapDistanceToKnnFn(distance);
   // Single-phase search over embedding using vector index if present
-  const qf = buildVectorParam(queryVector, vectorType);
+  const qf = buildVectorParam(queryVector);
   const params: QueryParams = {
     $qf: qf,
     $k2: TypedValues.uint32(top),
   };
 
   const buildQuery = (useIndex: boolean) => `
-    DECLARE $qf AS List<${vectorType === "uint8" ? "Uint8" : "Float"}>;
+    DECLARE $qf AS List<Float>;
     DECLARE $k2 AS Uint32;
-    $qbinf = Knn::ToBinaryString${
-      vectorType === "uint8" ? "Uint8" : "Float"
-    }($qf);
+    $qbinf = Knn::ToBinaryStringFloat($qf);
     SELECT point_id, ${
       withPayload ? "payload, " : ""
     }${fn}(embedding, $qbinf) AS score

@@ -18,7 +18,7 @@ entity "qdr__collections" as collections <<Metadata Table>> {
   table_name : Utf8
   vector_dimension : Uint32
   distance : Utf8 {Cosine|Euclid|Dot|Manhattan}
-  vector_type : Utf8 {float|uint8}
+  vector_type : Utf8 {float}
   created_at : Timestamp
 }
 
@@ -60,7 +60,7 @@ note right of collection_table
   • Build trigger: 10s quiet window
   
   **Embedding Storage:**
-  Binary string via Knn::ToBinaryString{Float|Uint8}
+  Binary string via Knn::ToBinaryStringFloat
   
   **Search:**
   • With index: SELECT ... VIEW emb_idx ORDER BY Knn::<Fn>
