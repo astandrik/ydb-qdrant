@@ -10,11 +10,11 @@ A small Node.js service and npm library that exposes a minimal Qdrant‑compatib
 - **Tenancy**: per‑client isolation via header `X-Tenant-Id`; each tenant+collection maps to its own YDB table.
 - **Search**: single-phase top-k over `embedding` with automatic YDB vector index (`emb_idx`) if ≥100 points upserted. Falls back to table scan if index missing.
 - **Vector index**: `vector_kmeans_tree` with levels=1, clusters=128 (optimized for <100k vectors). Built automatically after 5s quiet window following bulk upserts (≥100 points threshold).
-- **Vectors**: stored as binary strings using Knn::ToBinaryStringFloat (float) or Knn::ToBinaryStringUint8 (uint8).
+- **Vectors**: stored as binary strings using Knn::ToBinaryStringFloat.
 
 ## API (Qdrant‑compatible subset)
 - PUT `/collections/{collection}`
-  - Body: `{ "vectors": { "size": number, "distance": "Cosine"|"Euclid"|"Dot"|"Manhattan", "data_type": "float"|"uint8" } }`
+  - Body: `{ "vectors": { "size": number, "distance": "Cosine"|"Euclid"|"Dot"|"Manhattan", "data_type": "float" } }`
   - Header (optional): `X-Tenant-Id: <tenant>`
 - GET `/collections/{collection}` 
 - DELETE `/collections/{collection}`
@@ -72,7 +72,7 @@ Notes
   - Similarity: `CosineSimilarity`, `InnerProductSimilarity` (DESC)
   - Distance: `EuclideanDistance`, `ManhattanDistance` (ASC)
 - Serialization:
-  - `embedding` via `Untag(Knn::ToBinaryString{Float|Uint8}($vec), "{Float|Uint8}Vector")`
+  - `embedding` via `Untag(Knn::ToBinaryStringFloat($vec), "FloatVector")`
 - Vector index (`emb_idx`):
   - Type: `vector_kmeans_tree` (GLOBAL SYNC)
   - Defaults: levels=1, clusters=128 (tuned for <100k vectors)
@@ -106,7 +106,7 @@ Notes
 ## Conventions & constraints
 - Tenancy via `X-Tenant-Id`; table names: `qdr_<tenant>__<collection>`.
 - Sanitization keeps only `[a-z0-9_]`, lowercases.
-- Vector type `float` (default) or `uint8`. Dimension enforced per collection.
+- Vector type `float`. Dimension enforced per collection.
 - Vector index auto-build: threshold ≥100 points, quiet window 5s, defaults levels=1/clusters=128.
 
 ## Scoring semantics

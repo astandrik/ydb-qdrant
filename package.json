@@ -46,7 +46,7 @@
   ],
   "author": "",
   "license": "ISC",
-  "description": "Qdrant-compatible Node.js/TypeScript API that stores/searches embeddings in YDB using approximate coarse-to-fine vector search (quantized uint8 preselect + float refine).",
+  "description": "Qdrant-compatible Node.js/TypeScript API that stores/searches embeddings in YDB using single-phase top-k vector search with an automatic vector index and table-scan fallback.",
   "type": "module",
   "publishConfig": {
     "access": "public"

@@ -56,14 +56,14 @@ end note
 
 note left of points_repo
   **Key Functions:**
-  - upsertPoints(table, points[], vectorType, dim) → count
-  - searchPoints(table, queryVec, top, withPayload, distance, vectorType, dim) → hits[]
+  - upsertPoints(table, points[], dim) → count
+  - searchPoints(table, queryVec, top, withPayload, distance, dim) → hits[]
   - deletePoints(table, ids[]) → count
   
   **Upsert Flow:**
   1. Validate vector dimension
   2. For each point:
-     - Serialize vector to binary via Knn::ToBinaryString{Float|Uint8}
+     - Serialize vector to binary via Knn::ToBinaryStringFloat
      - UPSERT with exponential backoff retry (max 6)
        (handles transient schema errors during index rebuild)
   3. Call notifyUpsert() for scheduler

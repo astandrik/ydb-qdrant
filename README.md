@@ -400,7 +400,7 @@ curl -X POST http://localhost:8080/collections/mycol/points/delete \
 ## Notes
 - One YDB table is created per collection; metadata is tracked in table `qdr__collections`.
 - Each collection table schema: `point_id Utf8` (PK), `embedding String` (binary), `payload JsonDocument`.
-- Vectors are serialized with `Knn::ToBinaryStringFloat` (or `Knn::ToBinaryStringUint8` if collection uses uint8).
+- Vectors are serialized with `Knn::ToBinaryStringFloat`.
 - Search uses a single-phase top‑k over `embedding` with automatic YDB vector index (`emb_idx`) when available; falls back to table scan if missing.
 - **Vector index auto-build**: After ≥100 points upserted + 5s quiet window, a `vector_kmeans_tree` index (levels=1, clusters=128) is built automatically. Incremental updates (<100 points) skip index rebuild.
 - **Concurrency**: During index rebuilds, YDB may return transient `Aborted`/schema metadata errors. Upserts include bounded retries with backoff to handle this automatically.

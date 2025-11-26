@@ -106,7 +106,7 @@ describe("QdrantService (with mocked YDB)", () => {
       table: "qdr_tenant_a__my_collection",
       dimension: 256,
       distance: "Euclid",
-      vectorType: "uint8",
+      vectorType: "float",
     });
 
     await expect(
@@ -115,7 +115,7 @@ describe("QdrantService (with mocked YDB)", () => {
         {
           vectors: {
             size: 128,
-            distance: "Cosine",
+            distance: "Euclid",
             data_type: "float",
           },
         }
@@ -354,7 +354,6 @@ describe("QdrantService (with mocked YDB)", () => {
       1,
       true,
       "Cosine",
-      "float",
       4
     );
   });

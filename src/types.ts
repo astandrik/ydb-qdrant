@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export type DistanceKind = "Cosine" | "Euclid" | "Dot" | "Manhattan";
-export type VectorType = "float" | "uint8";
+export type VectorType = "float";
 
 export const CreateCollectionReq = z.object({
   vectors: z.object({
@@ -12,7 +12,7 @@ export const CreateCollectionReq = z.object({
       "Dot",
       "Manhattan",
     ]) as z.ZodType<DistanceKind>,
-    data_type: z.enum(["float", "uint8"]).optional(),
+    data_type: z.enum(["float"]).optional(),
   }),
 });
 

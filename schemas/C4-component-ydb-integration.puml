@@ -53,13 +53,7 @@ end note
 note left of ydb_helpers
   **buildVectorParam(vec, type):**
   - float: TypedValues.list(Types.FLOAT, vec)
-  - uint8: Auto-quantization if needed
-    * Detect range: [0,1], [-1,1], or general
-    * [0,1] → v*255
-    * [-1,1] → (v+1)*127.5
-    * General → ((v-min)/(max-min))*255
-    * Already quantized [0,255] → pass-through
-  - Returns TypedValues.list(Types.UINT8/FLOAT, list)
+  - Returns TypedValues.list(Types.FLOAT, vec)
   
   **buildJsonOrEmpty(payload?):**
   - Returns TypedValues.jsonDocument(JSON.stringify(payload ?? {}))

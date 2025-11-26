@@ -322,7 +322,6 @@ export async function upsertPoints(
   const upserted = await repoUpsertPoints(
     meta.table,
     parsed.data.points,
-    meta.vectorType,
     meta.dimension
   );
 
@@ -419,7 +418,6 @@ async function executeSearch(
     parsed.data.top,
     parsed.data.with_payload,
     meta.distance,
-    meta.vectorType,
     meta.dimension
   );
 

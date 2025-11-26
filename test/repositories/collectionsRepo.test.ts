@@ -7,7 +7,6 @@ vi.mock("../../src/ydb/client.js", () => {
       BYTES: "BYTES",
       JSON_DOCUMENT: "JSON_DOCUMENT",
       FLOAT: "FLOAT",
-      UINT8: "UINT8",
     },
     TypedValues: {
       utf8: vi.fn((v: string) => ({ type: "utf8", v })),
@@ -99,7 +98,7 @@ describe("collectionsRepo (with mocked YDB)", () => {
                 { textValue: "qdr_tenant_a__my_collection" },
                 { uint32Value: 128 },
                 { textValue: "Euclid" },
-                { textValue: "uint8" },
+                { textValue: "float" },
               ],
             },
           ],
@@ -113,7 +112,7 @@ describe("collectionsRepo (with mocked YDB)", () => {
       table: "qdr_tenant_a__my_collection",
       dimension: 128,
       distance: "Euclid",
-      vectorType: "uint8",
+      vectorType: "float",
     });
   });
 
