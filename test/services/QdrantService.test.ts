@@ -41,13 +41,15 @@ import {
   createCollection,
   getCollection,
   deleteCollection,
+  putCollectionIndex,
+} from "../../src/services/CollectionService.js";
+import {
   upsertPoints,
   searchPoints,
   queryPoints,
   deletePoints,
-  putCollectionIndex,
-  QdrantServiceError,
-} from "../../src/services/QdrantService.js";
+} from "../../src/services/PointsService.js";
+import { QdrantServiceError } from "../../src/services/errors.js";
 
 describe("QdrantService (with mocked YDB)", () => {
   const tenant = "tenant_a";

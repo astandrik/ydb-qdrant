@@ -84,18 +84,23 @@ Notes
 - `config/env.ts` — loads env (`dotenv/config`), exports `YDB_ENDPOINT`, `YDB_DATABASE`, `PORT`, `LOG_LEVEL`.
 - `logging/logger.ts` — pino logger (level from env).
 - `utils/tenant.ts` — `sanitizeTenantId`, `sanitizeCollectionName`, `metaKeyFor`, `tableNameFor`.
+- `utils/normalization.ts` — vector extraction (`extractVectorLoose`, `isNumberArray`) and search body normalization (`normalizeSearchBodyForSearch`, `normalizeSearchBodyForQuery`).
+- `utils/distance.ts` — distance mapping functions (`mapDistanceToKnnFn` for search, `mapDistanceToIndexParam` for index DDL).
+- `utils/retry.ts` — generic retry wrapper (`withRetry`) with exponential backoff for transient YDB errors.
 - `types.ts` — shared types and Zod schemas (CreateCollectionReq, UpsertPointsReq, SearchReq, DeletePointsReq).
 - `ydb/client.ts` — ydb-sdk Driver init (CJS interop), `readyOrThrow`, `withSession`, and re‑exports `Types`, `TypedValues`.
 - `ydb/schema.ts` — `ensureMetaTable()` (creates `qdr__collections` if missing).
 - `repositories/collectionsRepo.ts` — create/get/delete collection metadata and tables; `buildVectorIndex()`.
-- `repositories/pointsRepo.ts` — upsert/search/delete points; search tries VIEW emb_idx first.
+- `repositories/pointsRepo.ts` — upsert/search/delete points; search tries VIEW emb_idx first; uses `withRetry` for transient errors.
 - `indexing/IndexScheduler.ts` — deferred vector index build scheduler with threshold (≥100 points) and quiet window (5s).
 - `routes/collections.ts` — Express router for collection endpoints; uses `X-Tenant-Id`.
 - `routes/points.ts` — Express router for points endpoints; calls `requestIndexBuild()` after upserts.
 - `server.ts` — builds Express app, mounts routes, health endpoint.
 - `index.ts` — bootstrap: ready check, ensure metadata table, start server.
-- `services/QdrantService.ts` — shared service layer wrapping repositories and request normalization; used by both HTTP routes and the programmatic API.
-- `Api.ts` — public programmatic API (`createYdbQdrantClient`, tenant‑scoped helpers) exposing Qdrant‑like operations directly to Node.js callers.
+- `services/errors.ts` — `QdrantServiceError` class and `QdrantServiceErrorPayload` interface.
+- `services/CollectionService.ts` — collection operations (`createCollection`, `getCollection`, `deleteCollection`, `putCollectionIndex`); context normalization.
+- `services/PointsService.ts` — points operations (`upsertPoints`, `searchPoints`, `queryPoints`, `deletePoints`); uses normalization utilities.
+- `package/api.ts` — public programmatic API (`createYdbQdrantClient`, `buildTenantClient` factory) exposing Qdrant‑like operations directly to Node.js callers.
 - `SmokeTest.ts` — minimal example/smoke test using the programmatic API to create a collection, upsert points, and run a search.
 - `test/api/Api.test.ts` — Vitest unit tests for the programmatic API client (`createYdbQdrantClient`, `forTenant`, driver/schema wiring; YDB and service mocked).
 - `test/services/QdrantService.test.ts` — service‑layer tests for collections and points (create/get/delete, upsert/search/delete, query alias, thresholds, error paths; repositories/YDB mocked).
@@ -144,9 +149,11 @@ Collection created automatically on first use.
 ## Implementation notes for agents
 - ydb-sdk is consumed via CJS interop (`createRequire`) even in ESM TS to avoid ESM default export issues.
 - Use `withSession(fn, 15000)` for queries and declare parameters in YQL with `DECLARE`.
-- Prefer repository layer for YDB access; routes should remain thin.
+- Prefer repository layer for YDB access; routes and services should remain thin.
+- Service layer is split by domain: `CollectionService.ts` for collection operations, `PointsService.ts` for points operations, `errors.ts` for error types.
+- Utility functions are extracted to `utils/`: `normalization.ts` (vector extraction), `distance.ts` (KNN/index mapping), `retry.ts` (transient error handling).
 - Keep edits behavior‑preserving; avoid changing endpoint contracts without approval.
-- The npm package entrypoint is the programmatic API (`dist/Api.js`); HTTP server entry (`dist/server.js` and `dist/index.js`) must remain stable so that `npm start` and existing deployments continue to work.
+- The npm package entrypoint is the programmatic API (`dist/package/api.js`); HTTP server entry (`dist/server.js` and `dist/index.js`) must remain stable so that `npm start` and existing deployments continue to work.
 - Programmatic API consumers are expected to use `createYdbQdrantClient(options?)` and optional `client.forTenant(tenantId)`; keep these names and shapes stable unless doing a major version bump.
 
 ## Programmatic npm package
@@ -156,7 +163,7 @@ Collection created automatically on first use.
   - Reuses the same YDB env configuration as the server (`YDB_ENDPOINT`, `YDB_DATABASE`, `YDB_*_CREDENTIALS`).
   - Exposes Qdrant‑like methods: `createCollection`, `getCollection`, `deleteCollection`, `upsertPoints`, `searchPoints`, `deletePoints`.
   - Supports multi‑tenant usage via `defaultTenant` option and `forTenant(tenantId)`.
-- HTTP routes now delegate to `QdrantService`, so the same logic is used by both HTTP and programmatic paths.
+- HTTP routes delegate to `CollectionService` and `PointsService`, so the same logic is used by both HTTP and programmatic paths.
 
 ## CI and release
 

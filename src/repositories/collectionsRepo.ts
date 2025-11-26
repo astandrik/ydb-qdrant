@@ -6,6 +6,7 @@ import {
   Column,
 } from "../ydb/client.js";
 import type { DistanceKind, VectorType } from "../types";
+import { mapDistanceToIndexParam } from "../utils/distance.js";
 
 export async function createCollection(
   metaKey: string,
@@ -154,19 +155,4 @@ export async function buildVectorIndex(
     const createReq = { sessionId: rawSession.sessionId, yqlText: createDdl };
     await rawSession.api.executeSchemeQuery(createReq);
   });
-}
-
-function mapDistanceToIndexParam(distance: DistanceKind): string {
-  switch (distance) {
-    case "Cosine":
-      return "cosine";
-    case "Dot":
-      return "inner_product";
-    case "Euclid":
-      return "euclidean";
-    case "Manhattan":
-      return "manhattan";
-    default:
-      return "cosine";
-  }
 }

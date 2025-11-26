@@ -36,7 +36,7 @@ vi.mock("../../src/config/env.js", () => ({
 import * as collectionsRepo from "../../src/repositories/collectionsRepo.js";
 import * as pointsRepo from "../../src/repositories/pointsRepo.js";
 import * as indexScheduler from "../../src/indexing/IndexScheduler.js";
-import { upsertPoints } from "../../src/services/QdrantService.js";
+import { upsertPoints } from "../../src/services/PointsService.js";
 
 describe("QdrantService.upsertPoints with VECTOR_INDEX_BUILD_ENABLED=false", () => {
   const tenant = "tenant_a";

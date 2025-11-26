@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { createYdbQdrantClient } from "./package/Api.js";
+import { createYdbQdrantClient } from "./package/api.js";
 
 async function main(): Promise<void> {
   const tenant = process.env.SMOKE_TENANT ?? "smoke";

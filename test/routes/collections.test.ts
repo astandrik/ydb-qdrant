@@ -9,7 +9,7 @@ vi.mock("../../src/logging/logger.js", () => ({
   },
 }));
 
-vi.mock("../../src/services/QdrantService.js", () => {
+vi.mock("../../src/services/errors.js", () => {
   class QdrantServiceError extends Error {
     statusCode: number;
     payload: { status: "error"; error: unknown };
@@ -27,20 +27,24 @@ vi.mock("../../src/services/QdrantService.js", () => {
 
   return {
     QdrantServiceError,
-    createCollection: vi
-      .fn()
-      .mockResolvedValue({ name: "col", tenant: "tenant_id" }),
-    getCollection: vi.fn().mockResolvedValue({
-      name: "col",
-      vectors: { size: 4, distance: "Cosine", data_type: "float" },
-    }),
-    deleteCollection: vi.fn().mockResolvedValue({ acknowledged: true }),
-    putCollectionIndex: vi.fn().mockResolvedValue({ acknowledged: true }),
   };
 });
 
+vi.mock("../../src/services/CollectionService.js", () => ({
+  createCollection: vi
+    .fn()
+    .mockResolvedValue({ name: "col", tenant: "tenant_id" }),
+  getCollection: vi.fn().mockResolvedValue({
+    name: "col",
+    vectors: { size: 4, distance: "Cosine", data_type: "float" },
+  }),
+  deleteCollection: vi.fn().mockResolvedValue({ acknowledged: true }),
+  putCollectionIndex: vi.fn().mockResolvedValue({ acknowledged: true }),
+}));
+
 import { collectionsRouter } from "../../src/routes/collections.js";
-import * as service from "../../src/services/QdrantService.js";
+import * as collectionService from "../../src/services/CollectionService.js";
+import { QdrantServiceError } from "../../src/services/errors.js";
 import {
   findHandler,
   createMockRes,
@@ -66,7 +70,7 @@ describe("collectionsRouter (HTTP, mocked service)", () => {
 
     await handler(req, res);
 
-    expect(service.createCollection).toHaveBeenCalledWith(
+    expect(collectionService.createCollection).toHaveBeenCalledWith(
       { tenant: "tenant_id", collection: "my_collection" },
       {
         vectors: { size: 4, distance: "Cosine", data_type: "float" },
@@ -88,13 +92,13 @@ describe("collectionsRouter (HTTP, mocked service)", () => {
     });
     const res = createMockRes();
 
-    const error = new service.QdrantServiceError(
+    const error = new QdrantServiceError(
       422,
       { status: "error", error: "invalid" },
       "invalid"
     );
 
-    vi.mocked(service.createCollection).mockRejectedValueOnce(error);
+    vi.mocked(collectionService.createCollection).mockRejectedValueOnce(error);
 
     await handler(req, res);
     expect(res.statusCode).toBe(422);
@@ -118,7 +122,7 @@ describe("collectionsRouter (HTTP, mocked service)", () => {
 
     await getHandler(getReq, getRes);
 
-    expect(service.getCollection).toHaveBeenCalledWith(
+    expect(collectionService.getCollection).toHaveBeenCalledWith(
       expect.objectContaining({
         tenant: "tenant_id",
         collection: "my_collection",
@@ -135,7 +139,7 @@ describe("collectionsRouter (HTTP, mocked service)", () => {
 
     await deleteHandler(deleteReq, deleteRes);
 
-    expect(service.deleteCollection).toHaveBeenCalledWith(
+    expect(collectionService.deleteCollection).toHaveBeenCalledWith(
       expect.objectContaining({
         tenant: "tenant_id",
         collection: "my_collection",
@@ -155,7 +159,7 @@ describe("collectionsRouter (HTTP, mocked service)", () => {
 
     await handler(req, res);
 
-    expect(service.putCollectionIndex).toHaveBeenCalledWith({
+    expect(collectionService.putCollectionIndex).toHaveBeenCalledWith({
       tenant: "raw-tenant",
       collection: "raw-col",
     });

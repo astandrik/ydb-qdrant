@@ -1,10 +1,10 @@
 {
   "name": "ydb-qdrant",
   "version": "3.0.0",
-  "main": "dist/package/Api.js",
-  "types": "dist/package/Api.d.ts",
+  "main": "dist/package/api.js",
+  "types": "dist/package/api.d.ts",
   "exports": {
-    ".": "./dist/package/Api.js",
+    ".": "./dist/package/api.js",
     "./server": "./dist/server.js"
   },
   "files": [
