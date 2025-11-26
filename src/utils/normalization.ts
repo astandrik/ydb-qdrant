@@ -70,31 +70,8 @@ export function normalizeSearchBodyForSearch(
   const b = body as Record<string, unknown>;
   const rawVector = b["vector"];
   const vector = isNumberArray(rawVector) ? rawVector : undefined;
-  const rawTop = b["top"];
-  const rawLimit = b["limit"];
-  const topFromTop = typeof rawTop === "number" ? rawTop : undefined;
-  const topFromLimit = typeof rawLimit === "number" ? rawLimit : undefined;
-  const top = topFromTop ?? topFromLimit;
 
-  let withPayload: boolean | undefined;
-  const rawWithPayload = b["with_payload"];
-  if (typeof rawWithPayload === "boolean") {
-    withPayload = rawWithPayload;
-  } else if (
-    Array.isArray(rawWithPayload) ||
-    typeof rawWithPayload === "object"
-  ) {
-    withPayload = true;
-  }
-
-  const thresholdRaw = b["score_threshold"];
-  const thresholdValue =
-    typeof thresholdRaw === "number" ? thresholdRaw : Number(thresholdRaw);
-  const scoreThreshold = Number.isFinite(thresholdValue)
-    ? thresholdValue
-    : undefined;
-
-  return { vector, top, withPayload, scoreThreshold };
+  return normalizeSearchCommon(b, vector);
 }
 
 export function normalizeSearchBodyForQuery(
@@ -110,6 +87,14 @@ export function normalizeSearchBodyForQuery(
   }
   const b = body as Record<string, unknown>;
   const vector = extractVectorLoose(b);
+
+  return normalizeSearchCommon(b, vector);
+}
+
+function normalizeSearchCommon(
+  b: Record<string, unknown>,
+  vector: number[] | undefined
+): SearchNormalizationResult {
   const rawTop = b["top"];
   const rawLimit = b["limit"];
   const topFromTop = typeof rawTop === "number" ? rawTop : undefined;
