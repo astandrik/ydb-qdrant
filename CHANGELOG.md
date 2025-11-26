@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## [4.0.0](https://github.com/astandrik/ydb-qdrant/compare/v3.0.0...v4.0.0) (2025-11-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* refactor split QdrantService into domain modules and extract utilities ([#56](https://github.com/astandrik/ydb-qdrant/issues/56))
+
+### Features
+
+* refactor split QdrantService into domain modules and extract utilities ([#56](https://github.com/astandrik/ydb-qdrant/issues/56)) ([068e069](https://github.com/astandrik/ydb-qdrant/commit/068e06966e8fe7a8d9afd04b75d8445cba35cee9))
+
 ## [3.0.0](https://github.com/astandrik/ydb-qdrant/compare/v2.3.0...v3.0.0) (2025-11-26)
 
 
