@@ -136,4 +136,3 @@ export function normalizeSearchBodyForQuery(
 
   return { vector, top, withPayload, scoreThreshold };
 }
-

@@ -29,64 +29,60 @@ describe("YDB integration with VECTOR_INDEX_BUILD_ENABLED=false", () => {
     }
   });
 
-  it(
-    "executes search via table scan when vector index building is disabled",
-    async () => {
-      // Guard: this test is meant for VECTOR_INDEX_BUILD_ENABLED=false
-      expect(VECTOR_INDEX_BUILD_ENABLED).toBe(false);
+  it("executes search via table scan when vector index building is disabled", async () => {
+    // Guard: this test is meant for VECTOR_INDEX_BUILD_ENABLED=false
+    expect(VECTOR_INDEX_BUILD_ENABLED).toBe(false);
 
-      await client.createCollection(collection, {
-        vectors: {
-          size: 4,
-          distance: "Cosine",
-          data_type: "float",
-        },
-      });
+    await client.createCollection(collection, {
+      vectors: {
+        size: 4,
+        distance: "Cosine",
+        data_type: "float",
+      },
+    });
 
-      await client.upsertPoints(collection, {
-        points: [
-          { id: "p1", vector: [0, 0, 0, 1], payload: { label: "p1" } },
-          { id: "p2", vector: [0, 0, 1, 0], payload: { label: "p2" } },
-        ],
-      });
+    await client.upsertPoints(collection, {
+      points: [
+        { id: "p1", vector: [0, 0, 0, 1], payload: { label: "p1" } },
+        { id: "p2", vector: [0, 0, 1, 0], payload: { label: "p2" } },
+      ],
+    });
 
-      const metaKey = metaKeyFor(tenant, collection);
-      const meta = await getCollectionMeta(metaKey);
-      if (!meta) {
-        throw new Error("collection meta not found for env=false test");
-      }
+    const metaKey = metaKeyFor(tenant, collection);
+    const meta = await getCollectionMeta(metaKey);
+    if (!meta) {
+      throw new Error("collection meta not found for env=false test");
+    }
 
-      const infoSpy = vi.spyOn(logger, "info");
-      infoSpy.mockClear();
+    const infoSpy = vi.spyOn(logger, "info");
+    infoSpy.mockClear();
 
-      const result = await client.searchPoints(collection, {
-        vector: [0, 0, 0, 1],
-        top: 2,
-        with_payload: true,
-      });
+    const result = await client.searchPoints(collection, {
+      vector: [0, 0, 0, 1],
+      top: 2,
+      with_payload: true,
+    });
 
-      expect(result.points).toBeDefined();
-      expect(result.points?.length).toBeGreaterThanOrEqual(1);
+    expect(result.points).toBeDefined();
+    expect(result.points?.length).toBeGreaterThanOrEqual(1);
 
-      const callsForTable = infoSpy.mock.calls.filter(([ctx]) => {
-        const c = ctx as { tableName?: string } | undefined;
-        return c?.tableName === meta.table;
-      });
+    const callsForTable = infoSpy.mock.calls.filter(([ctx]) => {
+      const c = ctx as { tableName?: string } | undefined;
+      return c?.tableName === meta.table;
+    });
 
-      const usedIndex = callsForTable.some(
-        ([, msg]) => msg === "vector index found; using index for search"
-      );
-      const fellBack = callsForTable.some(
-        ([, msg]) =>
-          msg ===
-          "vector index not available (missing or building); falling back to table scan"
-      );
+    const usedIndex = callsForTable.some(
+      ([, msg]) => msg === "vector index found; using index for search"
+    );
+    const fellBack = callsForTable.some(
+      ([, msg]) =>
+        msg ===
+        "vector index not available (missing or building); falling back to table scan"
+    );
 
-      expect(usedIndex).toBe(false);
-      expect(fellBack).toBe(false);
+    expect(usedIndex).toBe(false);
+    expect(fellBack).toBe(false);
 
-      infoSpy.mockRestore();
-    },
-    30000
-  );
+    infoSpy.mockRestore();
+  }, 30000);
 });
