@@ -1,11 +1,11 @@
 import { Router, Request, Response } from "express";
 import {
-  QdrantServiceError,
   upsertPoints,
   searchPoints,
   queryPoints,
   deletePoints,
-} from "../services/QdrantService.js";
+} from "../services/PointsService.js";
+import { QdrantServiceError } from "../services/errors.js";
 import { logger } from "../logging/logger.js";
 
 export const pointsRouter = Router();

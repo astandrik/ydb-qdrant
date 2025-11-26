@@ -5,6 +5,8 @@ import type { DistanceKind } from "../types";
 import { logger } from "../logging/logger.js";
 import { notifyUpsert } from "../indexing/IndexScheduler.js";
 import { VECTOR_INDEX_BUILD_ENABLED } from "../config/env.js";
+import { mapDistanceToKnnFn } from "../utils/distance.js";
+import { withRetry, isTransientYdbError } from "../utils/retry.js";
 
 type QueryParams = { [key: string]: Ydb.ITypedValue };
 
@@ -43,39 +45,14 @@ export async function upsertPoints(
         $payload: buildJsonOrEmpty(p.payload),
       };
 
-      // Retry on transient schema/metadata mismatches during index rebuild
-      const maxRetries = 6; // ~ up to ~ (0.25 + jitter) * 2^5 ≈ few seconds
-      let attempt = 0;
-      while (true) {
-        try {
-          await s.executeQuery(ddl, params);
-          break;
-        } catch (e: unknown) {
-          const msg = e instanceof Error ? e.message : String(e);
-          const isTransient =
-            /Aborted|schema version mismatch|Table metadata loading|Failed to load metadata/i.test(
-              msg
-            );
-          if (!isTransient || attempt >= maxRetries) {
-            throw e;
-          }
-          const backoffMs = Math.floor(
-            250 * Math.pow(2, attempt) + Math.random() * 100
-          );
-          logger.warn(
-            { tableName, id, attempt, backoffMs },
-            "upsert aborted due to schema/metadata change; retrying"
-          );
-          await new Promise((r) => setTimeout(r, backoffMs));
-          attempt += 1;
-        }
-      }
+      await withRetry(() => s.executeQuery(ddl, params), {
+        isTransient: isTransientYdbError,
+        context: { tableName, id },
+      });
       upserted += 1;
     }
   });
-  // notify scheduler for potential end-of-batch index build
   notifyUpsert(tableName, upserted);
-  // No index rebuild; approximate search does not require it
   return upserted;
 }
 
@@ -204,20 +181,3 @@ export async function deletePoints(
   return deleted;
 }
 
-function mapDistanceToKnnFn(distance: DistanceKind): {
-  fn: string;
-  order: "ASC" | "DESC";
-} {
-  switch (distance) {
-    case "Cosine":
-      return { fn: "Knn::CosineSimilarity", order: "DESC" };
-    case "Dot":
-      return { fn: "Knn::InnerProductSimilarity", order: "DESC" };
-    case "Euclid":
-      return { fn: "Knn::EuclideanDistance", order: "ASC" };
-    case "Manhattan":
-      return { fn: "Knn::ManhattanDistance", order: "ASC" };
-    default:
-      return { fn: "Knn::CosineSimilarity", order: "DESC" };
-  }
-}

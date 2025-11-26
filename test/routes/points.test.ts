@@ -9,7 +9,7 @@ vi.mock("../../src/logging/logger.js", () => ({
   },
 }));
 
-vi.mock("../../src/services/QdrantService.js", () => {
+vi.mock("../../src/services/errors.js", () => {
   class QdrantServiceError extends Error {
     statusCode: number;
     payload: { status: "error"; error: unknown };
@@ -27,15 +27,19 @@ vi.mock("../../src/services/QdrantService.js", () => {
 
   return {
     QdrantServiceError,
-    upsertPoints: vi.fn().mockResolvedValue({ upserted: 1 }),
-    searchPoints: vi.fn().mockResolvedValue({ points: [] }),
-    queryPoints: vi.fn().mockResolvedValue({ points: [] }),
-    deletePoints: vi.fn().mockResolvedValue({ deleted: 1 }),
   };
 });
 
+vi.mock("../../src/services/PointsService.js", () => ({
+  upsertPoints: vi.fn().mockResolvedValue({ upserted: 1 }),
+  searchPoints: vi.fn().mockResolvedValue({ points: [] }),
+  queryPoints: vi.fn().mockResolvedValue({ points: [] }),
+  deletePoints: vi.fn().mockResolvedValue({ deleted: 1 }),
+}));
+
 import { pointsRouter } from "../../src/routes/points.js";
-import * as service from "../../src/services/QdrantService.js";
+import * as pointsService from "../../src/services/PointsService.js";
+import { QdrantServiceError } from "../../src/services/errors.js";
 import { logger } from "../../src/logging/logger.js";
 import {
   findHandler,
@@ -70,7 +74,7 @@ describe("pointsRouter (HTTP, mocked service)", () => {
 
     await putHandler(putReq, putRes);
 
-    expect(service.upsertPoints).toHaveBeenCalledWith(
+    expect(pointsService.upsertPoints).toHaveBeenCalledWith(
       { tenant: "tenant", collection: "col" },
       body
     );
@@ -87,7 +91,7 @@ describe("pointsRouter (HTTP, mocked service)", () => {
 
     await postUpsertHandler(postReq, postRes);
 
-    expect(service.upsertPoints).toHaveBeenCalledWith(
+    expect(pointsService.upsertPoints).toHaveBeenCalledWith(
       { tenant: "tenant", collection: "col" },
       body
     );
@@ -126,7 +130,7 @@ describe("pointsRouter (HTTP, mocked service)", () => {
 
     await searchHandler(searchReq, searchRes);
 
-    expect(service.searchPoints).toHaveBeenCalledWith(
+    expect(pointsService.searchPoints).toHaveBeenCalledWith(
       { tenant: "tenant", collection: "col" },
       searchBody
     );
@@ -147,7 +151,7 @@ describe("pointsRouter (HTTP, mocked service)", () => {
 
     await queryHandler(queryReq, queryRes);
 
-    expect(service.queryPoints).toHaveBeenCalledWith(
+    expect(pointsService.queryPoints).toHaveBeenCalledWith(
       { tenant: "tenant", collection: "col" },
       queryBody
     );
@@ -165,7 +169,7 @@ describe("pointsRouter (HTTP, mocked service)", () => {
 
     await deleteHandler(deleteReq, deleteRes);
 
-    expect(service.deletePoints).toHaveBeenCalledWith(
+    expect(pointsService.deletePoints).toHaveBeenCalledWith(
       { tenant: "tenant", collection: "col" },
       deleteBody
     );
@@ -190,13 +194,13 @@ describe("pointsRouter (HTTP, mocked service)", () => {
     });
     const res = createMockRes();
 
-    const error = new service.QdrantServiceError(
+    const error = new QdrantServiceError(
       400,
       { status: "error", error: "bad search" },
       "bad search"
     );
 
-    vi.mocked(service.searchPoints).mockRejectedValueOnce(error);
+    vi.mocked(pointsService.searchPoints).mockRejectedValueOnce(error);
 
     await searchHandler(req, res);
 
@@ -218,7 +222,7 @@ describe("pointsRouter (HTTP, mocked service)", () => {
     });
     const res = createMockRes();
 
-    vi.mocked(service.deletePoints).mockRejectedValueOnce(new Error("boom"));
+    vi.mocked(pointsService.deletePoints).mockRejectedValueOnce(new Error("boom"));
 
     await deleteHandler(req, res);
 

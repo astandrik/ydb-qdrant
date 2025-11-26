@@ -1,12 +1,12 @@
 import { Router, Request, Response } from "express";
 import { sanitizeCollectionName, sanitizeTenantId } from "../utils/tenant.js";
 import {
-  QdrantServiceError,
   putCollectionIndex,
   createCollection,
   getCollection,
   deleteCollection,
-} from "../services/QdrantService.js";
+} from "../services/CollectionService.js";
+import { QdrantServiceError } from "../services/errors.js";
 import { logger } from "../logging/logger.js";
 
 export const collectionsRouter = Router();

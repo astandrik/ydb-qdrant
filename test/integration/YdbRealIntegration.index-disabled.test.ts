@@ -1,5 +1,5 @@
 import { beforeAll, afterAll, describe, it, expect, vi } from "vitest";
-import { createYdbQdrantClient } from "../../src/package/Api.js";
+import { createYdbQdrantClient } from "../../src/package/api.js";
 import { logger } from "../../src/logging/logger.js";
 import { metaKeyFor } from "../../src/utils/tenant.js";
 import { getCollectionMeta } from "../../src/repositories/collectionsRepo.js";

@@ -18,28 +18,33 @@ vi.mock("../../src/logging/logger.js", () => ({
   },
 }));
 
-vi.mock("../../src/services/QdrantService.js", () => {
-  return {
-    QdrantServiceError: class QdrantServiceError extends Error {},
-    createCollection: vi
-      .fn()
-      .mockResolvedValue({ name: "col", tenant: "tenant_default" }),
-    getCollection: vi.fn().mockResolvedValue({
-      name: "col",
-      vectors: { size: 4, distance: "Cosine", data_type: "float" },
-    }),
-    deleteCollection: vi.fn().mockResolvedValue({ acknowledged: true }),
-    putCollectionIndex: vi.fn().mockResolvedValue({ acknowledged: true }),
-    upsertPoints: vi.fn().mockResolvedValue({ upserted: 1 }),
-    searchPoints: vi.fn().mockResolvedValue({ points: [] }),
-    deletePoints: vi.fn().mockResolvedValue({ deleted: 1 }),
-  };
-});
+vi.mock("../../src/services/errors.js", () => ({
+  QdrantServiceError: class QdrantServiceError extends Error {},
+}));
+
+vi.mock("../../src/services/CollectionService.js", () => ({
+  createCollection: vi
+    .fn()
+    .mockResolvedValue({ name: "col", tenant: "tenant_default" }),
+  getCollection: vi.fn().mockResolvedValue({
+    name: "col",
+    vectors: { size: 4, distance: "Cosine", data_type: "float" },
+  }),
+  deleteCollection: vi.fn().mockResolvedValue({ acknowledged: true }),
+  putCollectionIndex: vi.fn().mockResolvedValue({ acknowledged: true }),
+}));
+
+vi.mock("../../src/services/PointsService.js", () => ({
+  upsertPoints: vi.fn().mockResolvedValue({ upserted: 1 }),
+  searchPoints: vi.fn().mockResolvedValue({ points: [] }),
+  deletePoints: vi.fn().mockResolvedValue({ deleted: 1 }),
+}));
 
 import * as ydbClient from "../../src/ydb/client.js";
 import * as schema from "../../src/ydb/schema.js";
-import * as service from "../../src/services/QdrantService.js";
-import { createYdbQdrantClient } from "../../src/package/Api.js";
+import * as collectionService from "../../src/services/CollectionService.js";
+import * as pointsService from "../../src/services/PointsService.js";
+import { createYdbQdrantClient } from "../../src/package/api.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -55,7 +60,7 @@ describe("YdbQdrantClient (programmatic API, mocked YDB)", () => {
       vectors: { size: 4, distance: "Cosine", data_type: "float" },
     });
 
-    expect(service.createCollection).toHaveBeenCalledWith(
+    expect(collectionService.createCollection).toHaveBeenCalledWith(
       { tenant: "tenant_default", collection: "col" },
       expect.anything()
     );
@@ -66,7 +71,7 @@ describe("YdbQdrantClient (programmatic API, mocked YDB)", () => {
 
     await client.getCollection("col_default");
 
-    expect(service.getCollection).toHaveBeenCalledWith({
+    expect(collectionService.getCollection).toHaveBeenCalledWith({
       tenant: "default",
       collection: "col_default",
     });
@@ -82,7 +87,7 @@ describe("YdbQdrantClient (programmatic API, mocked YDB)", () => {
       points: [{ id: "p1", vector: [0, 0, 0, 1] }],
     });
 
-    expect(service.upsertPoints).toHaveBeenCalledWith(
+    expect(pointsService.upsertPoints).toHaveBeenCalledWith(
       { tenant: "tenant_other", collection: "col" },
       expect.anything()
     );
@@ -114,31 +119,31 @@ describe("YdbQdrantClient (programmatic API, mocked YDB)", () => {
     const deleteBody = { points: ["p1", "p2"] };
     await client.deletePoints("col_all", deleteBody);
 
-    expect(service.createCollection).toHaveBeenCalledWith(
+    expect(collectionService.createCollection).toHaveBeenCalledWith(
       { tenant: "tenant_default", collection: "col_all" },
       expect.anything()
     );
-    expect(service.getCollection).toHaveBeenCalledWith({
+    expect(collectionService.getCollection).toHaveBeenCalledWith({
       tenant: "tenant_default",
       collection: "col_all",
     });
-    expect(service.deleteCollection).toHaveBeenCalledWith({
+    expect(collectionService.deleteCollection).toHaveBeenCalledWith({
       tenant: "tenant_default",
       collection: "col_all",
     });
-    expect(service.putCollectionIndex).toHaveBeenCalledWith({
+    expect(collectionService.putCollectionIndex).toHaveBeenCalledWith({
       tenant: "tenant_default",
       collection: "col_all",
     });
-    expect(service.upsertPoints).toHaveBeenCalledWith(
+    expect(pointsService.upsertPoints).toHaveBeenCalledWith(
       { tenant: "tenant_default", collection: "col_all" },
       upsertBody
     );
-    expect(service.searchPoints).toHaveBeenCalledWith(
+    expect(pointsService.searchPoints).toHaveBeenCalledWith(
       { tenant: "tenant_default", collection: "col_all" },
       searchBody
     );
-    expect(service.deletePoints).toHaveBeenCalledWith(
+    expect(pointsService.deletePoints).toHaveBeenCalledWith(
       { tenant: "tenant_default", collection: "col_all" },
       deleteBody
     );
@@ -171,31 +176,31 @@ describe("YdbQdrantClient (programmatic API, mocked YDB)", () => {
     const deleteBody = { points: ["p1", "p2"] };
     await tClient.deletePoints("col_all", deleteBody);
 
-    expect(service.createCollection).toHaveBeenCalledWith(
+    expect(collectionService.createCollection).toHaveBeenCalledWith(
       { tenant: "tenant_other", collection: "col_all" },
       expect.anything()
     );
-    expect(service.getCollection).toHaveBeenCalledWith({
+    expect(collectionService.getCollection).toHaveBeenCalledWith({
       tenant: "tenant_other",
       collection: "col_all",
     });
-    expect(service.deleteCollection).toHaveBeenCalledWith({
+    expect(collectionService.deleteCollection).toHaveBeenCalledWith({
       tenant: "tenant_other",
       collection: "col_all",
     });
-    expect(service.putCollectionIndex).toHaveBeenCalledWith({
+    expect(collectionService.putCollectionIndex).toHaveBeenCalledWith({
       tenant: "tenant_other",
       collection: "col_all",
     });
-    expect(service.upsertPoints).toHaveBeenCalledWith(
+    expect(pointsService.upsertPoints).toHaveBeenCalledWith(
       { tenant: "tenant_other", collection: "col_all" },
       upsertBody
     );
-    expect(service.searchPoints).toHaveBeenCalledWith(
+    expect(pointsService.searchPoints).toHaveBeenCalledWith(
       { tenant: "tenant_other", collection: "col_all" },
       searchBody
     );
-    expect(service.deletePoints).toHaveBeenCalledWith(
+    expect(pointsService.deletePoints).toHaveBeenCalledWith(
       { tenant: "tenant_other", collection: "col_all" },
       deleteBody
     );

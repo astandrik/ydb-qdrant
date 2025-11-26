@@ -6,12 +6,14 @@ import {
   deleteCollection as serviceDeleteCollection,
   getCollection as serviceGetCollection,
   putCollectionIndex as servicePutCollectionIndex,
+} from "../services/CollectionService.js";
+import {
   upsertPoints as serviceUpsertPoints,
   searchPoints as serviceSearchPoints,
   deletePoints as serviceDeletePoints,
-} from "../services/QdrantService.js";
+} from "../services/PointsService.js";
 
-export { QdrantServiceError } from "../services/QdrantService.js";
+export { QdrantServiceError } from "../services/errors.js";
 export {
   CreateCollectionReq,
   UpsertPointsReq,
@@ -56,6 +58,53 @@ export interface YdbQdrantClient extends YdbQdrantTenantClient {
   forTenant(tenant: string): YdbQdrantTenantClient;
 }
 
+function buildTenantClient(resolveTenant: () => string): YdbQdrantTenantClient {
+  return {
+    createCollection(
+      collection: string,
+      body: unknown
+    ): Promise<CreateCollectionResult> {
+      return serviceCreateCollection(
+        { tenant: resolveTenant(), collection },
+        body
+      );
+    },
+
+    getCollection(collection: string): Promise<GetCollectionResult> {
+      return serviceGetCollection({ tenant: resolveTenant(), collection });
+    },
+
+    deleteCollection(collection: string): Promise<DeleteCollectionResult> {
+      return serviceDeleteCollection({ tenant: resolveTenant(), collection });
+    },
+
+    putCollectionIndex(collection: string): Promise<PutIndexResult> {
+      return servicePutCollectionIndex({ tenant: resolveTenant(), collection });
+    },
+
+    upsertPoints(
+      collection: string,
+      body: unknown
+    ): Promise<UpsertPointsResult> {
+      return serviceUpsertPoints({ tenant: resolveTenant(), collection }, body);
+    },
+
+    searchPoints(
+      collection: string,
+      body: unknown
+    ): Promise<SearchPointsResult> {
+      return serviceSearchPoints({ tenant: resolveTenant(), collection }, body);
+    },
+
+    deletePoints(
+      collection: string,
+      body: unknown
+    ): Promise<DeletePointsResult> {
+      return serviceDeletePoints({ tenant: resolveTenant(), collection }, body);
+    },
+  };
+}
+
 export async function createYdbQdrantClient(
   options: YdbQdrantClientOptions = {}
 ): Promise<YdbQdrantClient> {
@@ -78,101 +127,13 @@ export async function createYdbQdrantClient(
 
   const defaultTenant = options.defaultTenant ?? "default";
 
-  const resolveTenant = (tenant?: string): string => tenant ?? defaultTenant;
+  const baseClient = buildTenantClient(() => defaultTenant);
 
   const client: YdbQdrantClient = {
-    async createCollection(
-      collection: string,
-      body: unknown
-    ): Promise<CreateCollectionResult> {
-      const tenant = resolveTenant(undefined);
-      return await serviceCreateCollection({ tenant, collection }, body);
-    },
-
-    async getCollection(collection: string): Promise<GetCollectionResult> {
-      const tenant = resolveTenant(undefined);
-      return await serviceGetCollection({ tenant, collection });
-    },
-
-    async deleteCollection(
-      collection: string
-    ): Promise<DeleteCollectionResult> {
-      const tenant = resolveTenant(undefined);
-      return await serviceDeleteCollection({ tenant, collection });
-    },
-
-    async putCollectionIndex(collection: string): Promise<PutIndexResult> {
-      const tenant = resolveTenant(undefined);
-      return await servicePutCollectionIndex({ tenant, collection });
-    },
-
-    async upsertPoints(
-      collection: string,
-      body: unknown
-    ): Promise<UpsertPointsResult> {
-      const tenant = resolveTenant(undefined);
-      return await serviceUpsertPoints({ tenant, collection }, body);
-    },
-
-    async searchPoints(
-      collection: string,
-      body: unknown
-    ): Promise<SearchPointsResult> {
-      const tenant = resolveTenant(undefined);
-      return await serviceSearchPoints({ tenant, collection }, body);
-    },
-
-    async deletePoints(
-      collection: string,
-      body: unknown
-    ): Promise<DeletePointsResult> {
-      const tenant = resolveTenant(undefined);
-      return await serviceDeletePoints({ tenant, collection }, body);
-    },
+    ...baseClient,
 
     forTenant(tenantId: string): YdbQdrantTenantClient {
-      const tenant = tenantId;
-      return {
-        createCollection(
-          collection: string,
-          body: unknown
-        ): Promise<CreateCollectionResult> {
-          return serviceCreateCollection({ tenant, collection }, body);
-        },
-
-        getCollection(collection: string): Promise<GetCollectionResult> {
-          return serviceGetCollection({ tenant, collection });
-        },
-
-        deleteCollection(collection: string): Promise<DeleteCollectionResult> {
-          return serviceDeleteCollection({ tenant, collection });
-        },
-
-        putCollectionIndex(collection: string): Promise<PutIndexResult> {
-          return servicePutCollectionIndex({ tenant, collection });
-        },
-
-        upsertPoints(
-          collection: string,
-          body: unknown
-        ): Promise<UpsertPointsResult> {
-          return serviceUpsertPoints({ tenant, collection }, body);
-        },
-
-        searchPoints(
-          collection: string,
-          body: unknown
-        ): Promise<SearchPointsResult> {
-          return serviceSearchPoints({ tenant, collection }, body);
-        },
-
-        deletePoints(
-          collection: string,
-          body: unknown
-        ): Promise<DeletePointsResult> {
-          return serviceDeletePoints({ tenant, collection }, body);
-        },
-      };
+      return buildTenantClient(() => tenantId);
     },
   };
 
