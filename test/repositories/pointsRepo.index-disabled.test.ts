@@ -38,6 +38,7 @@ vi.mock("../../src/indexing/IndexScheduler.js", () => ({
 vi.mock("../../src/config/env.js", () => ({
   LOG_LEVEL: "info",
   VECTOR_INDEX_BUILD_ENABLED: false,
+  TABLE_LAYOUT: "multi_table",
 }));
 
 import { searchPoints } from "../../src/repositories/pointsRepo.js";

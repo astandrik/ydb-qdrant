@@ -1,9 +1,3 @@
-import {
-  sanitizeCollectionName,
-  sanitizeTenantId,
-  metaKeyFor,
-  tableNameFor,
-} from "../utils/tenant.js";
 import { CreateCollectionReq, type DistanceKind } from "../types.js";
 import { ensureMetaTable } from "../ydb/schema.js";
 import {
@@ -12,6 +6,14 @@ import {
   getCollectionMeta,
 } from "../repositories/collectionsRepo.js";
 import { QdrantServiceError } from "./errors.js";
+import { TABLE_LAYOUT, isOneTableLayout } from "../config/env.js";
+import {
+  normalizeCollectionContextShared,
+  tableNameFor,
+  type NormalizedCollectionContextLike,
+} from "./CollectionService.shared.js";
+import { resolvePointsTableAndUidMultiTable } from "./CollectionService.multi-table.js";
+import { resolvePointsTableAndUidOneTable } from "./CollectionService.one-table.js";
 
 export interface CollectionContextInput {
   tenant: string | undefined;
@@ -27,10 +29,24 @@ export interface NormalizedCollectionContext {
 export function normalizeCollectionContext(
   input: CollectionContextInput
 ): NormalizedCollectionContext {
-  const tenant = sanitizeTenantId(input.tenant);
-  const collection = sanitizeCollectionName(input.collection);
-  const metaKey = metaKeyFor(tenant, collection);
-  return { tenant, collection, metaKey };
+  return normalizeCollectionContextShared(
+    input.tenant,
+    input.collection
+  ) as NormalizedCollectionContext;
+}
+
+export function resolvePointsTableAndUid(ctx: NormalizedCollectionContext): {
+  tableName: string;
+  uid: string | undefined;
+} {
+  if (isOneTableLayout(TABLE_LAYOUT)) {
+    return resolvePointsTableAndUidOneTable(
+      ctx as NormalizedCollectionContextLike
+    );
+  }
+  return resolvePointsTableAndUidMultiTable(
+    ctx as NormalizedCollectionContextLike
+  );
 }
 
 export async function putCollectionIndex(
@@ -122,6 +138,7 @@ export async function deleteCollection(
 ): Promise<{ acknowledged: boolean }> {
   await ensureMetaTable();
   const normalized = normalizeCollectionContext(ctx);
-  await repoDeleteCollection(normalized.metaKey);
+  const { uid } = resolvePointsTableAndUid(normalized);
+  await repoDeleteCollection(normalized.metaKey, uid);
   return { acknowledged: true };
 }

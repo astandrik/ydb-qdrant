@@ -29,3 +29,17 @@ export const VECTOR_INDEX_BUILD_ENABLED = parseBooleanEnv(
   process.env.VECTOR_INDEX_BUILD_ENABLED,
   false
 );
+
+export enum TableLayout {
+  MultiTable = "multi_table",
+  OneTable = "one_table",
+}
+
+export const TABLE_LAYOUT: TableLayout =
+  process.env.YDB_QDRANT_TABLE_LAYOUT === TableLayout.OneTable
+    ? TableLayout.OneTable
+    : TableLayout.MultiTable;
+
+export function isOneTableLayout(layout: TableLayout): boolean {
+  return layout === TableLayout.OneTable;
+}

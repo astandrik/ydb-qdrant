@@ -15,6 +15,8 @@ vi.mock("../../src/logging/logger.js", () => ({
 
 vi.mock("../../src/config/env.js", () => ({
   VECTOR_INDEX_BUILD_ENABLED: true,
+  TABLE_LAYOUT: "multi_table",
+  isOneTableLayout: (layout: string) => layout === "one_table",
 }));
 
 vi.mock("../../src/indexing/IndexScheduler.js", () => ({
@@ -170,7 +172,8 @@ describe("QdrantService (with mocked YDB)", () => {
 
     expect(result).toEqual({ acknowledged: true });
     expect(collectionsRepo.deleteCollection).toHaveBeenCalledWith(
-      "tenant_a/my_collection"
+      "tenant_a/my_collection",
+      undefined
     );
   });
 
@@ -356,7 +359,8 @@ describe("QdrantService (with mocked YDB)", () => {
       1,
       true,
       "Cosine",
-      4
+      4,
+      undefined
     );
   });
 

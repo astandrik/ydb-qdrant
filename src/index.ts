@@ -1,14 +1,17 @@
 import "dotenv/config";
 import { buildServer } from "./server.js";
-import { PORT } from "./config/env.js";
+import { PORT, TABLE_LAYOUT, isOneTableLayout } from "./config/env.js";
 import { logger } from "./logging/logger.js";
 import { readyOrThrow } from "./ydb/client.js";
-import { ensureMetaTable } from "./ydb/schema.js";
+import { ensureMetaTable, ensureGlobalPointsTable } from "./ydb/schema.js";
 
 async function start(): Promise<void> {
   try {
     await readyOrThrow();
     await ensureMetaTable();
+    if (isOneTableLayout(TABLE_LAYOUT)) {
+      await ensureGlobalPointsTable();
+    }
   } catch (err: unknown) {
     logger.error(
       { err },

@@ -12,6 +12,7 @@ import { VECTOR_INDEX_BUILD_ENABLED } from "../config/env.js";
 import { QdrantServiceError } from "./errors.js";
 import {
   normalizeCollectionContext,
+  resolvePointsTableAndUid,
   type CollectionContextInput,
 } from "./CollectionService.js";
 import {
@@ -46,22 +47,24 @@ export async function upsertPoints(
     });
   }
 
+  const { tableName, uid } = resolvePointsTableAndUid(normalized);
   const upserted = await repoUpsertPoints(
-    meta.table,
+    tableName,
     parsed.data.points,
-    meta.dimension
+    meta.dimension,
+    uid
   );
 
   if (VECTOR_INDEX_BUILD_ENABLED) {
     requestIndexBuild(
-      meta.table,
+      tableName,
       meta.dimension,
       meta.distance,
       meta.vectorType
     );
   } else if (!loggedIndexBuildDisabled) {
     logger.info(
-      { table: meta.table },
+      { table: tableName },
       "vector index building disabled by env; skipping automatic emb_idx rebuilds"
     );
     loggedIndexBuildDisabled = true;
@@ -126,6 +129,8 @@ async function executeSearch(
     });
   }
 
+  const { tableName, uid } = resolvePointsTableAndUid(normalized);
+
   logger.info(
     {
       tenant: normalized.tenant,
@@ -140,12 +145,13 @@ async function executeSearch(
   );
 
   const hits = await repoSearchPoints(
-    meta.table,
+    tableName,
     parsed.data.vector,
     parsed.data.top,
     parsed.data.with_payload,
     meta.distance,
-    meta.dimension
+    meta.dimension,
+    uid
   );
 
   const threshold = normalizedSearch.scoreThreshold;
@@ -223,6 +229,7 @@ export async function deletePoints(
     });
   }
 
-  const deleted = await repoDeletePoints(meta.table, parsed.data.points);
+  const { tableName, uid } = resolvePointsTableAndUid(normalized);
+  const deleted = await repoDeletePoints(tableName, parsed.data.points, uid);
   return { deleted };
 }

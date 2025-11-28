@@ -31,6 +31,8 @@ vi.mock("../../src/repositories/pointsRepo.js", () => ({
 
 vi.mock("../../src/config/env.js", () => ({
   VECTOR_INDEX_BUILD_ENABLED: false,
+  TABLE_LAYOUT: "multi_table",
+  isOneTableLayout: (layout: string) => layout === "one_table",
 }));
 
 import * as collectionsRepo from "../../src/repositories/collectionsRepo.js";

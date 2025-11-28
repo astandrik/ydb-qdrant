@@ -38,6 +38,7 @@ vi.mock("../../src/indexing/IndexScheduler.js", () => ({
 vi.mock("../../src/config/env.js", () => ({
   LOG_LEVEL: "info",
   VECTOR_INDEX_BUILD_ENABLED: true,
+  TABLE_LAYOUT: "multi_table",
 }));
 
 import {
@@ -241,5 +242,82 @@ describe("pointsRepo (with mocked YDB)", () => {
 
     expect(deleted).toBe(2);
     expect(sessionMock.executeQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it("upserts points with uid parameter for one_table mode", async () => {
+    const sessionMock = {
+      executeQuery: vi.fn(),
+    };
+
+    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
+      await fn(sessionMock);
+    });
+
+    const result = await upsertPoints(
+      "qdrant_all_points",
+      [{ id: "p1", vector: [0, 0, 0, 1], payload: { a: 1 } }],
+      4,
+      "qdr_tenant_a__my_collection"
+    );
+
+    expect(result).toBe(1);
+    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
+    const yql = sessionMock.executeQuery.mock.calls[0][0] as string;
+    expect(yql).toContain("DECLARE $uid AS Utf8");
+    expect(yql).toContain("UPSERT INTO qdrant_all_points (uid, point_id");
+  });
+
+  it("searches points with uid parameter for one_table mode", async () => {
+    const sessionMock = {
+      executeQuery: vi.fn().mockResolvedValueOnce({
+        resultSets: [
+          {
+            rows: [
+              {
+                items: [{ textValue: "p1" }, { floatValue: 0.9 }],
+              },
+            ],
+          },
+        ],
+      }),
+    };
+
+    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
+      return await fn(sessionMock);
+    });
+
+    const result = await searchPoints(
+      "qdrant_all_points",
+      [0, 0, 0, 1],
+      5,
+      false,
+      "Cosine",
+      4,
+      "qdr_tenant_a__my_collection"
+    );
+
+    expect(result).toEqual([{ id: "p1", score: 0.9 }]);
+    const yql = sessionMock.executeQuery.mock.calls[0][0] as string;
+    expect(yql).toContain("WHERE uid = $uid");
+  });
+
+  it("deletes points with uid parameter for one_table mode", async () => {
+    const sessionMock = {
+      executeQuery: vi.fn(),
+    };
+
+    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
+      await fn(sessionMock);
+    });
+
+    const deleted = await deletePoints(
+      "qdrant_all_points",
+      ["p1"],
+      "qdr_tenant_a__my_collection"
+    );
+
+    expect(deleted).toBe(1);
+    const yql = sessionMock.executeQuery.mock.calls[0][0] as string;
+    expect(yql).toContain("WHERE uid = $uid AND point_id = $id");
   });
 });
