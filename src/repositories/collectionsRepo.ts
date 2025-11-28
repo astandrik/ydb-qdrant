@@ -24,13 +24,7 @@ export async function createCollection(
   layout: CollectionStorageMode = COLLECTION_STORAGE_MODE
 ): Promise<void> {
   if (isOneTableMode(layout)) {
-    await createCollectionOneTable(
-      metaKey,
-      dim,
-      distance,
-      vectorType,
-      tableName
-    );
+    await createCollectionOneTable(metaKey, dim, distance, vectorType);
     return;
   }
   await createCollectionMultiTable(

@@ -7,10 +7,15 @@ export async function createCollectionOneTable(
   metaKey: string,
   dim: number,
   distance: DistanceKind,
-  vectorType: VectorType,
-  tableName: string
+  vectorType: VectorType
 ): Promise<void> {
-  await upsertCollectionMeta(metaKey, dim, distance, vectorType, tableName);
+  await upsertCollectionMeta(
+    metaKey,
+    dim,
+    distance,
+    vectorType,
+    GLOBAL_POINTS_TABLE
+  );
 }
 
 export async function deleteCollectionOneTable(
