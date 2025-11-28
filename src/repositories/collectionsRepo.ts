@@ -88,7 +88,12 @@ export async function deleteCollection(
   const meta = await getCollectionMeta(metaKey);
   if (!meta) return;
 
-  if (isOneTableMode(layout) && uid) {
+  if (isOneTableMode(layout)) {
+    if (!uid) {
+      throw new Error(
+        `deleteCollection: uid is required when using one_table layout (metaKey=${metaKey})`
+      );
+    }
     await deleteCollectionOneTable(metaKey, uid);
     return;
   }
