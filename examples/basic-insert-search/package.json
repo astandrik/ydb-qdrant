@@ -1,0 +1,15 @@
+{
+  "name": "basic-insert-search",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "ts-node index.ts"
+  },
+  "dependencies": {
+    "@qdrant/js-client-rest": "^1.7.0",
+    "openai": "^4.56.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.0"
+  }
+}
