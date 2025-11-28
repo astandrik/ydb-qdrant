@@ -55,6 +55,9 @@ export USE_EMBEDDER=openrouter
 export OPENROUTER_EMBED_MODEL=openai/text-embedding-3-small
 # Optional: override the base URL (defaults to https://openrouter.ai/api/v1)
 export OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+# Optional: add recommended request metadata for OpenRouter's usage dashboard
+export OPENROUTER_SITE_URL=https://your-site-or-docs.example.com
+export OPENROUTER_APP_NAME="ydb-qdrant basic example"
 ```
 
 2) Run the script again:

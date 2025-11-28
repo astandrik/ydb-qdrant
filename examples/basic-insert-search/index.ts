@@ -8,6 +8,8 @@ type InsertConfig =
       apiKey: string;
       model: string;
       baseUrl: string;
+      siteUrl?: string;
+      appName?: string;
       texts: string[];
       collectionName: string;
     };
@@ -22,6 +24,8 @@ const insertConfig: InsertConfig = useOpenRouter
       apiKey: openRouterApiKey as string,
       model: process.env.OPENROUTER_EMBED_MODEL || "openai/text-embedding-3-small",
       baseUrl: process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1",
+      siteUrl: process.env.OPENROUTER_SITE_URL,
+      appName: process.env.OPENROUTER_APP_NAME,
       texts: [
         "A calm day by the sea",
         "A loud concert in a packed stadium",
@@ -37,7 +41,21 @@ const insertConfig: InsertConfig = useOpenRouter
 async function embedWithOpenRouter(
   config: Extract<InsertConfig, { mode: "openrouter" }>,
 ) {
-  const openai = new OpenAI({ apiKey: config.apiKey, baseURL: config.baseUrl });
+  const defaultHeaders: Record<string, string> = {};
+
+  if (config.siteUrl) {
+    defaultHeaders["HTTP-Referer"] = config.siteUrl;
+  }
+
+  if (config.appName) {
+    defaultHeaders["X-Title"] = config.appName;
+  }
+
+  const openai = new OpenAI({
+    apiKey: config.apiKey,
+    baseURL: config.baseUrl,
+    defaultHeaders: Object.keys(defaultHeaders).length ? defaultHeaders : undefined,
+  });
 
   const embeddings = await openai.embeddings.create({
     model: config.model,
