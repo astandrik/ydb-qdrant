@@ -40,7 +40,7 @@ Notes
   - `PORT` (default 8080)
   - `LOG_LEVEL`
   - `VECTOR_INDEX_BUILD_ENABLED` — `"true"`/`"false"` toggle for automatic vector index builds and search behavior (default `"false"`). When `"true"`, upserts schedule automatic builds and search first uses the vector index `emb_idx`, falling back to a table scan if the index is missing. When `"false"`, no automatic builds are scheduled and search never uses the vector index (all queries are executed as table scans over `embedding`).
-  - `YDB_QDRANT_TABLE_LAYOUT` — `"multi_table"` or `"one_table"` (default `"multi_table"`). Controls whether points are stored in per‑collection tables or a single global table. Backed by the `TableLayout` enum in `config/env.ts`.
+  - `YDB_QDRANT_COLLECTION_STORAGE_MODE` — `"multi_table"` or `"one_table"` (default `"multi_table"`). Controls whether points are stored in per‑collection tables or a single global table. Backed by the `CollectionStorageMode` enum in `config/env.ts`. The legacy `YDB_QDRANT_TABLE_LAYOUT` env is still accepted as an alias.
 
 ## Run
 - Dev: `npm run dev`  (tsx + watch)
@@ -87,7 +87,7 @@ Notes
   - Search automatically uses VIEW emb_idx; falls back to table scan if missing
 
 ## Project structure (src/)
-- `config/env.ts` — loads env (`dotenv/config`), exports `YDB_ENDPOINT`, `YDB_DATABASE`, `PORT`, `LOG_LEVEL`, `TableLayout` enum and `TABLE_LAYOUT`.
+- `config/env.ts` — loads env (`dotenv/config`), exports `YDB_ENDPOINT`, `YDB_DATABASE`, `PORT`, `LOG_LEVEL`, `CollectionStorageMode` enum and `COLLECTION_STORAGE_MODE` helpers.
 - `logging/logger.ts` — pino logger (level from env).
 - `utils/tenant.ts` — `sanitizeTenantId`, `sanitizeCollectionName`, `metaKeyFor`, `tableNameFor`.
 - `utils/normalization.ts` — vector extraction (`extractVectorLoose`, `isNumberArray`) and search body normalization (`normalizeSearchBodyForSearch`, `normalizeSearchBodyForQuery`).

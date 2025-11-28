@@ -1,5 +1,5 @@
 import type { DistanceKind, VectorType } from "../types.js";
-import { TABLE_LAYOUT, isOneTableLayout } from "../config/env.js";
+import { COLLECTION_STORAGE_MODE, isOneTableMode } from "../config/env.js";
 import {
   state,
   requestIndexBuildMultiTable,
@@ -25,7 +25,7 @@ export function requestIndexBuild(
   vectorType: VectorType,
   opts?: { force?: boolean }
 ): void {
-  if (isOneTableLayout(TABLE_LAYOUT)) {
+  if (isOneTableMode(COLLECTION_STORAGE_MODE)) {
     requestIndexBuildOneTable(tableName);
     return;
   }

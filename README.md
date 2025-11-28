@@ -75,8 +75,8 @@ Optional env:
 # Server
 export PORT=8080
 export LOG_LEVEL=info
-# Storage layout (optional; default is multi_table)
-export YDB_QDRANT_TABLE_LAYOUT=multi_table   # or one_table
+# Collection storage mode (optional; default is multi_table)
+export YDB_QDRANT_COLLECTION_STORAGE_MODE=multi_table   # or one_table
 ```
 
 ## Use as a Node.js library (npm package)

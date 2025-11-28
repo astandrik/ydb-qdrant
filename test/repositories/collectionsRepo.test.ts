@@ -39,9 +39,9 @@ vi.mock("../../src/ydb/client.js", () => {
 });
 
 vi.mock("../../src/config/env.js", () => ({
-  TABLE_LAYOUT: "multi_table",
+  COLLECTION_STORAGE_MODE: "multi_table",
   LOG_LEVEL: "info",
-  isOneTableLayout: (layout: string) => layout === "one_table",
+  isOneTableMode: (mode: string) => mode === "one_table",
 }));
 
 import {

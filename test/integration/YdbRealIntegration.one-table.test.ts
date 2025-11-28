@@ -1,10 +1,10 @@
 import { beforeAll, describe, it, expect } from "vitest";
 import { createYdbQdrantClient } from "../../src/package/api.js";
-import { TABLE_LAYOUT } from "../../src/config/env.js";
+import { COLLECTION_STORAGE_MODE } from "../../src/config/env.js";
 import { GLOBAL_POINTS_TABLE } from "../../src/ydb/schema.js";
 import { withSession, TypedValues } from "../../src/ydb/client.js";
 
-describe("YDB integration with TABLE_LAYOUT=one_table", () => {
+describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
   const tenant = process.env.YDB_QDRANT_INTEGRATION_TENANT ?? "itest_tenant";
   const collectionBase =
     process.env.YDB_QDRANT_INTEGRATION_COLLECTION ?? "itest_collection";
@@ -15,8 +15,8 @@ describe("YDB integration with TABLE_LAYOUT=one_table", () => {
     client = await createYdbQdrantClient({ defaultTenant: tenant });
   });
 
-  it("guards: TABLE_LAYOUT must be one_table for this test suite", () => {
-    expect(TABLE_LAYOUT).toBe("one_table");
+  it("guards: COLLECTION_STORAGE_MODE must be one_table for this test suite", () => {
+    expect(COLLECTION_STORAGE_MODE).toBe("one_table");
   });
 
   it("creates collection, upserts points to global table, and performs search", async () => {

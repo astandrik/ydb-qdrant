@@ -30,16 +30,26 @@ export const VECTOR_INDEX_BUILD_ENABLED = parseBooleanEnv(
   false
 );
 
-export enum TableLayout {
+export enum CollectionStorageMode {
   MultiTable = "multi_table",
   OneTable = "one_table",
 }
 
-export const TABLE_LAYOUT: TableLayout =
-  process.env.YDB_QDRANT_TABLE_LAYOUT === TableLayout.OneTable
-    ? TableLayout.OneTable
-    : TableLayout.MultiTable;
+function resolveCollectionStorageModeEnv(): CollectionStorageMode {
+  const explicit =
+    process.env.YDB_QDRANT_COLLECTION_STORAGE_MODE ??
+    process.env.YDB_QDRANT_TABLE_LAYOUT;
+  if (explicit?.trim().toLowerCase() === CollectionStorageMode.OneTable) {
+    return CollectionStorageMode.OneTable;
+  }
+  return CollectionStorageMode.MultiTable;
+}
 
-export function isOneTableLayout(layout: TableLayout): boolean {
-  return layout === TableLayout.OneTable;
+export const COLLECTION_STORAGE_MODE: CollectionStorageMode =
+  resolveCollectionStorageModeEnv();
+
+export function isOneTableMode(
+  mode: CollectionStorageMode
+): mode is CollectionStorageMode.OneTable {
+  return mode === CollectionStorageMode.OneTable;
 }

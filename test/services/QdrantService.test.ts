@@ -15,8 +15,8 @@ vi.mock("../../src/logging/logger.js", () => ({
 
 vi.mock("../../src/config/env.js", () => ({
   VECTOR_INDEX_BUILD_ENABLED: true,
-  TABLE_LAYOUT: "multi_table",
-  isOneTableLayout: (layout: string) => layout === "one_table",
+  COLLECTION_STORAGE_MODE: "multi_table",
+  isOneTableMode: (mode: string) => mode === "one_table",
 }));
 
 vi.mock("../../src/indexing/IndexScheduler.js", () => ({

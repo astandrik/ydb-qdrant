@@ -2,9 +2,9 @@ import { TypedValues, withSession } from "../ydb/client.js";
 import type { DistanceKind, VectorType } from "../types";
 import { mapDistanceToIndexParam } from "../utils/distance.js";
 import {
-  TABLE_LAYOUT,
-  isOneTableLayout,
-  type TableLayout,
+  COLLECTION_STORAGE_MODE,
+  isOneTableMode,
+  type CollectionStorageMode,
 } from "../config/env.js";
 import {
   createCollectionMultiTable,
@@ -21,9 +21,9 @@ export async function createCollection(
   distance: DistanceKind,
   vectorType: VectorType,
   tableName: string,
-  layout: TableLayout = TABLE_LAYOUT
+  layout: CollectionStorageMode = COLLECTION_STORAGE_MODE
 ): Promise<void> {
-  if (isOneTableLayout(layout)) {
+  if (isOneTableMode(layout)) {
     await createCollectionOneTable(
       metaKey,
       dim,
@@ -83,12 +83,12 @@ export async function getCollectionMeta(metaKey: string): Promise<{
 export async function deleteCollection(
   metaKey: string,
   uid?: string,
-  layout: TableLayout = TABLE_LAYOUT
+  layout: CollectionStorageMode = COLLECTION_STORAGE_MODE
 ): Promise<void> {
   const meta = await getCollectionMeta(metaKey);
   if (!meta) return;
 
-  if (isOneTableLayout(layout) && uid) {
+  if (isOneTableMode(layout) && uid) {
     await deleteCollectionOneTable(metaKey, uid);
     return;
   }

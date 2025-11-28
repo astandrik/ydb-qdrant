@@ -6,7 +6,7 @@ import {
   getCollectionMeta,
 } from "../repositories/collectionsRepo.js";
 import { QdrantServiceError } from "./errors.js";
-import { TABLE_LAYOUT, isOneTableLayout } from "../config/env.js";
+import { COLLECTION_STORAGE_MODE, isOneTableMode } from "../config/env.js";
 import {
   normalizeCollectionContextShared,
   tableNameFor,
@@ -39,7 +39,7 @@ export function resolvePointsTableAndUid(ctx: NormalizedCollectionContext): {
   tableName: string;
   uid: string | undefined;
 } {
-  if (isOneTableLayout(TABLE_LAYOUT)) {
+  if (isOneTableMode(COLLECTION_STORAGE_MODE)) {
     return resolvePointsTableAndUidOneTable(
       ctx as NormalizedCollectionContextLike
     );
