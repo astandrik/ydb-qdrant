@@ -4,35 +4,40 @@ import OpenAI from "openai";
 type InsertConfig =
   | { mode: "manual"; collectionName: string }
   | {
-      mode: "openai";
+      mode: "openrouter";
       apiKey: string;
       model: string;
+      baseUrl: string;
       texts: string[];
       collectionName: string;
     };
 
-const openAiApiKey = process.env.OPENAI_API_KEY;
-const useOpenAI = process.env.USE_EMBEDDER === "openai" && Boolean(openAiApiKey);
+const openRouterApiKey = process.env.OPENROUTER_API_KEY;
+const useOpenRouter =
+  process.env.USE_EMBEDDER === "openrouter" && Boolean(openRouterApiKey);
 
-const insertConfig: InsertConfig = useOpenAI
+const insertConfig: InsertConfig = useOpenRouter
   ? {
-      mode: "openai",
-      apiKey: openAiApiKey as string,
-      model: process.env.OPENAI_EMBED_MODEL || "text-embedding-3-small",
+      mode: "openrouter",
+      apiKey: openRouterApiKey as string,
+      model: process.env.OPENROUTER_EMBED_MODEL || "openai/text-embedding-3-small",
+      baseUrl: process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1",
       texts: [
         "A calm day by the sea",
         "A loud concert in a packed stadium",
         "A quiet library with old books",
       ],
-      collectionName: "demo_basic_openai",
+      collectionName: "demo_basic_openrouter",
     }
   : {
       mode: "manual",
       collectionName: "demo_basic",
     };
 
-async function embedWithOpenAI(config: Extract<InsertConfig, { mode: "openai" }>) {
-  const openai = new OpenAI({ apiKey: config.apiKey });
+async function embedWithOpenRouter(
+  config: Extract<InsertConfig, { mode: "openrouter" }>,
+) {
+  const openai = new OpenAI({ apiKey: config.apiKey, baseURL: config.baseUrl });
 
   const embeddings = await openai.embeddings.create({
     model: config.model,
@@ -82,8 +87,8 @@ async function main() {
   const embedConfig = insertConfig;
   const collectionName = embedConfig.collectionName;
 
-  console.log("Generating embeddings with OpenAI…");
-  const vectors = await embedWithOpenAI(embedConfig);
+  console.log("Generating embeddings with OpenRouter…");
+  const vectors = await embedWithOpenRouter(embedConfig);
 
   console.log(`Creating collection for ${vectors[0].length}-dimensional embeddings…`);
   await client.createCollection(collectionName, {
@@ -100,7 +105,7 @@ async function main() {
   });
 
   console.log("Searching with an embedded query…");
-  const [queryVector] = await embedWithOpenAI({
+  const [queryVector] = await embedWithOpenRouter({
     ...embedConfig,
     texts: ["Find something peaceful and quiet"],
   });
