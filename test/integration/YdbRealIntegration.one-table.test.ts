@@ -117,11 +117,15 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
 
     // Upsert points for each tenant
     await clientA.upsertPoints(collection, {
-      points: [{ id: "shared_id", vector: [1, 0, 0, 0], payload: { tenant: "a" } }],
+      points: [
+        { id: "shared_id", vector: [1, 0, 0, 0], payload: { tenant: "a" } },
+      ],
     });
 
     await clientB.upsertPoints(collection, {
-      points: [{ id: "shared_id", vector: [0, 1, 0, 0], payload: { tenant: "b" } }],
+      points: [
+        { id: "shared_id", vector: [0, 1, 0, 0], payload: { tenant: "b" } },
+      ],
     });
 
     // Search from tenant A should only see tenant A's data
@@ -243,4 +247,3 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     }
   });
 });
-

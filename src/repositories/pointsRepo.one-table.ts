@@ -145,10 +145,10 @@ export async function deletePointsOneTable(
   await withSession(async (s) => {
     for (const id of ids) {
       const yql = `
-          DECLARE $uid AS Utf8;
-          DECLARE $id AS Utf8;
-          DELETE FROM ${tableName} WHERE uid = $uid AND point_id = $id;
-        `;
+        DECLARE $uid AS Utf8;
+        DECLARE $id AS Utf8;
+        DELETE FROM ${tableName} WHERE uid = $uid AND point_id = $id;
+      `;
       const params: QueryParams = {
         $uid: TypedValues.utf8(uid),
         $id: TypedValues.utf8(String(id)),
@@ -160,5 +160,3 @@ export async function deletePointsOneTable(
   });
   return deleted;
 }
-
-

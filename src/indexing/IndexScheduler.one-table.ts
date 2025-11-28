@@ -6,5 +6,3 @@ export function requestIndexBuildOneTable(tableName: string): void {
     "index build skipped (one_table mode: global vector index not supported)"
   );
 }
-
-

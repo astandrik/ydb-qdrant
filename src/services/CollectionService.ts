@@ -35,12 +35,14 @@ export function normalizeCollectionContext(
   ) as NormalizedCollectionContext;
 }
 
-export function resolvePointsTableAndUid(ctx: NormalizedCollectionContext): {
+export async function resolvePointsTableAndUid(
+  ctx: NormalizedCollectionContext
+): Promise<{
   tableName: string;
   uid: string | undefined;
-} {
+}> {
   if (isOneTableMode(COLLECTION_STORAGE_MODE)) {
-    return resolvePointsTableAndUidOneTable(
+    return await resolvePointsTableAndUidOneTable(
       ctx as NormalizedCollectionContextLike
     );
   }
@@ -138,7 +140,7 @@ export async function deleteCollection(
 ): Promise<{ acknowledged: boolean }> {
   await ensureMetaTable();
   const normalized = normalizeCollectionContext(ctx);
-  const { uid } = resolvePointsTableAndUid(normalized);
+  const { uid } = await resolvePointsTableAndUid(normalized);
   await repoDeleteCollection(normalized.metaKey, uid);
   return { acknowledged: true };
 }

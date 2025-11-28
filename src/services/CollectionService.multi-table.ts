@@ -14,5 +14,3 @@ export function resolvePointsTableAndUidMultiTable(
     uid: undefined,
   };
 }
-
-

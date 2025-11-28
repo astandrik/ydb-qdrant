@@ -3,6 +3,8 @@ import { logger } from "../logging/logger.js";
 
 export const GLOBAL_POINTS_TABLE = "qdrant_all_points";
 
+let globalPointsTableReady = false;
+
 export async function ensureMetaTable(): Promise<void> {
   try {
     await withSession(async (s) => {
@@ -32,10 +34,15 @@ export async function ensureMetaTable(): Promise<void> {
 }
 
 export async function ensureGlobalPointsTable(): Promise<void> {
+  if (globalPointsTableReady) {
+    return;
+  }
+
   try {
     await withSession(async (s) => {
       try {
         await s.describeTable(GLOBAL_POINTS_TABLE);
+        globalPointsTableReady = true;
         return;
       } catch {
         const desc = new TableDescription()
@@ -47,6 +54,7 @@ export async function ensureGlobalPointsTable(): Promise<void> {
           )
           .withPrimaryKeys("uid", "point_id");
         await s.createTable(GLOBAL_POINTS_TABLE, desc);
+        globalPointsTableReady = true;
         logger.info(`created global points table ${GLOBAL_POINTS_TABLE}`);
       }
     });

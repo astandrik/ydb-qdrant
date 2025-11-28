@@ -31,6 +31,10 @@ vi.mock("../../src/repositories/pointsRepo.js", () => ({
 
 vi.mock("../../src/config/env.js", () => ({
   VECTOR_INDEX_BUILD_ENABLED: false,
+  CollectionStorageMode: {
+    MultiTable: "multi_table",
+    OneTable: "one_table",
+  },
   COLLECTION_STORAGE_MODE: "multi_table",
   isOneTableMode: (mode: string) => mode === "one_table",
 }));

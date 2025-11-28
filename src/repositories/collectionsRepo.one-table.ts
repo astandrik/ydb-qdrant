@@ -46,9 +46,9 @@ export async function deleteCollectionOneTable(
   uid: string
 ): Promise<void> {
   const deletePointsYql = `
-      DECLARE $uid AS Utf8;
-      DELETE FROM ${GLOBAL_POINTS_TABLE} WHERE uid = $uid;
-    `;
+    DECLARE $uid AS Utf8;
+    DELETE FROM ${GLOBAL_POINTS_TABLE} WHERE uid = $uid;
+  `;
   await withSession(async (s) => {
     await s.executeQuery(deletePointsYql, {
       $uid: TypedValues.utf8(uid),
