@@ -327,10 +327,9 @@ docker run -d --name ydb-qdrant-local \
 Key env vars (all optional; the image provides sensible defaults, override only when you need custom tuning):
 
 - YDB / local YDB:
-  - `YDB_LOCAL_GRPC_PORT` (default `2136`): internal YDB gRPC port; used to derive `YDB_ENDPOINT=grpc://localhost:<port>` when not set.
+  - `YDB_LOCAL_GRPC_PORT` (default `2136`): internal YDB gRPC port.
   - `YDB_LOCAL_MON_PORT` (default `8765`): internal YDB Embedded UI HTTP port.
   - `YDB_DATABASE` (default `/local`).
-  - `YDB_ENDPOINT_EXTERNAL_ONLY` (default unset): when set, embedded local YDB is never started and `YDB_ENDPOINT` must point to an external YDB.
   - `YDB_ANONYMOUS_CREDENTIALS` (default `1` inside this image).
   - `YDB_USE_IN_MEMORY_PDISKS` (default `0`, values `0`/`1`): store data in RAM only when `1` (fast, non-persistent).
   - `YDB_LOCAL_SURVIVE_RESTART` (default `0`, values `0`/`1`): control persistence across restarts when using a mounted data volume.
@@ -343,7 +342,7 @@ Key env vars (all optional; the image provides sensible defaults, override only 
   - `YDB_QDRANT_COLLECTION_STORAGE_MODE` / `YDB_QDRANT_TABLE_LAYOUT` (`multi_table` or `one_table`).
   - `YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE`.
 
-You can still override `YDB_ENDPOINT`/`YDB_DATABASE` to point ydb-qdrant at an external YDB; in that case the embedded local YDB startup is skipped.
+> Note: In the `ydb-qdrant-local` image, `YDB_ENDPOINT` is always set internally to `grpc://localhost:<YDB_LOCAL_GRPC_PORT>` — the container always talks to its embedded local YDB.
 
 #### Apple Silicon (Mac) notes
 

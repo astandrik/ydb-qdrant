@@ -154,10 +154,10 @@ Collection created automatically on first use.
 - Typical run:
   - `docker run -d --name ydb-qdrant-local -p 8080:8080 -p 8765:8765 ghcr.io/astandrik/ydb-qdrant-local:latest`
 - YDB config (env, all optional):
-  - `YDB_LOCAL_GRPC_PORT` (default `2136`), `YDB_LOCAL_MON_PORT` (default `8765`), `YDB_DATABASE` (default `/local`), `YDB_ENDPOINT_EXTERNAL_ONLY` (when set, embedded local YDB is never started and `YDB_ENDPOINT` must point to an external YDB), `YDB_ANONYMOUS_CREDENTIALS` (default `1`), `YDB_USE_IN_MEMORY_PDISKS`, `YDB_LOCAL_SURVIVE_RESTART`, `YDB_DEFAULT_LOG_LEVEL`, `YDB_FEATURE_FLAGS`, `YDB_ENABLE_COLUMN_TABLES`, `YDB_KAFKA_PROXY_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`.
+  - `YDB_LOCAL_GRPC_PORT` (default `2136`), `YDB_LOCAL_MON_PORT` (default `8765`), `YDB_DATABASE` (default `/local`), `YDB_ANONYMOUS_CREDENTIALS` (default `1`), `YDB_USE_IN_MEMORY_PDISKS`, `YDB_LOCAL_SURVIVE_RESTART`, `YDB_DEFAULT_LOG_LEVEL`, `YDB_FEATURE_FLAGS`, `YDB_ENABLE_COLUMN_TABLES`, `YDB_KAFKA_PROXY_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`.
 - ydb-qdrant config (env, same semantics as standalone image):
-  - `PORT` (default `8080`), `LOG_LEVEL`, `VECTOR_INDEX_BUILD_ENABLED`, `YDB_QDRANT_COLLECTION_STORAGE_MODE` / `YDB_QDRANT_TABLE_LAYOUT`, `YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE`, `YDB_ENDPOINT`, `YDB_DATABASE`, `YDB_*_CREDENTIALS`.
-- If `YDB_ENDPOINT` is set to a non-local value, the container skips starting embedded YDB and only runs ydb-qdrant against that endpoint.
+  - `PORT` (default `8080`), `LOG_LEVEL`, `VECTOR_INDEX_BUILD_ENABLED`, `YDB_QDRANT_COLLECTION_STORAGE_MODE` / `YDB_QDRANT_TABLE_LAYOUT`, `YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE`.
+- Note: `YDB_ENDPOINT` is always set internally to `grpc://localhost:<YDB_LOCAL_GRPC_PORT>` — the container always talks to its embedded local YDB.
 
 ## Logging & diagnostics
 - JSON logs via pino middleware (method, url, tenant, status, ms).
