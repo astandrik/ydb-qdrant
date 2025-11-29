@@ -14,7 +14,7 @@ export MON_PORT="${YDB_LOCAL_MON_PORT}"
 
 start_local_ydb() {
   if [[ -f "/initialize_local_ydb" ]]; then
-    sh /initialize_local_ydb &
+    bash /initialize_local_ydb &
   else
     echo "initialize_local_ydb script not found; local YDB may not start correctly" >&2
   fi
