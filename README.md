@@ -402,11 +402,11 @@ curl -X POST http://localhost:8080/collections/mycol/points/delete \
 ## Notes
 - Storage layout:
   - **multi_table** (default): one YDB table per collection; metadata is tracked in `qdr__collections`.
-  - **one_table**: a single global table `qdrant_all_points` with `(uid, point_id)` PK, where `uid` encodes tenant+collection.
+  - **one_table**: a single global table `qdrant_all_points` with `(uid, point_id)` PK, where `uid` encodes tenant+collection. Columns: `uid Utf8`, `point_id Utf8`, `embedding String` (binary float), `embedding_bit String` (bit‑quantized), `payload JsonDocument`.
 - Per‑collection table schema (multi_table): `point_id Utf8` (PK), `embedding String` (binary), `payload JsonDocument`.
 - Vectors are serialized with `Knn::ToBinaryStringFloat`.
 - Search uses a single-phase top‑k over `embedding` with automatic YDB vector index (`emb_idx`) when available; falls back to table scan if missing.
-- **Vector index auto-build** (multi_table mode only): After ≥100 points upserted + 5s quiet window, a `vector_kmeans_tree` index (levels=1, clusters=128) is built automatically. Incremental updates (<100 points) skip index rebuild. In one_table mode, vector indexes are not supported and all searches use table scans.
+- **Vector index auto-build** (multi_table mode only): After ≥100 points upserted + 5s quiet window, a `vector_kmeans_tree` index (levels=1, clusters=128) is built automatically. Incremental updates (<100 points) skip index rebuild. In one_table mode, vector indexes are not supported; searches use a two‑phase approximate+exact flow over `qdrant_all_points` (bit‑quantized candidates via `embedding_bit` using the corresponding distance function, then exact re‑ranking over `embedding`). Note: For Dot metric, Phase 1 uses CosineDistance as a proxy since there is no direct distance equivalent for inner product on bit vectors.
 - **Concurrency**: During index rebuilds, YDB may return transient `Aborted`/schema metadata errors. Upserts include bounded retries with backoff to handle this automatically.
 - Filters are not yet modeled; can be added if needed.
 

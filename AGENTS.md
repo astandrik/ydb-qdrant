@@ -68,9 +68,9 @@ Notes
     - Vector index: `emb_idx` (auto-created after ≥100 points upserted; type `vector_kmeans_tree`)
 - One‑table layout:
   - Global points table: `qdrant_all_points`
-    - `uid Utf8`, `point_id Utf8`, `embedding String` (binary), `payload JsonDocument`
+    - `uid Utf8`, `point_id Utf8`, `embedding String` (binary float), `embedding_bit String` (bit‑quantized), `payload JsonDocument`
     - Primary key: `(uid, point_id)` where `uid` is derived from tenant+collection (uses the same naming as per‑collection tables).
-    - **Note**: Vector indexes are not supported in one‑table mode; all searches run as table scans on `qdrant_all_points`.
+    - **Note**: Vector indexes are not supported in one‑table mode. Searches use a two‑phase flow: (1) approximate candidate selection over `embedding_bit` using the corresponding distance function (Cosine→CosineDistance, Euclid→EuclideanDistance, Manhattan→ManhattanDistance, Dot→CosineDistance as proxy), then (2) exact re‑ranking over `embedding` with the configured distance metric.
 
 ## YDB vector specifics (YQL)
 - Search: single-phase top-k using vector index when available

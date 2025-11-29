@@ -2,7 +2,13 @@ import { beforeAll, describe, it, expect } from "vitest";
 import { createYdbQdrantClient } from "../../src/package/api.js";
 import { COLLECTION_STORAGE_MODE } from "../../src/config/env.js";
 import { GLOBAL_POINTS_TABLE } from "../../src/ydb/schema.js";
-import { withSession, TypedValues } from "../../src/ydb/client.js";
+import {
+  withSession,
+  TypedValues,
+  TableDescription,
+  Column,
+  Types,
+} from "../../src/ydb/client.js";
 
 describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
   const tenant = process.env.YDB_QDRANT_INTEGRATION_TENANT ?? "itest_tenant";
@@ -72,11 +78,11 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
       points: [{ id: "uid_test_point", vector: [1, 0, 0, 0], payload: {} }],
     });
 
-    // Query the global table directly to verify the uid
+    // Query the global table directly to verify the uid and quantized column
     const query = `
       DECLARE $uid AS Utf8;
       DECLARE $point_id AS Utf8;
-      SELECT uid, point_id FROM ${GLOBAL_POINTS_TABLE}
+      SELECT uid, point_id, embedding, embedding_bit FROM ${GLOBAL_POINTS_TABLE}
       WHERE uid = $uid AND point_id = $point_id;
     `;
 
@@ -89,6 +95,13 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
 
     const rowset = res.resultSets?.[0];
     expect(rowset?.rows?.length).toBe(1);
+    const row = rowset?.rows?.[0];
+    // items: [uid, point_id, embedding, embedding_bit]
+    expect(row?.items?.[0]?.textValue).toBe(expectedUid);
+    expect(row?.items?.[1]?.textValue).toBe("uid_test_point");
+    // Just verify that both binary columns are present and non-empty
+    expect(row?.items?.[2]).toBeDefined();
+    expect(row?.items?.[3]).toBeDefined();
 
     // Cleanup
     try {
@@ -242,6 +255,110 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     // Cleanup
     try {
       await client.deleteCollection(collection);
+    } catch {
+      // ignore cleanup failures
+    }
+  });
+
+  it("migrates existing table by adding embedding_bit column and backfilling", async () => {
+    // This test simulates the migration scenario for existing deployments
+    // We create a legacy table without embedding_bit, insert data, then run migration
+
+    const legacyTable = `qdrant_migration_test_${Date.now()}`;
+
+    // Step 1: Create a legacy table without embedding_bit column
+    await withSession(async (s) => {
+      const desc = new TableDescription()
+        .withColumns(
+          new Column("uid", Types.UTF8),
+          new Column("point_id", Types.UTF8),
+          new Column("embedding", Types.BYTES),
+          new Column("payload", Types.JSON_DOCUMENT)
+        )
+        .withPrimaryKeys("uid", "point_id");
+      await s.createTable(legacyTable, desc);
+    });
+
+    // Step 2: Insert a test row with only embedding (no embedding_bit)
+    const testUid = "migration_test_uid";
+    const testVector = [1.0, 0.0, 0.0, 0.0];
+    await withSession(async (s) => {
+      const insertQuery = `
+        DECLARE $uid AS Utf8;
+        DECLARE $point_id AS Utf8;
+        DECLARE $vec AS List<Float>;
+        DECLARE $payload AS JsonDocument;
+        UPSERT INTO ${legacyTable} (uid, point_id, embedding, payload)
+        VALUES (
+          $uid,
+          $point_id,
+          Untag(Knn::ToBinaryStringFloat($vec), "FloatVector"),
+          $payload
+        );
+      `;
+      await s.executeQuery(insertQuery, {
+        $uid: TypedValues.utf8(testUid),
+        $point_id: TypedValues.utf8("legacy_point"),
+        $vec: TypedValues.list(Types.FLOAT, testVector),
+        $payload: TypedValues.jsonDocument("{}"),
+      });
+    });
+
+    // Step 3: Verify the table has no embedding_bit column initially
+    const descBefore = await withSession(async (s) => {
+      return await s.describeTable(legacyTable);
+    });
+    const columnsBefore = descBefore.columns?.map((c) => c.name) ?? [];
+    expect(columnsBefore).toContain("embedding");
+    expect(columnsBefore).not.toContain("embedding_bit");
+
+    // Step 4: Run migration (ALTER TABLE + backfill)
+    await withSession(async (s) => {
+      const alterDdl = `
+        ALTER TABLE ${legacyTable}
+        ADD COLUMN embedding_bit String;
+      `;
+      await s.executeQuery(alterDdl);
+
+      const backfillDdl = `
+        UPDATE ${legacyTable}
+        SET embedding_bit = Untag(Knn::ToBinaryStringBit(Knn::FloatFromBinaryString(embedding)), "BitVector")
+        WHERE embedding_bit IS NULL;
+      `;
+      await s.executeQuery(backfillDdl);
+    });
+
+    // Step 5: Verify the column was added
+    const descAfter = await withSession(async (s) => {
+      return await s.describeTable(legacyTable);
+    });
+    const columnsAfter = descAfter.columns?.map((c) => c.name) ?? [];
+    expect(columnsAfter).toContain("embedding_bit");
+
+    // Step 6: Verify the backfill populated embedding_bit
+    const verifyQuery = `
+      DECLARE $uid AS Utf8;
+      SELECT uid, point_id, embedding, embedding_bit FROM ${legacyTable}
+      WHERE uid = $uid;
+    `;
+    const verifyRes = await withSession(async (s) => {
+      return await s.executeQuery(verifyQuery, {
+        $uid: TypedValues.utf8(testUid),
+      });
+    });
+
+    const row = verifyRes.resultSets?.[0]?.rows?.[0];
+    expect(row).toBeDefined();
+    // items: [uid, point_id, embedding, embedding_bit]
+    expect(row?.items?.[2]).toBeDefined(); // embedding
+    expect(row?.items?.[3]).toBeDefined(); // embedding_bit should now be populated
+
+    // Cleanup: drop the test table
+    try {
+      await withSession(async (s) => {
+        const dropDdl = `DROP TABLE ${legacyTable};`;
+        await s.executeQuery(dropDdl);
+      });
     } catch {
       // ignore cleanup failures
     }

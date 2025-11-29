@@ -268,22 +268,41 @@ describe("pointsRepo (with mocked YDB)", () => {
     expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
     const yql = sessionMock.executeQuery.mock.calls[0][0] as string;
     expect(yql).toContain("DECLARE $uid AS Utf8");
-    expect(yql).toContain("UPSERT INTO qdrant_all_points (uid, point_id");
+    expect(yql).toContain(
+      "UPSERT INTO qdrant_all_points (uid, point_id, embedding, embedding_bit, payload)"
+    );
+    expect(yql).toContain("Knn::ToBinaryStringFloat($vec)");
+    expect(yql).toContain("Knn::ToBinaryStringBit($vec)");
   });
 
-  it("searches points with uid parameter for one_table mode", async () => {
+  it("searches points with uid parameter for one_table mode (Cosine)", async () => {
     const sessionMock = {
-      executeQuery: vi.fn().mockResolvedValueOnce({
-        resultSets: [
-          {
-            rows: [
-              {
-                items: [{ textValue: "p1" }, { floatValue: 0.9 }],
-              },
-            ],
-          },
-        ],
-      }),
+      executeQuery: vi
+        .fn()
+        // Phase 1: candidates
+        .mockResolvedValueOnce({
+          resultSets: [
+            {
+              rows: [
+                {
+                  items: [{ textValue: "p1" }],
+                },
+              ],
+            },
+          ],
+        })
+        // Phase 2: rerank
+        .mockResolvedValueOnce({
+          resultSets: [
+            {
+              rows: [
+                {
+                  items: [{ textValue: "p1" }, { floatValue: 0.9 }],
+                },
+              ],
+            },
+          ],
+        }),
     };
 
     withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
@@ -301,8 +320,70 @@ describe("pointsRepo (with mocked YDB)", () => {
     );
 
     expect(result).toEqual([{ id: "p1", score: 0.9 }]);
-    const yql = sessionMock.executeQuery.mock.calls[0][0] as string;
-    expect(yql).toContain("WHERE uid = $uid");
+    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(2);
+    const phase1Yql = sessionMock.executeQuery.mock.calls[0][0] as string;
+    const phase2Yql = sessionMock.executeQuery.mock.calls[1][0] as string;
+    expect(phase1Yql).toContain("FROM qdrant_all_points");
+    expect(phase1Yql).toContain("embedding_bit");
+    expect(phase1Yql).toContain("ORDER BY Knn::CosineDistance");
+    expect(phase2Yql).toContain("FROM qdrant_all_points");
+    expect(phase2Yql).toContain("point_id IN $ids");
+  });
+
+  it("searches points with uid parameter for one_table mode (Euclid)", async () => {
+    const sessionMock = {
+      executeQuery: vi
+        .fn()
+        // Phase 1: candidates
+        .mockResolvedValueOnce({
+          resultSets: [
+            {
+              rows: [
+                {
+                  items: [{ textValue: "p1" }],
+                },
+              ],
+            },
+          ],
+        })
+        // Phase 2: rerank
+        .mockResolvedValueOnce({
+          resultSets: [
+            {
+              rows: [
+                {
+                  items: [{ textValue: "p1" }, { floatValue: 0.5 }],
+                },
+              ],
+            },
+          ],
+        }),
+    };
+
+    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
+      return await fn(sessionMock);
+    });
+
+    const result = await searchPoints(
+      "qdrant_all_points",
+      [0, 0, 0, 1],
+      5,
+      false,
+      "Euclid",
+      4,
+      "qdr_tenant_a__my_collection"
+    );
+
+    expect(result).toEqual([{ id: "p1", score: 0.5 }]);
+    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(2);
+    const phase1Yql = sessionMock.executeQuery.mock.calls[0][0] as string;
+    const phase2Yql = sessionMock.executeQuery.mock.calls[1][0] as string;
+    // Phase 1 should use EuclideanDistance for Euclid metric
+    expect(phase1Yql).toContain("ORDER BY Knn::EuclideanDistance");
+    expect(phase1Yql).toContain("embedding_bit");
+    // Phase 2 should use EuclideanDistance for exact re-ranking
+    expect(phase2Yql).toContain("Knn::EuclideanDistance");
+    expect(phase2Yql).toContain("ORDER BY score ASC");
   });
 
   it("deletes points with uid parameter for one_table mode", async () => {
