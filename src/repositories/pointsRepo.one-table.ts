@@ -93,7 +93,7 @@ export async function searchPointsOneTable(
       $qbin_bit = Knn::ToBinaryStringBit($qf);
       SELECT point_id
       FROM ${tableName}
-      WHERE uid = $uid
+      WHERE uid = $uid AND embedding_bit IS NOT NULL
       ORDER BY ${bitFn}(embedding_bit, $qbin_bit) ${bitOrder}
       LIMIT $k;
     `;

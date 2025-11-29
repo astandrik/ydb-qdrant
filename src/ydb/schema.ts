@@ -67,6 +67,8 @@ export async function ensureGlobalPointsTable(): Promise<void> {
         (col) => col.name === "embedding_bit"
       );
 
+      let needsBackfill = false;
+
       if (!hasEmbeddingBit) {
         // Add the missing embedding_bit column
         const alterDdl = `
@@ -77,7 +79,23 @@ export async function ensureGlobalPointsTable(): Promise<void> {
         logger.info(
           `added embedding_bit column to existing table ${GLOBAL_POINTS_TABLE}`
         );
+        needsBackfill = true;
+      } else {
+        // Column exists; check if any legacy rows still have NULL embedding_bit
+        const checkNullsDdl = `
+          SELECT 1 AS has_null
+          FROM ${GLOBAL_POINTS_TABLE}
+          WHERE embedding_bit IS NULL
+          LIMIT 1;
+        `;
+        const checkRes = await s.executeQuery(checkNullsDdl);
+        const hasNullRows =
+          checkRes.resultSets?.[0]?.rows &&
+          checkRes.resultSets[0].rows.length > 0;
+        needsBackfill = Boolean(hasNullRows);
+      }
 
+      if (needsBackfill) {
         // Backfill existing rows: convert embedding to bit representation
         const backfillDdl = `
           UPDATE ${GLOBAL_POINTS_TABLE}
@@ -90,6 +108,7 @@ export async function ensureGlobalPointsTable(): Promise<void> {
         );
       }
 
+      // Mark table ready only after schema (and any required backfill) succeed
       globalPointsTableReady = true;
     });
   } catch (err: unknown) {

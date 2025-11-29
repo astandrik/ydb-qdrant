@@ -82,11 +82,13 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
     await ensureGlobalPointsTable();
     await ensureGlobalPointsTable();
 
-    expect(withSessionMock).toHaveBeenCalledTimes(1);
-    expect(session.describeTable).toHaveBeenCalledTimes(1);
     expect(session.describeTable).toHaveBeenCalledWith(GLOBAL_POINTS_TABLE);
     expect(session.createTable).not.toHaveBeenCalled();
-    expect(session.executeQuery).not.toHaveBeenCalled();
+    // At least one executeQuery call for the NULL-check query; no backfill needed
+    expect(session.executeQuery).toHaveBeenCalled();
+    const checkCall = session.executeQuery.mock.calls[0][0] as string;
+    expect(checkCall).toContain("SELECT 1 AS has_null");
+    expect(checkCall).toContain("embedding_bit IS NULL");
   });
 
   it("creates table when it does not exist", async () => {
@@ -160,5 +162,51 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
     expect(loggerInfoMock).toHaveBeenCalledWith(
       `backfilled embedding_bit column from embedding in ${GLOBAL_POINTS_TABLE}`
     );
+  });
+
+  it("backfills when embedding_bit column exists but legacy NULL values remain", async () => {
+    const { ensureGlobalPointsTable, GLOBAL_POINTS_TABLE } =
+      await resetSchemaModule();
+
+    const session = {
+      describeTable: vi.fn().mockResolvedValue({
+        columns: [
+          { name: "uid" },
+          { name: "point_id" },
+          { name: "embedding" },
+          { name: "embedding_bit" },
+          { name: "payload" },
+        ],
+      }),
+      createTable: vi.fn(),
+      executeQuery: vi
+        .fn()
+        // First call: NULL-check query returns at least one row
+        .mockResolvedValueOnce({
+          resultSets: [{ rows: [{}] }],
+        })
+        // Second call: backfill UPDATE
+        .mockResolvedValueOnce(undefined),
+    };
+
+    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
+      return await fn(session);
+    });
+
+    await ensureGlobalPointsTable();
+
+    expect(session.describeTable).toHaveBeenCalledWith(GLOBAL_POINTS_TABLE);
+    expect(session.createTable).not.toHaveBeenCalled();
+    expect(session.executeQuery).toHaveBeenCalledTimes(2);
+
+    const checkCall = session.executeQuery.mock.calls[0][0] as string;
+    expect(checkCall).toContain("SELECT 1 AS has_null");
+    expect(checkCall).toContain("embedding_bit IS NULL");
+
+    const updateCall = session.executeQuery.mock.calls[1][0] as string;
+    expect(updateCall).toContain("UPDATE");
+    expect(updateCall).toContain(GLOBAL_POINTS_TABLE);
+    expect(updateCall).toContain("Knn::ToBinaryStringBit");
+    expect(updateCall).toContain("Knn::FloatFromBinaryString");
   });
 });
