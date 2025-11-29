@@ -1,5 +1,4 @@
 import { Router, Request, Response } from "express";
-import { sanitizeCollectionName, sanitizeTenantId } from "../utils/tenant.js";
 import {
   putCollectionIndex,
   createCollection,
@@ -18,6 +17,7 @@ collectionsRouter.put(
       const result = await putCollectionIndex({
         tenant: req.header("X-Tenant-Id") ?? undefined,
         collection: String(req.params.collection),
+        apiKey: req.header("api-key") ?? undefined,
       });
       res.json({ status: "ok", result });
     } catch (err: unknown) {
@@ -33,9 +33,14 @@ collectionsRouter.put(
 
 collectionsRouter.put("/:collection", async (req: Request, res: Response) => {
   try {
-    const tenant = sanitizeTenantId(req.header("X-Tenant-Id") ?? "default");
-    const collection = sanitizeCollectionName(String(req.params.collection));
-    const result = await createCollection({ tenant, collection }, req.body);
+    const result = await createCollection(
+      {
+        tenant: req.header("X-Tenant-Id") ?? undefined,
+        collection: String(req.params.collection),
+        apiKey: req.header("api-key") ?? undefined,
+      },
+      req.body
+    );
     res.json({ status: "ok", result });
   } catch (err: unknown) {
     if (err instanceof QdrantServiceError) {
@@ -49,9 +54,11 @@ collectionsRouter.put("/:collection", async (req: Request, res: Response) => {
 
 collectionsRouter.get("/:collection", async (req: Request, res: Response) => {
   try {
-    const tenant = sanitizeTenantId(req.header("X-Tenant-Id") ?? "default");
-    const collection = sanitizeCollectionName(String(req.params.collection));
-    const result = await getCollection({ tenant, collection });
+    const result = await getCollection({
+      tenant: req.header("X-Tenant-Id") ?? undefined,
+      collection: String(req.params.collection),
+      apiKey: req.header("api-key") ?? undefined,
+    });
     res.json({ status: "ok", result });
   } catch (err: unknown) {
     if (err instanceof QdrantServiceError) {
@@ -67,9 +74,11 @@ collectionsRouter.delete(
   "/:collection",
   async (req: Request, res: Response) => {
     try {
-      const tenant = sanitizeTenantId(req.header("X-Tenant-Id") ?? "default");
-      const collection = sanitizeCollectionName(String(req.params.collection));
-      const result = await deleteCollection({ tenant, collection });
+      const result = await deleteCollection({
+        tenant: req.header("X-Tenant-Id") ?? undefined,
+        collection: String(req.params.collection),
+        apiKey: req.header("api-key") ?? undefined,
+      });
       res.json({ status: "ok", result });
     } catch (err: unknown) {
       if (err instanceof QdrantServiceError) {

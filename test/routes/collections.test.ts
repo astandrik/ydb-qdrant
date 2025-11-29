@@ -56,7 +56,7 @@ beforeEach(() => {
 });
 
 describe("collectionsRouter (HTTP, mocked service)", () => {
-  it("creates collection with sanitized tenant and collection name", async () => {
+  it("creates collection with raw tenant, collection and apiKey", async () => {
     const handler = findHandler(collectionsRouter, "put", "/:collection");
     const req = createRequest({
       method: "PUT",
@@ -71,7 +71,7 @@ describe("collectionsRouter (HTTP, mocked service)", () => {
     await handler(req, res);
 
     expect(collectionService.createCollection).toHaveBeenCalledWith(
-      { tenant: "tenant_id", collection: "my_collection" },
+      { tenant: "Tenant-Id", collection: "My-Collection", apiKey: undefined },
       {
         vectors: { size: 4, distance: "Cosine", data_type: "float" },
       }
@@ -122,12 +122,11 @@ describe("collectionsRouter (HTTP, mocked service)", () => {
 
     await getHandler(getReq, getRes);
 
-    expect(collectionService.getCollection).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tenant: "tenant_id",
-        collection: "my_collection",
-      })
-    );
+    expect(collectionService.getCollection).toHaveBeenCalledWith({
+      tenant: "Tenant-Id",
+      collection: "My-Collection",
+      apiKey: undefined,
+    });
     expect(getRes.statusCode).toBe(200);
 
     const deleteReq = createRequest({
@@ -139,16 +138,15 @@ describe("collectionsRouter (HTTP, mocked service)", () => {
 
     await deleteHandler(deleteReq, deleteRes);
 
-    expect(collectionService.deleteCollection).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tenant: "tenant_id",
-        collection: "my_collection",
-      })
-    );
+    expect(collectionService.deleteCollection).toHaveBeenCalledWith({
+      tenant: "Tenant-Id",
+      collection: "My-Collection",
+      apiKey: undefined,
+    });
     expect(deleteRes.statusCode).toBe(200);
   });
 
-  it("invokes putCollectionIndex with raw tenant and collection from request", async () => {
+  it("invokes putCollectionIndex with raw tenant, collection and apiKey from request", async () => {
     const handler = findHandler(collectionsRouter, "put", "/:collection/index");
     const req = createRequest({
       method: "PUT",
@@ -162,6 +160,7 @@ describe("collectionsRouter (HTTP, mocked service)", () => {
     expect(collectionService.putCollectionIndex).toHaveBeenCalledWith({
       tenant: "raw-tenant",
       collection: "raw-col",
+      apiKey: undefined,
     });
     expect(res.statusCode).toBe(200);
   });

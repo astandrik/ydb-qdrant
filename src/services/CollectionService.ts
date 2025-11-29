@@ -16,6 +16,7 @@ import { resolvePointsTableAndUidOneTable } from "./CollectionService.one-table.
 export interface CollectionContextInput {
   tenant: string | undefined;
   collection: string;
+  apiKey?: string;
 }
 
 export interface NormalizedCollectionContext {
@@ -29,7 +30,8 @@ export function normalizeCollectionContext(
 ): NormalizedCollectionContext {
   return normalizeCollectionContextShared(
     input.tenant,
-    input.collection
+    input.collection,
+    input.apiKey
   ) as NormalizedCollectionContext;
 }
 

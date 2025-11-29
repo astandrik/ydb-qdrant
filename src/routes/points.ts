@@ -17,6 +17,7 @@ pointsRouter.put("/:collection/points", async (req: Request, res: Response) => {
       {
         tenant: req.header("X-Tenant-Id") ?? undefined,
         collection: String(req.params.collection),
+        apiKey: req.header("api-key") ?? undefined,
       },
       req.body
     );
@@ -39,6 +40,7 @@ pointsRouter.post(
         {
           tenant: req.header("X-Tenant-Id") ?? undefined,
           collection: String(req.params.collection),
+          apiKey: req.header("api-key") ?? undefined,
         },
         req.body
       );
@@ -62,6 +64,7 @@ pointsRouter.post(
         {
           tenant: req.header("X-Tenant-Id") ?? undefined,
           collection: String(req.params.collection),
+          apiKey: req.header("api-key") ?? undefined,
         },
         req.body
       );
@@ -86,6 +89,7 @@ pointsRouter.post(
         {
           tenant: req.header("X-Tenant-Id") ?? undefined,
           collection: String(req.params.collection),
+          apiKey: req.header("api-key") ?? undefined,
         },
         req.body
       );
@@ -109,6 +113,7 @@ pointsRouter.post(
         {
           tenant: req.header("X-Tenant-Id") ?? undefined,
           collection: String(req.params.collection),
+          apiKey: req.header("api-key") ?? undefined,
         },
         req.body
       );
