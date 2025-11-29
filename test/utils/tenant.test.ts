@@ -13,6 +13,11 @@ describe("utils/tenant/hashApiKey", () => {
     expect(hashApiKey(undefined)).toBeUndefined();
   });
 
+  it("returns undefined for empty or whitespace-only apiKey", () => {
+    expect(hashApiKey("")).toBeUndefined();
+    expect(hashApiKey("   ")).toBeUndefined();
+  });
+
   it("returns an 8-char hex hash for a non-empty apiKey", () => {
     const hash = hashApiKey("my-api-key");
     expect(hash).toBeDefined();
@@ -71,7 +76,4 @@ describe("utils/tenant table/meta/uid helpers", () => {
     const uid = uidFor("tenant_id", "my_collection_a1b2c3d4");
     expect(uid).toBe("qdr_tenant_id__my_collection_a1b2c3d4");
   });
-}
-);
-
-
+});

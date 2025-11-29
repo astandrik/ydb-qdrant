@@ -1,7 +1,7 @@
 import { createHash } from "crypto";
 
 export function hashApiKey(apiKey: string | undefined): string | undefined {
-  if (!apiKey) return undefined;
+  if (!apiKey || apiKey.trim() === "") return undefined;
   const hash = createHash("sha256").update(apiKey).digest("hex");
   return hash.slice(0, 8);
 }
@@ -13,7 +13,8 @@ export function sanitizeCollectionName(
   const cleaned = name.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_");
   const lowered = cleaned.toLowerCase().replace(/^_+/, "");
   const base = lowered.length > 0 ? lowered : "collection";
-  return apiKeyHash ? `${base}_${apiKeyHash}` : base;
+  const hasHash = apiKeyHash !== undefined && apiKeyHash.trim().length > 0;
+  return hasHash ? `${base}_${apiKeyHash}` : base;
 }
 
 export function sanitizeTenantId(tenantId: string | undefined): string {
