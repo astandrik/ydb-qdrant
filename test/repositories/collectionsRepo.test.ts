@@ -26,6 +26,10 @@ vi.mock("../../src/ydb/client.js", () => {
         this.pk = pk;
         return this;
       }
+      withPrimaryKeys(...pk: string[]) {
+        this.pk = pk;
+        return this;
+      }
     },
     Column: class {
       name: string;
@@ -219,6 +223,16 @@ describe("collectionsRepo (with mocked YDB)", () => {
 
   it("deletes points from global table in one_table mode", async () => {
     const sessionMock = {
+      describeTable: vi.fn().mockResolvedValue({
+        columns: [
+          { name: "uid" },
+          { name: "point_id" },
+          { name: "embedding" },
+          { name: "embedding_bit" },
+          { name: "payload" },
+        ],
+      }),
+      createTable: vi.fn(),
       dropTable: vi.fn(),
       executeQuery: vi.fn(),
     };
@@ -250,9 +264,10 @@ describe("collectionsRepo (with mocked YDB)", () => {
     );
 
     expect(sessionMock.dropTable).not.toHaveBeenCalled();
-    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(2);
+    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(3);
     const calls = sessionMock.executeQuery.mock.calls;
-    expect(calls[0][0]).toContain("DELETE FROM qdrant_all_points WHERE uid");
-    expect(calls[1][0]).toContain("DELETE FROM qdr__collections");
+    expect(calls[0][0]).toContain("SELECT 1 AS has_null");
+    expect(calls[1][0]).toContain("DELETE FROM qdrant_all_points WHERE uid");
+    expect(calls[2][0]).toContain("DELETE FROM qdr__collections");
   });
 });

@@ -1,10 +1,16 @@
 import { withSession, TableDescription, Column, Types } from "./client.js";
 import { logger } from "../logging/logger.js";
+import { GLOBAL_POINTS_AUTOMIGRATE_ENABLED } from "../config/env.js";
 import type { Ydb } from "ydb-sdk";
 
 export const GLOBAL_POINTS_TABLE = "qdrant_all_points";
 
 let globalPointsTableReady = false;
+
+function throwMigrationRequired(message: string): never {
+  logger.error(message);
+  throw new Error(message);
+}
 
 export async function ensureMetaTable(): Promise<void> {
   try {
@@ -70,7 +76,12 @@ export async function ensureGlobalPointsTable(): Promise<void> {
       let needsBackfill = false;
 
       if (!hasEmbeddingBit) {
-        // Add the missing embedding_bit column
+        if (!GLOBAL_POINTS_AUTOMIGRATE_ENABLED) {
+          throwMigrationRequired(
+            `Global points table ${GLOBAL_POINTS_TABLE} is missing required column embedding_bit; set YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE=true after backup to apply the migration manually.`
+          );
+        }
+
         const alterDdl = `
           ALTER TABLE ${GLOBAL_POINTS_TABLE}
           ADD COLUMN embedding_bit String;
@@ -81,7 +92,6 @@ export async function ensureGlobalPointsTable(): Promise<void> {
         );
         needsBackfill = true;
       } else {
-        // Column exists; check if any legacy rows still have NULL embedding_bit
         const checkNullsDdl = `
           SELECT 1 AS has_null
           FROM ${GLOBAL_POINTS_TABLE}
@@ -89,14 +99,17 @@ export async function ensureGlobalPointsTable(): Promise<void> {
           LIMIT 1;
         `;
         const checkRes = await s.executeQuery(checkNullsDdl);
-        const hasNullRows =
-          checkRes.resultSets?.[0]?.rows &&
-          checkRes.resultSets[0].rows.length > 0;
-        needsBackfill = Boolean(hasNullRows);
+        const rows = checkRes?.resultSets?.[0]?.rows ?? [];
+        needsBackfill = rows.length > 0;
       }
 
       if (needsBackfill) {
-        // Backfill existing rows: convert embedding to bit representation
+        if (!GLOBAL_POINTS_AUTOMIGRATE_ENABLED) {
+          throwMigrationRequired(
+            `Global points table ${GLOBAL_POINTS_TABLE} requires backfill for embedding_bit; set YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE=true after backup to apply the migration manually.`
+          );
+        }
+
         const backfillDdl = `
           UPDATE ${GLOBAL_POINTS_TABLE}
           SET embedding_bit = Untag(Knn::ToBinaryStringBit(Knn::FloatFromBinaryString(embedding)), "BitVector")
@@ -113,5 +126,6 @@ export async function ensureGlobalPointsTable(): Promise<void> {
     });
   } catch (err: unknown) {
     logger.debug({ err }, "ensureGlobalPointsTable: ignored");
+    throw err;
   }
 }
