@@ -311,6 +311,57 @@ docker run -d --name ydb-qdrant \
   ydb-qdrant:latest
 ```
 
+#### Docker (all-in-one: local YDB + ydb-qdrant)
+
+For a single-container local dev/demo setup with both YDB and ydb-qdrant inside:
+
+```bash
+docker pull ghcr.io/astandrik/ydb-qdrant-local:latest
+
+docker run -d --name ydb-qdrant-local \
+  -p 8080:8080 \
+  -p 8765:8765 \
+  ghcr.io/astandrik/ydb-qdrant-local:latest
+```
+
+Key env vars (all optional; the image provides sensible defaults, override only when you need custom tuning):
+
+- YDB / local YDB:
+  - `YDB_LOCAL_GRPC_PORT` (default `2136`): internal YDB gRPC port.
+  - `YDB_LOCAL_MON_PORT` (default `8765`): internal YDB Embedded UI HTTP port.
+  - `YDB_DATABASE` (default `/local`).
+  - `YDB_ANONYMOUS_CREDENTIALS` (default `1` inside this image).
+  - `YDB_USE_IN_MEMORY_PDISKS` (default `0`, values `0`/`1`): store data in RAM only when `1` (fast, non-persistent).
+  - `YDB_LOCAL_SURVIVE_RESTART` (default `0`, values `0`/`1`): control persistence across restarts when using a mounted data volume.
+  - `YDB_DEFAULT_LOG_LEVEL`, `YDB_FEATURE_FLAGS`, `YDB_ENABLE_COLUMN_TABLES`, `YDB_KAFKA_PROXY_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD` – passed through to YDB as in the official `local-ydb` image.
+
+- ydb-qdrant:
+  - `PORT` (default `8080`): HTTP port inside the container.
+  - `LOG_LEVEL` (default `info`).
+  - `VECTOR_INDEX_BUILD_ENABLED`.
+  - `YDB_QDRANT_COLLECTION_STORAGE_MODE` / `YDB_QDRANT_TABLE_LAYOUT` (`multi_table` or `one_table`).
+  - `YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE`.
+
+> Note: In the `ydb-qdrant-local` image, `YDB_ENDPOINT` is unconditionally set to `grpc://localhost:<YDB_LOCAL_GRPC_PORT>` by the entrypoint — any user-provided value is ignored. Use the standalone `ydb-qdrant` image if you need to connect to an external YDB.
+
+#### Apple Silicon (Mac) notes
+
+The `ydb-qdrant-local` image is built on top of the `local-ydb` Docker image, which is x86_64/amd64-only. On Apple Silicon (M1/M2/M3) you need to run it under x86_64/amd64 emulation:
+
+- Enable Rosetta (x86_64/amd64 emulation) in your Docker backend:
+  - Docker Desktop: enable Rosetta to run x86_64/amd64 containers.
+  - Or use Colima as in the YDB docs:
+    - `colima start --arch aarch64 --vm-type=vz --vz-rosetta`
+- When running the container, force the amd64 platform explicitly:
+
+```bash
+docker run --platform linux/amd64 -d --name ydb-qdrant-local \
+  -p 8080:8080 -p 8765:8765 \
+  ghcr.io/astandrik/ydb-qdrant-local:latest
+```
+
+This keeps behavior aligned with the official YDB `local-ydb` image recommendations for macOS/Apple Silicon.
+
 #### Docker Compose
 
 Example `docker-compose.yml` (can be used instead of raw `docker run`):
