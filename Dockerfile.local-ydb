@@ -43,7 +43,7 @@ EXPOSE 8080 8765 2136
 
 # Longer start-period than the standard image to account for embedded local YDB startup time.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:8080/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1))" || exit 1
+  CMD node -e "const http=require('http');const port=process.env.PORT||8080;http.get(`http://localhost:${port}/health`,(res)=>process.exit(res.statusCode===200?0:1)).on('error',()=>process.exit(1));" || exit 1
 
 ENTRYPOINT ["/usr/local/bin/entrypoint-local-ydb-qdrant.sh"]
 
