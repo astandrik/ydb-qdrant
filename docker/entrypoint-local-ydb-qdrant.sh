@@ -17,7 +17,7 @@ export GRPC_PORT="${YDB_LOCAL_GRPC_PORT}"
 export MON_PORT="${YDB_LOCAL_MON_PORT}"
 
 start_local_ydb() {
-  if [[ -x "/initialize_local_ydb" || -f "/initialize_local_ydb" ]]; then
+  if [[ -f "/initialize_local_ydb" ]]; then
     sh /initialize_local_ydb &
   else
     echo "initialize_local_ydb script not found; local YDB may not start correctly" >&2
@@ -29,6 +29,7 @@ wait_for_ydb() {
   local port="${YDB_LOCAL_GRPC_PORT}"
   local retries=60
 
+  # Uses bash /dev/tcp to test TCP connectivity; this script is bash-only (see shebang).
   for ((i=1; i<=retries; i++)); do
     if echo >"/dev/tcp/${host}/${port}" 2>/dev/null; then
       echo "YDB is accepting connections on ${host}:${port}"
@@ -42,7 +43,7 @@ wait_for_ydb() {
   exit 1
 }
 
-if [[ -z "${YDB_ENDPOINT_EXTERNAL_ONLY:-}" && -z "${YDB_ENDPOINT:-}" || "${YDB_ENDPOINT}" == "grpc://localhost:${YDB_LOCAL_GRPC_PORT}" ]]; then
+if [[ ( -z "${YDB_ENDPOINT_EXTERNAL_ONLY:-}" && -z "${YDB_ENDPOINT:-}" ) || "${YDB_ENDPOINT}" == "grpc://localhost:${YDB_LOCAL_GRPC_PORT}" ]]; then
   start_local_ydb
   wait_for_ydb
 else

@@ -324,15 +324,15 @@ docker run -d --name ydb-qdrant-local \
   ghcr.io/astandrik/ydb-qdrant-local:latest
 ```
 
-Key env vars (all optional, for advanced tuning):
+Key env vars (all optional; the image provides sensible defaults, override only when you need custom tuning):
 
 - YDB / local YDB:
   - `YDB_LOCAL_GRPC_PORT` (default `2136`): internal YDB gRPC port; used to derive `YDB_ENDPOINT=grpc://localhost:<port>` when not set.
   - `YDB_LOCAL_MON_PORT` (default `8765`): internal YDB Embedded UI HTTP port.
   - `YDB_DATABASE` (default `/local`).
   - `YDB_ANONYMOUS_CREDENTIALS` (default `1` inside this image).
-  - `YDB_USE_IN_MEMORY_PDISKS` (`0`/`1`): store data in RAM only when `1` (fast, non-persistent).
-  - `YDB_LOCAL_SURVIVE_RESTART` (`true`/`false`): control persistence across restarts when using a mounted data volume.
+  - `YDB_USE_IN_MEMORY_PDISKS` (default `0`, values `0`/`1`): store data in RAM only when `1` (fast, non-persistent).
+  - `YDB_LOCAL_SURVIVE_RESTART` (default `0`, values `0`/`1`): control persistence across restarts when using a mounted data volume.
   - `YDB_DEFAULT_LOG_LEVEL`, `YDB_FEATURE_FLAGS`, `YDB_ENABLE_COLUMN_TABLES`, `YDB_KAFKA_PROXY_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD` – passed through to YDB as in the official `local-ydb` image.
 
 - ydb-qdrant:
@@ -346,10 +346,10 @@ You can still override `YDB_ENDPOINT`/`YDB_DATABASE` to point ydb-qdrant at an e
 
 #### Apple Silicon (Mac) notes
 
-The `ydb-qdrant-local` image is built on top of the `local-ydb` Docker image, which is x86_64/amd64-only. On Apple Silicon (M1/M2/M3) you need to run it under x86 emulation:
+The `ydb-qdrant-local` image is built on top of the `local-ydb` Docker image, which is x86_64/amd64-only. On Apple Silicon (M1/M2/M3) you need to run it under x86_64/amd64 emulation:
 
-- Enable Rosetta/x86 emulation in your Docker backend:
-  - Docker Desktop: enable Rosetta for x86/amd64 containers.
+- Enable Rosetta (x86_64/amd64 emulation) in your Docker backend:
+  - Docker Desktop: enable Rosetta to run x86_64/amd64 containers.
   - Or use Colima as in the YDB docs:
     - `colima start --arch aarch64 --vm-type=vz --vz-rosetta`
 - When running the container, force the amd64 platform explicitly:
