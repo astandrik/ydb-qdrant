@@ -23,16 +23,23 @@ export function sanitizeTenantId(tenantId: string | undefined): string {
   return lowered.length > 0 ? lowered : "default";
 }
 
-export function tableNameFor(tenantId: string, collection: string): string {
-  return `qdr_${sanitizeTenantId(tenantId)}__${sanitizeCollectionName(
-    collection
-  )}`;
+export function tableNameFor(
+  sanitizedTenant: string,
+  sanitizedCollection: string
+): string {
+  return `qdr_${sanitizedTenant}__${sanitizedCollection}`;
 }
 
-export function metaKeyFor(tenantId: string, collection: string): string {
-  return `${sanitizeTenantId(tenantId)}/${sanitizeCollectionName(collection)}`;
+export function metaKeyFor(
+  sanitizedTenant: string,
+  sanitizedCollection: string
+): string {
+  return `${sanitizedTenant}/${sanitizedCollection}`;
 }
 
-export function uidFor(tenantId: string, collectionName: string): string {
-  return tableNameFor(tenantId, collectionName);
+export function uidFor(
+  sanitizedTenant: string,
+  sanitizedCollection: string
+): string {
+  return tableNameFor(sanitizedTenant, sanitizedCollection);
 }
