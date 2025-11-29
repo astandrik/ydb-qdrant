@@ -20,3 +20,7 @@ export function tableNameFor(tenantId: string, collection: string): string {
 export function metaKeyFor(tenantId: string, collection: string): string {
   return `${sanitizeTenantId(tenantId)}/${sanitizeCollectionName(collection)}`;
 }
+
+export function uidFor(tenantId: string, collectionName: string): string {
+  return tableNameFor(tenantId, collectionName);
+}

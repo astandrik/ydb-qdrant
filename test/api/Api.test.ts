@@ -7,6 +7,8 @@ vi.mock("../../src/ydb/client.js", () => ({
 
 vi.mock("../../src/ydb/schema.js", () => ({
   ensureMetaTable: vi.fn().mockResolvedValue(undefined),
+  ensureGlobalPointsTable: vi.fn().mockResolvedValue(undefined),
+  GLOBAL_POINTS_TABLE: "qdrant_all_points",
 }));
 
 vi.mock("../../src/logging/logger.js", () => ({

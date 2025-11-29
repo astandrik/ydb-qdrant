@@ -38,6 +38,17 @@ vi.mock("../../src/ydb/client.js", () => {
   };
 });
 
+vi.mock("../../src/config/env.js", () => ({
+  CollectionStorageMode: {
+    MultiTable: "multi_table",
+    OneTable: "one_table",
+  },
+  COLLECTION_STORAGE_MODE: "multi_table",
+  LOG_LEVEL: "info",
+  isOneTableMode: (mode: string) => mode === "one_table",
+}));
+
+import { CollectionStorageMode } from "../../src/config/env.js";
 import {
   createCollection,
   getCollectionMeta,
@@ -181,5 +192,67 @@ describe("collectionsRepo (with mocked YDB)", () => {
     );
     expect(calls[0]?.yqlText).toContain("DROP INDEX emb_idx");
     expect(calls[1]?.yqlText).toContain("ADD INDEX emb_idx GLOBAL SYNC");
+  });
+
+  it("skips table creation in one_table mode", async () => {
+    const sessionMock = {
+      createTable: vi.fn(),
+      executeQuery: vi.fn(),
+    };
+
+    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
+      await fn(sessionMock);
+    });
+
+    await createCollection(
+      "tenant_a/my_collection",
+      128,
+      "Cosine",
+      "float",
+      "qdr_tenant_a__my_collection",
+      CollectionStorageMode.OneTable
+    );
+
+    expect(sessionMock.createTable).not.toHaveBeenCalled();
+    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it("deletes points from global table in one_table mode", async () => {
+    const sessionMock = {
+      dropTable: vi.fn(),
+      executeQuery: vi.fn(),
+    };
+
+    withSessionMock
+      .mockResolvedValueOnce({
+        resultSets: [
+          {
+            rows: [
+              {
+                items: [
+                  { textValue: "qdrant_all_points" },
+                  { uint32Value: 128 },
+                  { textValue: "Cosine" },
+                  { textValue: "float" },
+                ],
+              },
+            ],
+          },
+        ],
+      } as unknown as never)
+      .mockImplementation(async (fn: (s: unknown) => unknown) => {
+        await fn(sessionMock);
+      });
+
+    await deleteCollection(
+      "tenant_a/my_collection",
+      "qdr_tenant_a__my_collection"
+    );
+
+    expect(sessionMock.dropTable).not.toHaveBeenCalled();
+    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(2);
+    const calls = sessionMock.executeQuery.mock.calls;
+    expect(calls[0][0]).toContain("DELETE FROM qdrant_all_points WHERE uid");
+    expect(calls[1][0]).toContain("DELETE FROM qdr__collections");
   });
 });

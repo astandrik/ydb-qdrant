@@ -1,17 +1,17 @@
-import {
-  sanitizeCollectionName,
-  sanitizeTenantId,
-  metaKeyFor,
-  tableNameFor,
-} from "../utils/tenant.js";
 import { CreateCollectionReq, type DistanceKind } from "../types.js";
-import { ensureMetaTable } from "../ydb/schema.js";
+import { ensureMetaTable, GLOBAL_POINTS_TABLE } from "../ydb/schema.js";
 import {
   createCollection as repoCreateCollection,
   deleteCollection as repoDeleteCollection,
   getCollectionMeta,
 } from "../repositories/collectionsRepo.js";
 import { QdrantServiceError } from "./errors.js";
+import {
+  normalizeCollectionContextShared,
+  tableNameFor,
+  type NormalizedCollectionContextLike,
+} from "./CollectionService.shared.js";
+import { resolvePointsTableAndUidOneTable } from "./CollectionService.one-table.js";
 
 export interface CollectionContextInput {
   tenant: string | undefined;
@@ -27,10 +27,29 @@ export interface NormalizedCollectionContext {
 export function normalizeCollectionContext(
   input: CollectionContextInput
 ): NormalizedCollectionContext {
-  const tenant = sanitizeTenantId(input.tenant);
-  const collection = sanitizeCollectionName(input.collection);
-  const metaKey = metaKeyFor(tenant, collection);
-  return { tenant, collection, metaKey };
+  return normalizeCollectionContextShared(
+    input.tenant,
+    input.collection
+  ) as NormalizedCollectionContext;
+}
+
+export async function resolvePointsTableAndUid(
+  ctx: NormalizedCollectionContext,
+  meta: { table: string }
+): Promise<{
+  tableName: string;
+  uid: string | undefined;
+}> {
+  if (meta?.table === GLOBAL_POINTS_TABLE) {
+    return await resolvePointsTableAndUidOneTable(
+      ctx as NormalizedCollectionContextLike
+    );
+  }
+
+  return {
+    tableName: meta.table,
+    uid: undefined,
+  };
 }
 
 export async function putCollectionIndex(

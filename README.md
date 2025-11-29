@@ -75,6 +75,8 @@ Optional env:
 # Server
 export PORT=8080
 export LOG_LEVEL=info
+# Collection storage mode (optional; default is multi_table)
+export YDB_QDRANT_COLLECTION_STORAGE_MODE=multi_table   # or one_table
 ```
 
 ## Use as a Node.js library (npm package)
@@ -398,11 +400,13 @@ curl -X POST http://localhost:8080/collections/mycol/points/delete \
 ```
 
 ## Notes
-- One YDB table is created per collection; metadata is tracked in table `qdr__collections`.
-- Each collection table schema: `point_id Utf8` (PK), `embedding String` (binary), `payload JsonDocument`.
+- Storage layout:
+  - **multi_table** (default): one YDB table per collection; metadata is tracked in `qdr__collections`.
+  - **one_table**: a single global table `qdrant_all_points` with `(uid, point_id)` PK, where `uid` encodes tenant+collection.
+- Per‑collection table schema (multi_table): `point_id Utf8` (PK), `embedding String` (binary), `payload JsonDocument`.
 - Vectors are serialized with `Knn::ToBinaryStringFloat`.
 - Search uses a single-phase top‑k over `embedding` with automatic YDB vector index (`emb_idx`) when available; falls back to table scan if missing.
-- **Vector index auto-build**: After ≥100 points upserted + 5s quiet window, a `vector_kmeans_tree` index (levels=1, clusters=128) is built automatically. Incremental updates (<100 points) skip index rebuild.
+- **Vector index auto-build** (multi_table mode only): After ≥100 points upserted + 5s quiet window, a `vector_kmeans_tree` index (levels=1, clusters=128) is built automatically. Incremental updates (<100 points) skip index rebuild. In one_table mode, vector indexes are not supported and all searches use table scans.
 - **Concurrency**: During index rebuilds, YDB may return transient `Aborted`/schema metadata errors. Upserts include bounded retries with backoff to handle this automatically.
 - Filters are not yet modeled; can be added if needed.
 

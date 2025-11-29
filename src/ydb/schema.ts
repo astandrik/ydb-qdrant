@@ -1,6 +1,10 @@
 import { withSession, TableDescription, Column, Types } from "./client.js";
 import { logger } from "../logging/logger.js";
 
+export const GLOBAL_POINTS_TABLE = "qdrant_all_points";
+
+let globalPointsTableReady = false;
+
 export async function ensureMetaTable(): Promise<void> {
   try {
     await withSession(async (s) => {
@@ -26,5 +30,35 @@ export async function ensureMetaTable(): Promise<void> {
     });
   } catch (err: unknown) {
     logger.debug({ err }, "ensureMetaTable: ignored");
+  }
+}
+
+export async function ensureGlobalPointsTable(): Promise<void> {
+  if (globalPointsTableReady) {
+    return;
+  }
+
+  try {
+    await withSession(async (s) => {
+      try {
+        await s.describeTable(GLOBAL_POINTS_TABLE);
+        globalPointsTableReady = true;
+        return;
+      } catch {
+        const desc = new TableDescription()
+          .withColumns(
+            new Column("uid", Types.UTF8),
+            new Column("point_id", Types.UTF8),
+            new Column("embedding", Types.BYTES),
+            new Column("payload", Types.JSON_DOCUMENT)
+          )
+          .withPrimaryKeys("uid", "point_id");
+        await s.createTable(GLOBAL_POINTS_TABLE, desc);
+        globalPointsTableReady = true;
+        logger.info(`created global points table ${GLOBAL_POINTS_TABLE}`);
+      }
+    });
+  } catch (err: unknown) {
+    logger.debug({ err }, "ensureGlobalPointsTable: ignored");
   }
 }

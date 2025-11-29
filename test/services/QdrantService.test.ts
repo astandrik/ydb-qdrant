@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("../../src/ydb/schema.js", () => ({
   ensureMetaTable: vi.fn().mockResolvedValue(undefined),
+  ensureGlobalPointsTable: vi.fn().mockResolvedValue(undefined),
+  GLOBAL_POINTS_TABLE: "qdrant_all_points",
 }));
 
 vi.mock("../../src/logging/logger.js", () => ({
@@ -15,6 +17,12 @@ vi.mock("../../src/logging/logger.js", () => ({
 
 vi.mock("../../src/config/env.js", () => ({
   VECTOR_INDEX_BUILD_ENABLED: true,
+  CollectionStorageMode: {
+    MultiTable: "multi_table",
+    OneTable: "one_table",
+  },
+  COLLECTION_STORAGE_MODE: "multi_table",
+  isOneTableMode: (mode: string) => mode === "one_table",
 }));
 
 vi.mock("../../src/indexing/IndexScheduler.js", () => ({
@@ -356,7 +364,8 @@ describe("QdrantService (with mocked YDB)", () => {
       1,
       true,
       "Cosine",
-      4
+      4,
+      undefined
     );
   });
 

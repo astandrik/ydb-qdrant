@@ -40,6 +40,7 @@ Notes
   - `PORT` (default 8080)
   - `LOG_LEVEL`
   - `VECTOR_INDEX_BUILD_ENABLED` — `"true"`/`"false"` toggle for automatic vector index builds and search behavior (default `"false"`). When `"true"`, upserts schedule automatic builds and search first uses the vector index `emb_idx`, falling back to a table scan if the index is missing. When `"false"`, no automatic builds are scheduled and search never uses the vector index (all queries are executed as table scans over `embedding`).
+  - `YDB_QDRANT_COLLECTION_STORAGE_MODE` — `"multi_table"` or `"one_table"` (default `"multi_table"`). Controls whether points are stored in per‑collection tables or a single global table. Backed by the `CollectionStorageMode` enum in `config/env.ts`. The legacy `YDB_QDRANT_TABLE_LAYOUT` env is still accepted as an alias.
 
 ## Run
 - Dev: `npm run dev`  (tsx + watch)
@@ -61,9 +62,15 @@ Notes
 - Metadata table: `qdr__collections`
   - Row key `collection`: tenant/collection string in form `<tenant>/<collection>`
   - Fields: `table_name`, `vector_dimension`, `distance`, `vector_type`, `created_at`
-- Per‑collection table: `qdr_<tenant>__<collection>`
-  - `point_id Utf8` (PK), `embedding String` (binary), `payload JsonDocument`
-  - Vector index: `emb_idx` (auto-created after ≥100 points upserted; type `vector_kmeans_tree`)
+- Default (multi‑table) layout:
+  - Per‑collection table: `qdr_<tenant>__<collection>`
+    - `point_id Utf8` (PK), `embedding String` (binary), `payload JsonDocument`
+    - Vector index: `emb_idx` (auto-created after ≥100 points upserted; type `vector_kmeans_tree`)
+- One‑table layout:
+  - Global points table: `qdrant_all_points`
+    - `uid Utf8`, `point_id Utf8`, `embedding String` (binary), `payload JsonDocument`
+    - Primary key: `(uid, point_id)` where `uid` is derived from tenant+collection (uses the same naming as per‑collection tables).
+    - **Note**: Vector indexes are not supported in one‑table mode; all searches run as table scans on `qdrant_all_points`.
 
 ## YDB vector specifics (YQL)
 - Search: single-phase top-k using vector index when available
@@ -81,7 +88,7 @@ Notes
   - Search automatically uses VIEW emb_idx; falls back to table scan if missing
 
 ## Project structure (src/)
-- `config/env.ts` — loads env (`dotenv/config`), exports `YDB_ENDPOINT`, `YDB_DATABASE`, `PORT`, `LOG_LEVEL`.
+- `config/env.ts` — loads env (`dotenv/config`), exports `YDB_ENDPOINT`, `YDB_DATABASE`, `PORT`, `LOG_LEVEL`, `CollectionStorageMode` enum and `COLLECTION_STORAGE_MODE` helpers.
 - `logging/logger.ts` — pino logger (level from env).
 - `utils/tenant.ts` — `sanitizeTenantId`, `sanitizeCollectionName`, `metaKeyFor`, `tableNameFor`.
 - `utils/normalization.ts` — vector extraction (`extractVectorLoose`, `isNumberArray`) and search body normalization (`normalizeSearchBodyForSearch`, `normalizeSearchBodyForQuery`).
@@ -90,9 +97,9 @@ Notes
 - `types.ts` — shared types and Zod schemas (CreateCollectionReq, UpsertPointsReq, SearchReq, DeletePointsReq).
 - `ydb/client.ts` — ydb-sdk Driver init (CJS interop), `readyOrThrow`, `withSession`, and re‑exports `Types`, `TypedValues`.
 - `ydb/schema.ts` — `ensureMetaTable()` (creates `qdr__collections` if missing).
-- `repositories/collectionsRepo.ts` — create/get/delete collection metadata and tables; `buildVectorIndex()`.
-- `repositories/pointsRepo.ts` — upsert/search/delete points; search tries VIEW emb_idx first; uses `withRetry` for transient errors.
-- `indexing/IndexScheduler.ts` — deferred vector index build scheduler with threshold (≥100 points) and quiet window (5s).
+- `repositories/collectionsRepo.ts` — facade for collection metadata/table operations; delegates to layout‑specific strategy modules (`collectionsRepo.multi-table.ts`, `collectionsRepo.one-table.ts`); `buildVectorIndex()`.
+- `repositories/pointsRepo.ts` — facade for point upsert/search/delete; delegates to layout‑specific strategy modules (`pointsRepo.multi-table.ts`, `pointsRepo.one-table.ts`); multi‑table search tries VIEW `emb_idx` first; uses `withRetry` for transient errors.
+- `indexing/IndexScheduler.ts` — deferred vector index build scheduler with threshold (≥100 points) and quiet window (5s); delegates to layout‑specific implementations in `IndexScheduler.multi-table.ts` / `IndexScheduler.one-table.ts`.
 - `routes/collections.ts` — Express router for collection endpoints; uses `X-Tenant-Id`.
 - `routes/points.ts` — Express router for points endpoints; calls `requestIndexBuild()` after upserts.
 - `server.ts` — builds Express app, mounts routes, health endpoint.
