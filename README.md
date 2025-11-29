@@ -401,8 +401,9 @@ curl -X POST http://localhost:8080/collections/mycol/points/delete \
 
 ## Notes
 - Storage layout:
-  - **multi_table** (default): one YDB table per collection; metadata is tracked in `qdr__collections`.
-  - **one_table**: a single global table `qdrant_all_points` with `(uid, point_id)` PK, where `uid` encodes tenant+collection. Columns: `uid Utf8`, `point_id Utf8`, `embedding String` (binary float), `embedding_bit String` (bit‑quantized), `payload JsonDocument`.
+- **multi_table** (default): one YDB table per collection; metadata is tracked in `qdr__collections`.
+- **one_table**: a single global table `qdrant_all_points` with `(uid, point_id)` PK, where `uid` encodes tenant+collection. Columns: `uid Utf8`, `point_id Utf8`, `embedding String` (binary float), `embedding_bit String` (bit‑quantized), `payload JsonDocument`.
+- **Schema migrations** (one_table mode): automatic schema/backfill steps for `qdrant_all_points` are disabled by default. To opt in, set `YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE=true` after backing up data; otherwise the service will error if the `embedding_bit` column is missing or needs backfill.
 - Per‑collection table schema (multi_table): `point_id Utf8` (PK), `embedding String` (binary), `payload JsonDocument`.
 - Vectors are serialized with `Knn::ToBinaryStringFloat`.
 - Search uses a single-phase top‑k over `embedding` with automatic YDB vector index (`emb_idx`) when available; falls back to table scan if missing.

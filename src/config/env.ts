@@ -4,6 +4,10 @@ export const YDB_ENDPOINT = process.env.YDB_ENDPOINT ?? "";
 export const YDB_DATABASE = process.env.YDB_DATABASE ?? "";
 export const PORT = process.env.PORT ? Number(process.env.PORT) : 8080;
 export const LOG_LEVEL = process.env.LOG_LEVEL ?? "info";
+export const GLOBAL_POINTS_AUTOMIGRATE_ENABLED = parseBooleanEnv(
+  process.env.YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE,
+  false
+);
 
 function parseBooleanEnv(
   value: string | undefined,
