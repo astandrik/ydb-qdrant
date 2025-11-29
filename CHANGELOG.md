@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## [4.1.3](https://github.com/astandrik/ydb-qdrant/compare/v4.1.2...v4.1.3) (2025-11-29)
+
+
+### Bug Fixes
+
+* add arm docker build ([#71](https://github.com/astandrik/ydb-qdrant/issues/71)) ([22ecdc4](https://github.com/astandrik/ydb-qdrant/commit/22ecdc47b01b4b52fa88d1fabd45e99465e18c44))
+
 ## [4.1.2](https://github.com/astandrik/ydb-qdrant/compare/v4.1.1...v4.1.2) (2025-11-29)
 
 
