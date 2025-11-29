@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("../../src/ydb/schema.js", () => ({
   ensureMetaTable: vi.fn().mockResolvedValue(undefined),
+  ensureGlobalPointsTable: vi.fn().mockResolvedValue(undefined),
   GLOBAL_POINTS_TABLE: "qdrant_all_points",
 }));
 

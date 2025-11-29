@@ -1,6 +1,6 @@
 import { TypedValues, withSession } from "../ydb/client.js";
 import type { DistanceKind, VectorType } from "../types";
-import { GLOBAL_POINTS_TABLE } from "../ydb/schema.js";
+import { GLOBAL_POINTS_TABLE, ensureGlobalPointsTable } from "../ydb/schema.js";
 import { upsertCollectionMeta } from "./collectionsRepo.shared.js";
 
 export async function createCollectionOneTable(
@@ -22,6 +22,8 @@ export async function deleteCollectionOneTable(
   metaKey: string,
   uid: string
 ): Promise<void> {
+  await ensureGlobalPointsTable();
+
   const deletePointsYql = `
     DECLARE $uid AS Utf8;
     DELETE FROM ${GLOBAL_POINTS_TABLE} WHERE uid = $uid;
