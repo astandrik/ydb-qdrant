@@ -125,7 +125,7 @@ export async function ensureGlobalPointsTable(): Promise<void> {
       globalPointsTableReady = true;
     });
   } catch (err: unknown) {
-    logger.debug({ err }, "ensureGlobalPointsTable: ignored");
+    logger.debug({ err }, "ensureGlobalPointsTable: migration check failed");
     throw err;
   }
 }
