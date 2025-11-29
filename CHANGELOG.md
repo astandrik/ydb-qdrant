@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## [4.1.2](https://github.com/astandrik/ydb-qdrant/compare/v4.1.1...v4.1.2) (2025-11-29)
+
+
+### Bug Fixes
+
+* disable auto-migration ([#68](https://github.com/astandrik/ydb-qdrant/issues/68)) ([ed7be88](https://github.com/astandrik/ydb-qdrant/commit/ed7be88032e874337e45f8ce4a0e0266d96e947b))
+* gracefully handle vector mismatch errors ([#66](https://github.com/astandrik/ydb-qdrant/issues/66)) ([6788552](https://github.com/astandrik/ydb-qdrant/commit/6788552fd973006fb5015693542f78643f13665c))
+
 ## [4.1.1](https://github.com/astandrik/ydb-qdrant/compare/v4.1.0...v4.1.1) (2025-11-29)
 
 
