@@ -1,7 +1,20 @@
-export function sanitizeCollectionName(name: string): string {
+import { createHash } from "crypto";
+
+export function hashApiKey(apiKey: string | undefined): string | undefined {
+  if (!apiKey || apiKey.trim() === "") return undefined;
+  const hash = createHash("sha256").update(apiKey).digest("hex");
+  return hash.slice(0, 8);
+}
+
+export function sanitizeCollectionName(
+  name: string,
+  apiKeyHash?: string
+): string {
   const cleaned = name.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_");
   const lowered = cleaned.toLowerCase().replace(/^_+/, "");
-  return lowered.length > 0 ? lowered : "collection";
+  const base = lowered.length > 0 ? lowered : "collection";
+  const hasHash = apiKeyHash !== undefined && apiKeyHash.trim().length > 0;
+  return hasHash ? `${base}_${apiKeyHash}` : base;
 }
 
 export function sanitizeTenantId(tenantId: string | undefined): string {
@@ -11,16 +24,23 @@ export function sanitizeTenantId(tenantId: string | undefined): string {
   return lowered.length > 0 ? lowered : "default";
 }
 
-export function tableNameFor(tenantId: string, collection: string): string {
-  return `qdr_${sanitizeTenantId(tenantId)}__${sanitizeCollectionName(
-    collection
-  )}`;
+export function tableNameFor(
+  sanitizedTenant: string,
+  sanitizedCollection: string
+): string {
+  return `qdr_${sanitizedTenant}__${sanitizedCollection}`;
 }
 
-export function metaKeyFor(tenantId: string, collection: string): string {
-  return `${sanitizeTenantId(tenantId)}/${sanitizeCollectionName(collection)}`;
+export function metaKeyFor(
+  sanitizedTenant: string,
+  sanitizedCollection: string
+): string {
+  return `${sanitizedTenant}/${sanitizedCollection}`;
 }
 
-export function uidFor(tenantId: string, collectionName: string): string {
-  return tableNameFor(tenantId, collectionName);
+export function uidFor(
+  sanitizedTenant: string,
+  sanitizedCollection: string
+): string {
+  return tableNameFor(sanitizedTenant, sanitizedCollection);
 }
