@@ -70,6 +70,7 @@ Notes
   - Global points table: `qdrant_all_points`
     - `uid Utf8`, `point_id Utf8`, `embedding String` (binary), `payload JsonDocument`
     - Primary key: `(uid, point_id)` where `uid` is derived from tenant+collection (uses the same naming as per‑collection tables).
+    - **Note**: Vector indexes are not supported in one‑table mode; all searches run as table scans on `qdrant_all_points`.
 
 ## YDB vector specifics (YQL)
 - Search: single-phase top-k using vector index when available

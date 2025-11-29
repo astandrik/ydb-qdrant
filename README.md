@@ -406,7 +406,7 @@ curl -X POST http://localhost:8080/collections/mycol/points/delete \
 - Per‑collection table schema (multi_table): `point_id Utf8` (PK), `embedding String` (binary), `payload JsonDocument`.
 - Vectors are serialized with `Knn::ToBinaryStringFloat`.
 - Search uses a single-phase top‑k over `embedding` with automatic YDB vector index (`emb_idx`) when available; falls back to table scan if missing.
-- **Vector index auto-build**: After ≥100 points upserted + 5s quiet window, a `vector_kmeans_tree` index (levels=1, clusters=128) is built automatically. Incremental updates (<100 points) skip index rebuild.
+- **Vector index auto-build** (multi_table mode only): After ≥100 points upserted + 5s quiet window, a `vector_kmeans_tree` index (levels=1, clusters=128) is built automatically. Incremental updates (<100 points) skip index rebuild. In one_table mode, vector indexes are not supported and all searches use table scans.
 - **Concurrency**: During index rebuilds, YDB may return transient `Aborted`/schema metadata errors. Upserts include bounded retries with backoff to handle this automatically.
 - Filters are not yet modeled; can be added if needed.
 
