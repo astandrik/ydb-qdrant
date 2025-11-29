@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## [4.3.1](https://github.com/astandrik/ydb-qdrant/compare/v4.3.0...v4.3.1) (2025-11-29)
+
+
+### Bug Fixes
+
+* build ([#79](https://github.com/astandrik/ydb-qdrant/issues/79)) ([d0be681](https://github.com/astandrik/ydb-qdrant/commit/d0be6814891375f5d7194ee5a45ba37c0e4a45a2))
+
 ## [4.3.0](https://github.com/astandrik/ydb-qdrant/compare/v4.2.0...v4.3.0) (2025-11-29)
 
 
