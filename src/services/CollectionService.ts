@@ -1,18 +1,16 @@
 import { CreateCollectionReq, type DistanceKind } from "../types.js";
-import { ensureMetaTable } from "../ydb/schema.js";
+import { ensureMetaTable, GLOBAL_POINTS_TABLE } from "../ydb/schema.js";
 import {
   createCollection as repoCreateCollection,
   deleteCollection as repoDeleteCollection,
   getCollectionMeta,
 } from "../repositories/collectionsRepo.js";
 import { QdrantServiceError } from "./errors.js";
-import { COLLECTION_STORAGE_MODE, isOneTableMode } from "../config/env.js";
 import {
   normalizeCollectionContextShared,
   tableNameFor,
   type NormalizedCollectionContextLike,
 } from "./CollectionService.shared.js";
-import { resolvePointsTableAndUidMultiTable } from "./CollectionService.multi-table.js";
 import { resolvePointsTableAndUidOneTable } from "./CollectionService.one-table.js";
 
 export interface CollectionContextInput {
@@ -36,19 +34,22 @@ export function normalizeCollectionContext(
 }
 
 export async function resolvePointsTableAndUid(
-  ctx: NormalizedCollectionContext
+  ctx: NormalizedCollectionContext,
+  meta: { table: string }
 ): Promise<{
   tableName: string;
   uid: string | undefined;
 }> {
-  if (isOneTableMode(COLLECTION_STORAGE_MODE)) {
+  if (meta?.table === GLOBAL_POINTS_TABLE) {
     return await resolvePointsTableAndUidOneTable(
       ctx as NormalizedCollectionContextLike
     );
   }
-  return resolvePointsTableAndUidMultiTable(
-    ctx as NormalizedCollectionContextLike
-  );
+
+  return {
+    tableName: meta.table,
+    uid: undefined,
+  };
 }
 
 export async function putCollectionIndex(
@@ -140,7 +141,6 @@ export async function deleteCollection(
 ): Promise<{ acknowledged: boolean }> {
   await ensureMetaTable();
   const normalized = normalizeCollectionContext(ctx);
-  const { uid } = await resolvePointsTableAndUid(normalized);
-  await repoDeleteCollection(normalized.metaKey, uid);
+  await repoDeleteCollection(normalized.metaKey);
   return { acknowledged: true };
 }

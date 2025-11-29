@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("../../src/ydb/schema.js", () => ({
   ensureMetaTable: vi.fn().mockResolvedValue(undefined),
+  GLOBAL_POINTS_TABLE: "qdrant_all_points",
 }));
 
 vi.mock("../../src/logging/logger.js", () => ({
@@ -176,8 +177,7 @@ describe("QdrantService (with mocked YDB)", () => {
 
     expect(result).toEqual({ acknowledged: true });
     expect(collectionsRepo.deleteCollection).toHaveBeenCalledWith(
-      "tenant_a/my_collection",
-      undefined
+      "tenant_a/my_collection"
     );
   });
 

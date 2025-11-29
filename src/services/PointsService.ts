@@ -47,7 +47,7 @@ export async function upsertPoints(
     });
   }
 
-  const { tableName, uid } = await resolvePointsTableAndUid(normalized);
+  const { tableName, uid } = await resolvePointsTableAndUid(normalized, meta);
   const upserted = await repoUpsertPoints(
     tableName,
     parsed.data.points,
@@ -129,7 +129,7 @@ async function executeSearch(
     });
   }
 
-  const { tableName, uid } = await resolvePointsTableAndUid(normalized);
+  const { tableName, uid } = await resolvePointsTableAndUid(normalized, meta);
 
   logger.info(
     {
@@ -229,7 +229,7 @@ export async function deletePoints(
     });
   }
 
-  const { tableName, uid } = await resolvePointsTableAndUid(normalized);
+  const { tableName, uid } = await resolvePointsTableAndUid(normalized, meta);
   const deleted = await repoDeletePoints(tableName, parsed.data.points, uid);
   return { deleted };
 }
