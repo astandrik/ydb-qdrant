@@ -6,10 +6,6 @@ YDB_LOCAL_MON_PORT="${YDB_LOCAL_MON_PORT:-8765}"
 YDB_DATABASE="${YDB_DATABASE:-/local}"
 PORT="${PORT:-8080}"
 
-if [[ -z "${YDB_ENDPOINT:-}" ]]; then
-  export YDB_ENDPOINT="grpc://localhost:${YDB_LOCAL_GRPC_PORT}"
-fi
-
 export YDB_DATABASE
 export YDB_ANONYMOUS_CREDENTIALS="${YDB_ANONYMOUS_CREDENTIALS:-1}"
 
@@ -43,11 +39,23 @@ wait_for_ydb() {
   exit 1
 }
 
-if [[ -z "${YDB_ENDPOINT_EXTERNAL_ONLY:-}" ]] && [[ -z "${YDB_ENDPOINT:-}" || "${YDB_ENDPOINT}" == "grpc://localhost:${YDB_LOCAL_GRPC_PORT}" ]]; then
-  start_local_ydb
-  wait_for_ydb
+if [[ -n "${YDB_ENDPOINT_EXTERNAL_ONLY:-}" ]]; then
+  if [[ -z "${YDB_ENDPOINT:-}" ]]; then
+    echo "YDB_ENDPOINT_EXTERNAL_ONLY is set but YDB_ENDPOINT is empty; please provide an external YDB endpoint" >&2
+    exit 1
+  fi
+  echo "Using external YDB endpoint (external-only mode): ${YDB_ENDPOINT}, local YDB startup skipped"
 else
-  echo "Using external YDB endpoint: ${YDB_ENDPOINT}, local YDB startup skipped"
+  if [[ -z "${YDB_ENDPOINT:-}" ]]; then
+    export YDB_ENDPOINT="grpc://localhost:${YDB_LOCAL_GRPC_PORT}"
+  fi
+
+  if [[ "${YDB_ENDPOINT}" == "grpc://localhost:${YDB_LOCAL_GRPC_PORT}" ]]; then
+    start_local_ydb
+    wait_for_ydb
+  else
+    echo "Using external YDB endpoint: ${YDB_ENDPOINT}, local YDB startup skipped"
+  fi
 fi
 
 export PORT

@@ -330,6 +330,7 @@ Key env vars (all optional; the image provides sensible defaults, override only 
   - `YDB_LOCAL_GRPC_PORT` (default `2136`): internal YDB gRPC port; used to derive `YDB_ENDPOINT=grpc://localhost:<port>` when not set.
   - `YDB_LOCAL_MON_PORT` (default `8765`): internal YDB Embedded UI HTTP port.
   - `YDB_DATABASE` (default `/local`).
+  - `YDB_ENDPOINT_EXTERNAL_ONLY` (default unset): when set, embedded local YDB is never started and `YDB_ENDPOINT` must point to an external YDB.
   - `YDB_ANONYMOUS_CREDENTIALS` (default `1` inside this image).
   - `YDB_USE_IN_MEMORY_PDISKS` (default `0`, values `0`/`1`): store data in RAM only when `1` (fast, non-persistent).
   - `YDB_LOCAL_SURVIVE_RESTART` (default `0`, values `0`/`1`): control persistence across restarts when using a mounted data volume.
