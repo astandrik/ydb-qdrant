@@ -3,6 +3,12 @@ export interface QdrantServiceErrorPayload {
   error: unknown;
 }
 
+export function isVectorDimensionMismatchError(err: unknown): err is Error {
+  return (
+    err instanceof Error && err.message.startsWith("Vector dimension mismatch")
+  );
+}
+
 export class QdrantServiceError extends Error {
   readonly statusCode: number;
   readonly payload: QdrantServiceErrorPayload;

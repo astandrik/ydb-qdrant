@@ -9,7 +9,10 @@ import {
 import { requestIndexBuild } from "../indexing/IndexScheduler.js";
 import { logger } from "../logging/logger.js";
 import { VECTOR_INDEX_BUILD_ENABLED } from "../config/env.js";
-import { QdrantServiceError } from "./errors.js";
+import {
+  QdrantServiceError,
+  isVectorDimensionMismatchError,
+} from "./errors.js";
 import {
   normalizeCollectionContext,
   resolvePointsTableAndUid,
@@ -48,12 +51,32 @@ export async function upsertPoints(
   }
 
   const { tableName, uid } = await resolvePointsTableAndUid(normalized, meta);
-  const upserted = await repoUpsertPoints(
-    tableName,
-    parsed.data.points,
-    meta.dimension,
-    uid
-  );
+  let upserted: number;
+  try {
+    upserted = await repoUpsertPoints(
+      tableName,
+      parsed.data.points,
+      meta.dimension,
+      uid
+    );
+  } catch (err: unknown) {
+    if (isVectorDimensionMismatchError(err)) {
+      logger.warn(
+        {
+          tenant: normalized.tenant,
+          collection: normalized.collection,
+          table: tableName,
+          dimension: meta.dimension,
+        },
+        "upsertPoints: vector dimension mismatch"
+      );
+      throw new QdrantServiceError(400, {
+        status: "error",
+        error: err.message,
+      });
+    }
+    throw err;
+  }
 
   if (VECTOR_INDEX_BUILD_ENABLED) {
     requestIndexBuild(
@@ -144,15 +167,36 @@ async function executeSearch(
     `${source}: executing`
   );
 
-  const hits = await repoSearchPoints(
-    tableName,
-    parsed.data.vector,
-    parsed.data.top,
-    parsed.data.with_payload,
-    meta.distance,
-    meta.dimension,
-    uid
-  );
+  let hits;
+  try {
+    hits = await repoSearchPoints(
+      tableName,
+      parsed.data.vector,
+      parsed.data.top,
+      parsed.data.with_payload,
+      meta.distance,
+      meta.dimension,
+      uid
+    );
+  } catch (err: unknown) {
+    if (isVectorDimensionMismatchError(err)) {
+      logger.warn(
+        {
+          tenant: normalized.tenant,
+          collection: normalized.collection,
+          table: tableName,
+          dimension: meta.dimension,
+          queryVectorLen: parsed.data.vector.length,
+        },
+        `${source}: vector dimension mismatch`
+      );
+      throw new QdrantServiceError(400, {
+        status: "error",
+        error: err.message,
+      });
+    }
+    throw err;
+  }
 
   const threshold = normalizedSearch.scoreThreshold;
   const filtered =

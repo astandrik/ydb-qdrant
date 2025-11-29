@@ -208,6 +208,40 @@ describe("pointsRouter (HTTP, mocked service)", () => {
     expect(res.body).toEqual({ status: "error", error: "bad search" });
   });
 
+  it("returns 400 and payload for vector dimension mismatch on upsert", async () => {
+    const putHandler = findHandler(pointsRouter, "put", "/:collection/points");
+    const req = createRequest({
+      method: "PUT",
+      collection: "col",
+      body: {
+        points: [{ id: "p1", vector: [0, 0, 0, 1] }],
+      },
+      tenantHeader: "tenant",
+    });
+    const res = createMockRes();
+
+    const error = new QdrantServiceError(
+      400,
+      {
+        status: "error",
+        error:
+          "Vector dimension mismatch for id=p1: got 4096, expected 3072",
+      },
+      "Vector dimension mismatch for id=p1: got 4096, expected 3072"
+    );
+
+    vi.mocked(pointsService.upsertPoints).mockRejectedValueOnce(error);
+
+    await putHandler(req, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toEqual({
+      status: "error",
+      error:
+        "Vector dimension mismatch for id=p1: got 4096, expected 3072",
+    });
+  });
+
   it("logs unexpected errors and returns 500 for delete points", async () => {
     const deleteHandler = findHandler(
       pointsRouter,
