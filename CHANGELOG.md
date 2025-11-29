@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## [4.2.0](https://github.com/astandrik/ydb-qdrant/compare/v4.1.3...v4.2.0) (2025-11-29)
+
+
+### Features
+
+* include hashed key in collection name ([#75](https://github.com/astandrik/ydb-qdrant/issues/75)) ([fa7b843](https://github.com/astandrik/ydb-qdrant/commit/fa7b843283b475554b0e2c59deb110f8d9a989b1))
+
 ## [4.1.3](https://github.com/astandrik/ydb-qdrant/compare/v4.1.2...v4.1.3) (2025-11-29)
 
 
