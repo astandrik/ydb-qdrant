@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## [4.1.1](https://github.com/astandrik/ydb-qdrant/compare/v4.1.0...v4.1.1) (2025-11-29)
+
+
+### Bug Fixes
+
+* use users distance metric in Phase 1 search and add embedding_bit migration ([#64](https://github.com/astandrik/ydb-qdrant/issues/64)) ([71d0397](https://github.com/astandrik/ydb-qdrant/commit/71d0397219100cf43eec7916aa3b58cd9b1662ac))
+
 ## [4.1.0](https://github.com/astandrik/ydb-qdrant/compare/v4.0.0...v4.1.0) (2025-11-29)
 
 
