@@ -1,5 +1,5 @@
 import type { DistanceKind, VectorType } from "../types.js";
-import { COLLECTION_STORAGE_MODE, isOneTableMode } from "../config/env.js";
+import { GLOBAL_POINTS_TABLE } from "../ydb/schema.js";
 import {
   state,
   requestIndexBuildMultiTable,
@@ -25,7 +25,7 @@ export function requestIndexBuild(
   vectorType: VectorType,
   opts?: { force?: boolean }
 ): void {
-  if (isOneTableMode(COLLECTION_STORAGE_MODE)) {
+  if (tableName === GLOBAL_POINTS_TABLE) {
     requestIndexBuildOneTable(tableName);
     return;
   }
