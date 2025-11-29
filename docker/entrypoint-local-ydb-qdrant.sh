@@ -43,7 +43,7 @@ wait_for_ydb() {
   exit 1
 }
 
-if [[ ( -z "${YDB_ENDPOINT_EXTERNAL_ONLY:-}" && -z "${YDB_ENDPOINT:-}" ) || "${YDB_ENDPOINT}" == "grpc://localhost:${YDB_LOCAL_GRPC_PORT}" ]]; then
+if [[ -z "${YDB_ENDPOINT_EXTERNAL_ONLY:-}" ]] && [[ -z "${YDB_ENDPOINT:-}" || "${YDB_ENDPOINT}" == "grpc://localhost:${YDB_LOCAL_GRPC_PORT}" ]]; then
   start_local_ydb
   wait_for_ydb
 else
