@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## [4.1.0](https://github.com/astandrik/ydb-qdrant/compare/v4.0.0...v4.1.0) (2025-11-29)
+
+
+### Features
+
+* add one-table layout mode with layout-specific strategies ([#60](https://github.com/astandrik/ydb-qdrant/issues/60)) ([840fcc6](https://github.com/astandrik/ydb-qdrant/commit/840fcc6ab19952a27e99b16f2f6d82baaa421e9e))
+
 ## [4.0.0](https://github.com/astandrik/ydb-qdrant/compare/v3.0.0...v4.0.0) (2025-11-26)
 
 
