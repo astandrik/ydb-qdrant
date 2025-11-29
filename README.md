@@ -342,7 +342,7 @@ Key env vars (all optional; the image provides sensible defaults, override only 
   - `YDB_QDRANT_COLLECTION_STORAGE_MODE` / `YDB_QDRANT_TABLE_LAYOUT` (`multi_table` or `one_table`).
   - `YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE`.
 
-> Note: In the `ydb-qdrant-local` image, `YDB_ENDPOINT` is always set internally to `grpc://localhost:<YDB_LOCAL_GRPC_PORT>` — the container always talks to its embedded local YDB.
+> Note: In the `ydb-qdrant-local` image, `YDB_ENDPOINT` is unconditionally set to `grpc://localhost:<YDB_LOCAL_GRPC_PORT>` by the entrypoint — any user-provided value is ignored. Use the standalone `ydb-qdrant` image if you need to connect to an external YDB.
 
 #### Apple Silicon (Mac) notes
 
