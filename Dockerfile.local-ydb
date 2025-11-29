@@ -1,0 +1,49 @@
+FROM node:22-alpine AS builder
+
+WORKDIR /usr/src/app
+
+COPY package*.json ./
+RUN npm ci
+
+COPY . .
+RUN npm run build
+
+FROM ghcr.io/ydb-platform/local-ydb:nightly AS runner
+
+ENV NODE_ENV=production
+ENV NODE_VERSION=22.11.0
+
+WORKDIR /usr/src/app
+
+RUN set -eux; \
+  arch="$(uname -m)"; \
+  if [ "$arch" != "x86_64" ] && [ "$arch" != "amd64" ]; then \
+    echo "This image currently supports only x86_64/amd64"; \
+    exit 1; \
+  fi; \
+  curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" -o /tmp/node.tar.xz; \
+  mkdir -p /usr/local/lib/nodejs; \
+  tar -xJf /tmp/node.tar.xz -C /usr/local/lib/nodejs; \
+  rm /tmp/node.tar.xz; \
+  ln -s /usr/local/lib/nodejs/node-v${NODE_VERSION}-linux-x64/bin/node /usr/local/bin/node; \
+  ln -s /usr/local/lib/nodejs/node-v${NODE_VERSION}-linux-x64/bin/npm /usr/local/bin/npm; \
+  ln -s /usr/local/lib/nodejs/node-v${NODE_VERSION}-linux-x64/bin/npx /usr/local/bin/npx
+
+COPY package*.json ./
+COPY --from=builder /usr/src/app/node_modules ./node_modules
+COPY --from=builder /usr/src/app/dist ./dist
+COPY --from=builder /usr/src/app/README.md ./README.md
+COPY --from=builder /usr/src/app/LICENSE ./LICENSE
+COPY --from=builder /usr/src/app/logo.svg ./logo.svg
+
+COPY docker/entrypoint-local-ydb-qdrant.sh /usr/local/bin/entrypoint-local-ydb-qdrant.sh
+RUN chmod +x /usr/local/bin/entrypoint-local-ydb-qdrant.sh
+
+EXPOSE 8080 8765 2136
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
+  CMD node -e "const http=require('http');const port=process.env.PORT||8080;http.get({host:'127.0.0.1',port,path:'/health'},res=>process.exit(res.statusCode===200?0:1)).on('error',()=>process.exit(1));" || exit 1
+
+ENTRYPOINT ["/usr/local/bin/entrypoint-local-ydb-qdrant.sh"]
+
+
