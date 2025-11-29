@@ -33,7 +33,7 @@ RUN set -eux; \
 ENV PATH="/usr/local/bin:${PATH}"
 
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev --ignore-scripts
 COPY --from=builder /usr/src/app/dist ./dist
 COPY --from=builder /usr/src/app/README.md ./README.md
 COPY --from=builder /usr/src/app/LICENSE ./LICENSE
