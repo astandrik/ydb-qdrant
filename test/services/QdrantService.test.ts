@@ -228,6 +228,33 @@ describe("QdrantService (with mocked YDB)", () => {
     expect(indexScheduler.requestIndexBuild).toHaveBeenCalledTimes(1);
   });
 
+  it("maps vector dimension mismatch during upsert to QdrantServiceError 400", async () => {
+    vi.mocked(collectionsRepo.getCollectionMeta).mockResolvedValueOnce({
+      table: "qdr_tenant_a__my_collection",
+      dimension: 4,
+      distance: "Cosine",
+      vectorType: "float",
+    });
+    vi.mocked(pointsRepo.upsertPoints).mockRejectedValueOnce(
+      new Error("Vector dimension mismatch for id=p1: got 4096, expected 3072")
+    );
+
+    await expect(
+      upsertPoints(
+        { tenant, collection },
+        {
+          points: [{ id: "p1", vector: [0, 0, 0, 1] }],
+        }
+      )
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      payload: {
+        status: "error",
+        error: "Vector dimension mismatch for id=p1: got 4096, expected 3072",
+      },
+    });
+  });
+
   it("throws 404 when upserting points into a missing collection", async () => {
     vi.mocked(collectionsRepo.getCollectionMeta).mockResolvedValueOnce(null);
 
@@ -334,6 +361,34 @@ describe("QdrantService (with mocked YDB)", () => {
     );
 
     expect(result.points.map((p) => p.id)).toEqual(["p1"]);
+  });
+
+  it("maps vector dimension mismatch during search to QdrantServiceError 400", async () => {
+    vi.mocked(collectionsRepo.getCollectionMeta).mockResolvedValueOnce({
+      table: "qdr_tenant_a__my_collection",
+      dimension: 3072,
+      distance: "Cosine",
+      vectorType: "float",
+    });
+    vi.mocked(pointsRepo.searchPoints).mockRejectedValueOnce(
+      new Error("Vector dimension mismatch: got 4096, expected 3072")
+    );
+
+    await expect(
+      searchPoints(
+        { tenant, collection },
+        {
+          vector: new Array(4096).fill(0),
+          top: 1,
+        }
+      )
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      payload: {
+        status: "error",
+        error: "Vector dimension mismatch: got 4096, expected 3072",
+      },
+    });
   });
 
   it("uses loose query normalization in queryPoints", async () => {
