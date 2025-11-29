@@ -48,6 +48,7 @@ vi.mock("../../src/config/env.js", () => ({
   isOneTableMode: (mode: string) => mode === "one_table",
 }));
 
+import { CollectionStorageMode } from "../../src/config/env.js";
 import {
   createCollection,
   getCollectionMeta,
@@ -209,7 +210,7 @@ describe("collectionsRepo (with mocked YDB)", () => {
       "Cosine",
       "float",
       "qdr_tenant_a__my_collection",
-      "one_table"
+      CollectionStorageMode.OneTable
     );
 
     expect(sessionMock.createTable).not.toHaveBeenCalled();
@@ -229,7 +230,7 @@ describe("collectionsRepo (with mocked YDB)", () => {
             rows: [
               {
                 items: [
-                  { textValue: "qdr_tenant_a__my_collection" },
+                  { textValue: "qdrant_all_points" },
                   { uint32Value: 128 },
                   { textValue: "Cosine" },
                   { textValue: "float" },
@@ -245,8 +246,7 @@ describe("collectionsRepo (with mocked YDB)", () => {
 
     await deleteCollection(
       "tenant_a/my_collection",
-      "qdr_tenant_a__my_collection",
-      "one_table"
+      "qdr_tenant_a__my_collection"
     );
 
     expect(sessionMock.dropTable).not.toHaveBeenCalled();

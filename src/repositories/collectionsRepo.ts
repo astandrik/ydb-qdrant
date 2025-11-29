@@ -6,6 +6,8 @@ import {
   isOneTableMode,
   type CollectionStorageMode,
 } from "../config/env.js";
+import { GLOBAL_POINTS_TABLE } from "../ydb/schema.js";
+import { uidFor } from "../utils/tenant.js";
 import {
   createCollectionMultiTable,
   deleteCollectionMultiTable,
@@ -76,19 +78,24 @@ export async function getCollectionMeta(metaKey: string): Promise<{
 
 export async function deleteCollection(
   metaKey: string,
-  uid?: string,
-  layout: CollectionStorageMode = COLLECTION_STORAGE_MODE
+  uid?: string
 ): Promise<void> {
   const meta = await getCollectionMeta(metaKey);
   if (!meta) return;
 
-  if (isOneTableMode(layout)) {
-    if (!uid) {
-      throw new Error(
-        `deleteCollection: uid is required when using one_table layout (metaKey=${metaKey})`
-      );
-    }
-    await deleteCollectionOneTable(metaKey, uid);
+  if (meta.table === GLOBAL_POINTS_TABLE) {
+    const effectiveUid =
+      uid ??
+      (() => {
+        const [tenant, collection] = metaKey.split("/", 2);
+        if (!tenant || !collection) {
+          throw new Error(
+            `deleteCollection: cannot derive uid from malformed metaKey=${metaKey}`
+          );
+        }
+        return uidFor(tenant, collection);
+      })();
+    await deleteCollectionOneTable(metaKey, effectiveUid);
     return;
   }
 
