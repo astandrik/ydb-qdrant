@@ -41,9 +41,8 @@ When creating a collection, you must specify the vector `size` matching your emb
 
 ### References
 
-- OpenAI Embeddings Guide: https://platform.openai.com/docs/guides/embeddings
-- Cohere Embed Models: https://docs.cohere.com/docs/cohere-embed
-- Google Gemini Embeddings: https://ai.google.dev/gemini-api/docs/embeddings
-- HuggingFace Sentence Transformers: https://huggingface.co/sentence-transformers
-
+- [OpenAI Embeddings Guide](https://platform.openai.com/docs/guides/embeddings)
+- [Cohere Embed Models](https://docs.cohere.com/docs/cohere-embed)
+- [Google Gemini Embeddings](https://ai.google.dev/gemini-api/docs/embeddings)
+- [HuggingFace Sentence Transformers](https://huggingface.co/sentence-transformers)
 

@@ -127,6 +127,9 @@ docker-compose pull ydb-qdrant
 docker-compose up -d ydb-qdrant
 ```
 
-Environment variables for Docker deployments use the same variables as documented in **Configure credentials** in the root README (`YDB_ENDPOINT`, `YDB_DATABASE`, one of the `YDB_*_CREDENTIALS` options, optional `PORT`/`LOG_LEVEL`).
+Environment variables for Docker deployments use the same variables as documented in [Configure credentials](#references) (`YDB_ENDPOINT`, `YDB_DATABASE`, one of the `YDB_*_CREDENTIALS` options, optional `PORT`/`LOG_LEVEL`).
 
+### References
+
+- [Configure credentials in the root README](../README.md#configure-credentials)
 

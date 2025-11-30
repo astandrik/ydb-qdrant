@@ -24,7 +24,7 @@ Semantic recall and F1 metrics are computed using seeded datasets and integratio
 
 High-level IR evaluation background (precision/recall/F1, MAP, nDCG) follows the guidelines from:
 
-- Manning et al., *Introduction to Information Retrieval*, Chapter 8.
+- [Manning et al., *Introduction to Information Retrieval*, Chapter 8](https://nlp.stanford.edu/IR-book/pdf/08eval.pdf).
 
 ### Releasing and Publishing
 
