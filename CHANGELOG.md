@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## [4.4.0](https://github.com/astandrik/ydb-qdrant/compare/v4.3.6...v4.4.0) (2025-11-30)
+
+
+### Features
+
+* save database data between restarts/updates ([#101](https://github.com/astandrik/ydb-qdrant/issues/101)) ([03c6b37](https://github.com/astandrik/ydb-qdrant/commit/03c6b37e1ce136d21a12fccf609096a384abd139))
+* test of semantic search completeness (recall) ([#94](https://github.com/astandrik/ydb-qdrant/issues/94)) ([3e6b1f8](https://github.com/astandrik/ydb-qdrant/commit/3e6b1f8a978e02474a5c9726be3c9cb437601b4d))
+
+
+### Bug Fixes
+
+* add link ([#97](https://github.com/astandrik/ydb-qdrant/issues/97)) ([34b7aaa](https://github.com/astandrik/ydb-qdrant/commit/34b7aaafe2754595da4481322bf17c30f1d9d99a))
+* improve recall tests ([#96](https://github.com/astandrik/ydb-qdrant/issues/96)) ([6db180b](https://github.com/astandrik/ydb-qdrant/commit/6db180b3d1f7fefe24c0993264912efb3f9d2ea8))
+
 ## [4.3.6](https://github.com/astandrik/ydb-qdrant/compare/v4.3.5...v4.3.6) (2025-11-30)
 
 
