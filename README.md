@@ -263,7 +263,7 @@ docker run -d --name ydb-qdrant \
   ghcr.io/astandrik/ydb-qdrant:latest
 ```
 
-For full deployment options (local builds, all-in-one image, Docker Compose, Apple Silicon notes), see `docs/deployment-and-docker.md`.
+For full deployment options (local builds, all-in-one image, Docker Compose, Apple Silicon notes), see [docs/deployment-and-docker.md](docs/deployment-and-docker.md).
 
 
 ## API Reference
