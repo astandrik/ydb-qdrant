@@ -39,7 +39,7 @@ Notes
 - Optional:
   - `PORT` (default 8080)
   - `LOG_LEVEL`
-  - `VECTOR_INDEX_BUILD_ENABLED` — `"true"`/`"false"` toggle for automatic vector index builds and search behavior (default `"false"`). When `"true"`, upserts schedule automatic builds and search first uses the vector index `emb_idx`, falling back to a table scan if the index is missing. When `"false"`, no automatic builds are scheduled and search never uses the vector index (all queries are executed as table scans over `embedding`).
+  - `VECTOR_INDEX_BUILD_ENABLED` — `"true"`/`"false"` toggle for automatic vector index builds and search behavior (default `"true"` in `multi_table` mode, `"false"` in `one_table` mode). When `"true"`, upserts schedule automatic builds and search first uses the vector index `emb_idx`, falling back to a table scan if the index is missing. When `"false"`, no automatic builds are scheduled and search never uses the vector index (all queries are executed as table scans over `embedding`).
   - `YDB_QDRANT_COLLECTION_STORAGE_MODE` — `"multi_table"` or `"one_table"` (default `"multi_table"`). Controls whether points are stored in per‑collection tables or a single global table. Backed by the `CollectionStorageMode` enum in `config/env.ts`. The legacy `YDB_QDRANT_TABLE_LAYOUT` env is still accepted as an alias.
 
 ## Run
