@@ -516,3 +516,4 @@ For broader Qdrant API coverage, extend routes in `src/routes/*`.
 - YQL functions index: https://ydb.tech/docs/en/yql/reference/functions/
 - ydb-sdk (Node.js): https://github.com/ydb-platform/ydb-nodejs-sdk
 - YDB Cloud (endpoints, auth): https://cloud.yandex.com/en/docs/ydb/
+- IR evaluation (precision/recall/F1, MAP, nDCG): [Manning et al., *Introduction to Information Retrieval*, Chapter 8](https://nlp.stanford.edu/IR-book/pdf/08eval.pdf)
