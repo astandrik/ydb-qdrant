@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## [4.3.6](https://github.com/astandrik/ydb-qdrant/compare/v4.3.5...v4.3.6) (2025-11-30)
+
+
+### Bug Fixes
+
+* vector index true for multitable by default ([#89](https://github.com/astandrik/ydb-qdrant/issues/89)) ([1b33101](https://github.com/astandrik/ydb-qdrant/commit/1b331011aee7bc081443112f20b1d67bdcb211c7))
+
 ## [4.3.5](https://github.com/astandrik/ydb-qdrant/compare/v4.3.4...v4.3.5) (2025-11-29)
 
 
