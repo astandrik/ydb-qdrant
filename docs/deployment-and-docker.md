@@ -69,6 +69,63 @@ Key env vars (all optional; the image provides sensible defaults, override only 
 
 > Note: In the `ydb-qdrant-local` image, `YDB_ENDPOINT` is unconditionally set to `grpc://localhost:<YDB_LOCAL_GRPC_PORT>` by the entrypoint — any user-provided value is ignored. Use the standalone `ydb-qdrant` image if you need to connect to an external YDB.
 
+#### Persistence across restarts (optional)
+
+The example above is optimized for quick local experiments and uses container-local storage, so data is effectively ephemeral. To keep embedded YDB data across container restarts and recreation, mount a volume for the YDB data directory and enable restart survival:
+
+```bash
+docker run -d --name ydb-qdrant-local \
+  -p 8080:8080 \
+  -p 8765:8765 \
+  -e YDB_LOCAL_SURVIVE_RESTART=1 \
+  -v "$PWD/ydb_data:/ydb_data" \
+  ghcr.io/astandrik/ydb-qdrant-local:latest
+```
+
+- **`-v "$PWD/ydb_data:/ydb_data"`**: mounts a host directory where the embedded YDB stores its data; as long as you reuse this volume, your data survives container restarts and recreation.
+- **`YDB_LOCAL_SURVIVE_RESTART=1`**: tells the local YDB instance to reuse existing data in `/ydb_data` instead of reinitializing the cluster on each start.
+- Other YDB env vars such as `YDB_USE_IN_MEMORY_PDISKS` (default `0`) and `YDB_DATABASE` (default `/local`) are left at their documented defaults and usually do not need to be overridden for this setup.
+
+If you prefer a Docker-managed named volume instead of a host directory:
+
+```bash
+docker volume create ydb-qdrant-local-data
+
+docker run -d --name ydb-qdrant-local \
+  -p 8080:8080 \
+  -p 8765:8765 \
+  -e YDB_LOCAL_SURVIVE_RESTART=1 \
+  -v ydb-qdrant-local-data:/ydb_data \
+  ghcr.io/astandrik/ydb-qdrant-local:latest
+```
+
+- **`docker volume create ydb-qdrant-local-data`**: creates a persistent Docker volume managed by the Docker engine.
+- **`-v ydb-qdrant-local-data:/ydb_data`**: mounts that volume at `/ydb_data`; data survives container restarts and container recreation as long as the volume is not removed.
+
+You can achieve the same with Docker Compose:
+
+```yaml
+services:
+  ydb-qdrant-local:
+    image: ghcr.io/astandrik/ydb-qdrant-local:latest
+    ports:
+      - "8080:8080"
+      - "8765:8765"
+    environment:
+      YDB_LOCAL_SURVIVE_RESTART: "1"
+    volumes:
+      - ./ydb_data:/ydb_data
+```
+
+With this configuration, data is only lost if you delete the mounted host directory or Docker volume backing `/ydb_data`.
+
+To quickly verify persistence:
+
+- Start `ydb-qdrant-local` with the persistent `docker run` (or Compose) example above.
+- Create a collection and upsert at least one point via the HTTP API on `http://localhost:8080`.
+- Restart the container (`docker restart ydb-qdrant-local`) or recreate it while reusing the same volume.
+- Query the collection again and confirm the previously inserted point is still returned.
+
 ### Apple Silicon (Mac) Notes
 
 The `ydb-qdrant-local` image is built on top of the `local-ydb` Docker image, which is x86_64/amd64-only. On Apple Silicon (M1/M2/M3) you need to run it under x86_64/amd64 emulation:
