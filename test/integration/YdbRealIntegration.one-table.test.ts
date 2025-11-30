@@ -441,13 +441,27 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     expect(columnsBefore).toContain("embedding");
     expect(columnsBefore).not.toContain("embedding_bit");
 
-    // Step 4: Run migration (ALTER TABLE + backfill)
+    // Step 4: Run migration (ALTER TABLE via schema API + backfill via data query)
     await withSession(async (s) => {
       const alterDdl = `
         ALTER TABLE ${legacyTable}
         ADD COLUMN embedding_bit String;
       `;
-      await s.executeQuery(alterDdl);
+
+      const rawSession = s as unknown as {
+        sessionId: string;
+        api: {
+          executeSchemeQuery: (req: {
+            sessionId: string;
+            yqlText: string;
+          }) => Promise<unknown>;
+        };
+      };
+
+      await rawSession.api.executeSchemeQuery({
+        sessionId: rawSession.sessionId,
+        yqlText: alterDdl,
+      });
 
       const backfillDdl = `
         UPDATE ${legacyTable}
