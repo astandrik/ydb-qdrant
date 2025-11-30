@@ -9,87 +9,15 @@ import {
   Column,
   Types,
 } from "../../src/ydb/client.js";
+import {
+  RECALL_DIM,
+  RECALL_K,
+  MIN_MEAN_RECALL,
+  buildGoldenDataset,
+  computeRecall,
+} from "./helpers/recall-test-utils.js";
 
-type Vec = number[];
-
-type GoldenPoint = {
-  id: string;
-  vector: Vec;
-  clusterIndex: number;
-};
-
-type GoldenQuery = {
-  name: string;
-  vector: Vec;
-  relevantIds: string[];
-};
-
-const RECALL_DIM = 16;
-const CLUSTERS_COUNT = 4;
-const POINTS_PER_CLUSTER = 100;
-const RECALL_K = 80;
-const MIN_MEAN_RECALL = 0.8;
 const RNG_SEED = 4242;
-
-function createSeededRng(seed: number): () => number {
-  let state = seed >>> 0;
-  return () => {
-    state = (1664525 * state + 1013904223) >>> 0;
-    return state / 0xffffffff;
-  };
-}
-
-function normalize(vec: Vec): Vec {
-  const norm = Math.hypot(...vec) || 1;
-  return vec.map((x) => x / norm);
-}
-
-function buildGoldenDataset(): {
-  points: GoldenPoint[];
-  queries: GoldenQuery[];
-} {
-  const centers: Vec[] = Array.from(
-    { length: CLUSTERS_COUNT },
-    (_, idx): Vec => {
-      const base: Vec = Array.from({ length: RECALL_DIM }, () => 0);
-      base[idx] = 1;
-      return base;
-    }
-  );
-
-  const rng = createSeededRng(RNG_SEED);
-  const points: GoldenPoint[] = [];
-
-  centers.forEach((center, clusterIndex) => {
-    for (let i = 0; i < POINTS_PER_CLUSTER; i += 1) {
-      const noise: Vec = Array.from(
-        { length: RECALL_DIM },
-        () => (rng() - 0.5) * 0.1
-      );
-      const v: Vec = normalize(center.map((value, idx) => value + noise[idx]));
-      points.push({
-        id: `c${clusterIndex}_${i}`,
-        vector: v,
-        clusterIndex,
-      });
-    }
-  });
-
-  const queries: GoldenQuery[] = centers.map((center, clusterIndex) => ({
-    name: `cluster_${clusterIndex}`,
-    vector: center,
-    relevantIds: points
-      .filter((p) => p.clusterIndex === clusterIndex)
-      .map((p) => p.id),
-  }));
-
-  return { points, queries };
-}
-
-function computeRecall(relevantIds: string[], retrievedIds: string[]): number {
-  const found = relevantIds.filter((id) => retrievedIds.includes(id)).length;
-  return found / relevantIds.length;
-}
 
 describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
   const tenant = process.env.YDB_QDRANT_INTEGRATION_TENANT ?? "itest_tenant";
@@ -117,7 +45,7 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
       },
     });
 
-    const { points, queries } = buildGoldenDataset();
+    const { points, queries } = buildGoldenDataset(RNG_SEED);
 
     await client.upsertPoints(collection, {
       points: points.map((p) => ({
