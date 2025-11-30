@@ -338,7 +338,7 @@ Key env vars (all optional; the image provides sensible defaults, override only 
 - ydb-qdrant:
   - `PORT` (default `8080`): HTTP port inside the container.
   - `LOG_LEVEL` (default `info`).
-  - `VECTOR_INDEX_BUILD_ENABLED`.
+  - `VECTOR_INDEX_BUILD_ENABLED` (default `true` in `multi_table` mode, `false` in `one_table` mode).
   - `YDB_QDRANT_COLLECTION_STORAGE_MODE` / `YDB_QDRANT_TABLE_LAYOUT` (`multi_table` or `one_table`).
   - `YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE`.
 
