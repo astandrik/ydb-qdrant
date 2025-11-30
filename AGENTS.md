@@ -153,6 +153,7 @@ Collection created automatically on first use.
 - Purpose: single-container local dev/demo with both YDB (Embedded UI on 8765) and ydb-qdrant HTTP API (8080) inside.
 - Typical run:
   - `docker run -d --name ydb-qdrant-local -p 8080:8080 -p 8765:8765 ghcr.io/astandrik/ydb-qdrant-local:latest`
+- The typical run command is ephemeral (data lives inside the container filesystem). For an example that keeps embedded YDB data across restarts, see the “Persistence across restarts (optional)” subsection in `docs/deployment-and-docker.md`.
 - YDB config (env, all optional):
   - `YDB_LOCAL_GRPC_PORT` (default `2136`), `YDB_LOCAL_MON_PORT` (default `8765`), `YDB_DATABASE` (default `/local`), `YDB_ANONYMOUS_CREDENTIALS` (default `1`), `YDB_USE_IN_MEMORY_PDISKS`, `YDB_LOCAL_SURVIVE_RESTART`, `YDB_DEFAULT_LOG_LEVEL`, `YDB_FEATURE_FLAGS`, `YDB_ENABLE_COLUMN_TABLES`, `YDB_KAFKA_PROXY_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`.
 - ydb-qdrant config (env, same semantics as standalone image):
