@@ -1,6 +1,6 @@
 ## Deployment and Docker
 
-This project provides multiple options for running the YDB Qdrant-compatible service via Docker.
+This document covers both the **standalone** `ydb-qdrant` image (connects to an external YDB) and the **all-in-one** `ydb-qdrant-local` image (includes a local YDB inside the container).
 
 ### Standalone HTTP Server (Published Image)
 
