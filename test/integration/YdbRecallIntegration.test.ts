@@ -6,6 +6,7 @@ import {
   MIN_MEAN_RECALL,
   buildGoldenDataset,
   computeRecall,
+  computeF1,
 } from "./helpers/recall-test-utils.js";
 
 const RNG_SEED = 42;
@@ -58,6 +59,7 @@ describe("YDB recall integration (multi_table, real YDB)", () => {
     const minMeanRecall = MIN_MEAN_RECALL;
 
     const recalls: number[] = [];
+    const f1s: number[] = [];
 
     for (const query of queries) {
       const result = await client.searchPoints(recallCollection, {
@@ -68,13 +70,17 @@ describe("YDB recall integration (multi_table, real YDB)", () => {
 
       const retrievedIds = (result.points ?? []).map((p) => p.id);
       const recall = computeRecall(query.relevantIds, retrievedIds);
+      const f1 = computeF1(query.relevantIds, retrievedIds);
       recalls.push(recall);
+      f1s.push(f1);
     }
 
     const meanRecall = recalls.reduce((sum, r) => sum + r, 0) / recalls.length;
+    const meanF1 = f1s.reduce((sum, v) => sum + v, 0) / f1s.length;
 
     // Used by CI to build a dynamic Shields.io badge with the actual recall value.
     console.log(`RECALL_MEAN_MULTI_TABLE ${meanRecall.toFixed(4)}`);
+    console.log(`F1_MEAN_MULTI_TABLE ${meanF1.toFixed(4)}`);
 
     expect(meanRecall).toBeGreaterThanOrEqual(minMeanRecall);
   }, 30000);

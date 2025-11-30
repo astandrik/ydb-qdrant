@@ -7,6 +7,8 @@
 
 [![Recall (multi_table)](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astandrik/ydb-qdrant/recall-badges/recall-multi-table.json)](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-recall.yml)
 [![Recall (one_table)](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astandrik/ydb-qdrant/recall-badges/recall-one-table.json)](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-recall.yml)
+[![F1 (multi_table)](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astandrik/ydb-qdrant/recall-badges/f1-multi-table.json)](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-recall.yml)
+[![F1 (one_table)](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astandrik/ydb-qdrant/recall-badges/f1-one-table.json)](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-recall.yml)
 
 [![npm version](https://img.shields.io/npm/v/ydb-qdrant.svg)](https://www.npmjs.com/package/ydb-qdrant)
 [![Docker Image](https://img.shields.io/badge/docker-ghcr.io%2Fastandrik%2Fydb--qdrant-blue?logo=docker)](https://github.com/users/astandrik/packages/container/package/ydb-qdrant)

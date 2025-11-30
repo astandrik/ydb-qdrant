@@ -56,6 +56,8 @@ jobs:
         run: |
           MULTI=$(grep 'RECALL_MEAN_MULTI_TABLE' recall.log | tail -1 | awk '{print $2}')
           ONE=$(grep 'RECALL_MEAN_ONE_TABLE' recall.log | tail -1 | awk '{print $2}')
+          F1_MULTI=$(grep 'F1_MEAN_MULTI_TABLE' recall.log | tail -1 | awk '{print $2}')
+          F1_ONE=$(grep 'F1_MEAN_ONE_TABLE' recall.log | tail -1 | awk '{print $2}')
 
           if [ -z "$MULTI" ]; then
             echo "No multi_table recall value found in logs"
@@ -67,17 +69,31 @@ jobs:
             exit 1
           fi
 
+          if [ -z "$F1_MULTI" ]; then
+            echo "No multi_table F1 value found in logs"
+            exit 1
+          fi
+
+          if [ -z "$F1_ONE" ]; then
+            echo "No one_table F1 value found in logs"
+            exit 1
+          fi
+
           echo "mean_recall_multi=$MULTI" >> "$GITHUB_OUTPUT"
           echo "mean_recall_one=$ONE" >> "$GITHUB_OUTPUT"
+          echo "mean_f1_multi=$F1_MULTI" >> "$GITHUB_OUTPUT"
+          echo "mean_f1_one=$F1_ONE" >> "$GITHUB_OUTPUT"
 
       - name: Publish recall badge JSON
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           MULTI="${{ steps.recall.outputs.mean_recall_multi }}"
           ONE="${{ steps.recall.outputs.mean_recall_one }}"
+          F1_MULTI="${{ steps.recall.outputs.mean_f1_multi }}"
+          F1_ONE="${{ steps.recall.outputs.mean_f1_one }}"
 
-          if [ -z "$MULTI" ] || [ -z "$ONE" ]; then
-            echo "mean_recall_multi or mean_recall_one output is empty"
+          if [ -z "$MULTI" ] || [ -z "$ONE" ] || [ -z "$F1_MULTI" ] || [ -z "$F1_ONE" ]; then
+            echo "one of mean_recall_* or mean_f1_* outputs is empty"
             exit 1
           fi
 
@@ -94,6 +110,8 @@ jobs:
 
           COLOR_MULTI=$(color_for_value "$MULTI")
           COLOR_ONE=$(color_for_value "$ONE")
+          COLOR_F1_MULTI=$(color_for_value "$F1_MULTI")
+          COLOR_F1_ONE=$(color_for_value "$F1_ONE")
 
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
@@ -117,7 +135,23 @@ jobs:
           printf '  "color": "%s"\n' "$COLOR_ONE" >> recall-one-table.json
           printf '}\n' >> recall-one-table.json
 
-          git add recall-multi-table.json recall-one-table.json
+          # multi_table F1 badge JSON
+          printf '{\n' > f1-multi-table.json
+          printf '  "schemaVersion": 1,\n' >> f1-multi-table.json
+          printf '  "label": "F1 (multi_table)",\n' >> f1-multi-table.json
+          printf '  "message": "%.3f",\n' "$F1_MULTI" >> f1-multi-table.json
+          printf '  "color": "%s"\n' "$COLOR_F1_MULTI" >> f1-multi-table.json
+          printf '}\n' >> f1-multi-table.json
+
+          # one_table F1 badge JSON
+          printf '{\n' > f1-one-table.json
+          printf '  "schemaVersion": 1,\n' >> f1-one-table.json
+          printf '  "label": "F1 (one_table)",\n' >> f1-one-table.json
+          printf '  "message": "%.3f",\n' "$F1_ONE" >> f1-one-table.json
+          printf '  "color": "%s"\n' "$COLOR_F1_ONE" >> f1-one-table.json
+          printf '}\n' >> f1-one-table.json
+
+          git add recall-multi-table.json recall-one-table.json f1-multi-table.json f1-one-table.json
           git commit -m "Update recall badge [skip ci]" || echo "No changes to commit"
           git push origin recall-badges || echo "Failed to push recall-badges (likely from a fork PR)"
 
