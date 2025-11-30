@@ -29,6 +29,13 @@ Architecture diagrams: [docs page](http://ydb-qdrant.tech/docs/)
 
 ![Architecture diagram](https://ydb-qdrant.tech/assets/diagram.svg)
 
+## Documentation
+
+- **Vector dimensions and embedding models**: [docs/vector-dimensions.md](docs/vector-dimensions.md)
+- **Deployment and Docker options**: [docs/deployment-and-docker.md](docs/deployment-and-docker.md)
+- **Architecture, storage layout, and vector indexing**: [docs/architecture-and-storage.md](docs/architecture-and-storage.md)
+- **Evaluation, CI, and release process**: [docs/evaluation-and-ci.md](docs/evaluation-and-ci.md)
+
 ## Requirements
 - Node.js 18+
 - A YDB endpoint and database path
@@ -177,50 +184,7 @@ This pattern avoids running a separate HTTP service: vector search is executed d
 
 ## Recommended Vector Dimensions
 
-When creating a collection, you must specify the vector `size` matching your embedding model. Below are popular models with their dimensions and typical use cases:
-
-### Commercial API Models
-
-| Provider | Model | Dimensions | Use Cases |
-|----------|-------|------------|-----------|
-| **OpenAI** | `text-embedding-3-small` | 1536 (default, can reduce to 256-1536) | RAG, semantic search, general-purpose embeddings |
-| **OpenAI** | `text-embedding-3-large` | 3072 (default, can reduce to 256, 512, 1024, 1536, 3072) | High-accuracy RAG, multilingual tasks |
-| **OpenAI** | `text-embedding-ada-002` | 1536 | Legacy model, widely adopted |
-| **OpenAI** (Legacy) | `text-search-curie-doc-001` | 4096 | Legacy GPT-3 model, deprecated |
-| **OpenAI** (Legacy) | `text-search-davinci-doc-001` | 12288 | Legacy GPT-3 model, deprecated |
-| **Cohere** | `embed-v4.0` | 256, 512, 1024, 1536 (default) | Multimodal (text + image), RAG, enterprise search |
-| **Cohere** | `embed-english-v3.0` | 1024 | English text, semantic search, classification |
-| **Cohere** | `embed-multilingual-v3.0` | 1024 | 100+ languages, long-document retrieval, clustering |
-| **Google** | `gemini-embedding-001` | 3072 (configurable) | Multilingual, general-purpose, RAG |
-| **Google** | `text-embedding-004` | 768 | General-purpose text embeddings |
-| **Google** | `text-embedding-005` | 768 | Improved version of text-embedding-004 |
-| **Google** | `text-multilingual-embedding-002` | 768 | Multilingual text embeddings |
-
-### Open-Source Models (HuggingFace)
-
-| Model | Dimensions | Use Cases |
-|-------|------------|-----------|
-| `sentence-transformers/all-MiniLM-L6-v2` | 384 | Fast semantic search, low-resource environments |
-| `BAAI/bge-base-en-v1.5` | 768 | RAG, retrieval, English text |
-| `BAAI/bge-large-en-v1.5` | 1024 | High-accuracy RAG, English text |
-| `BAAI/bge-m3` | 1024 | Multilingual, dense/sparse/multi-vector |
-| `intfloat/e5-base-v2` | 768 | General retrieval, English text |
-| `intfloat/e5-large-v2` | 1024 | High-accuracy retrieval, English text |
-| `intfloat/e5-mistral-7b-instruct` | 4096 | High-dimensional embeddings, advanced RAG |
-| `nomic-ai/nomic-embed-text-v1` | 768 | General-purpose, open weights |
-
-### Choosing Dimensions
-
-- **Higher dimensions (1024-4096)**: Better semantic fidelity, higher storage/compute costs
-- **Lower dimensions (384-768)**: Faster queries, lower costs, suitable for many use cases
-- **Variable dimensions**: Some models (OpenAI v3, Cohere v4) allow dimension reduction with minimal accuracy loss
-- **Legacy models**: Older OpenAI GPT-3 models (Curie: 4096, Davinci: 12288) are deprecated but may still be in use
-
-**References:**
-- [OpenAI Embeddings Guide](https://platform.openai.com/docs/guides/embeddings)
-- [Cohere Embed Models](https://docs.cohere.com/docs/cohere-embed)
-- [Google Gemini Embeddings](https://ai.google.dev/gemini-api/docs/embeddings)
-- [HuggingFace Sentence Transformers](https://huggingface.co/sentence-transformers)
+For full tables of popular embedding models and their dimensions, see [docs/vector-dimensions.md](docs/vector-dimensions.md).
 
 ## Quick Start
 
@@ -287,11 +251,9 @@ curl -s http://localhost:8080/health
 
 Published container: [`ghcr.io/astandrik/ydb-qdrant`](https://github.com/users/astandrik/packages/container/package/ydb-qdrant)
 
-**Option A – pull the published image (recommended)**
+Basic example:
 
 ```bash
-docker pull ghcr.io/astandrik/ydb-qdrant:latest
-
 docker run -d --name ydb-qdrant \
   -p 8080:8080 \
   -e YDB_ENDPOINT=grpcs://ydb.serverless.yandexcloud.net:2135 \
@@ -301,115 +263,7 @@ docker run -d --name ydb-qdrant \
   ghcr.io/astandrik/ydb-qdrant:latest
 ```
 
-**Option B – build the image locally**
-
-From the `ydb-qdrant/` directory:
-
-```bash
-docker build -t ydb-qdrant:latest .
-
-docker run -d --name ydb-qdrant \
-  -p 8080:8080 \
-  -e YDB_ENDPOINT=grpcs://ydb.serverless.yandexcloud.net:2135 \
-  -e YDB_DATABASE=/ru-central1/<cloud>/<db> \
-  -e YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS=/sa-key.json \
-  -v /abs/path/sa-key.json:/sa-key.json:ro \
-  ydb-qdrant:latest
-```
-
-#### Docker (all-in-one: local YDB + ydb-qdrant)
-
-For a single-container local dev/demo setup with both YDB and ydb-qdrant inside:
-
-```bash
-docker pull ghcr.io/astandrik/ydb-qdrant-local:latest
-
-docker run -d --name ydb-qdrant-local \
-  -p 8080:8080 \
-  -p 8765:8765 \
-  ghcr.io/astandrik/ydb-qdrant-local:latest
-```
-
-Key env vars (all optional; the image provides sensible defaults, override only when you need custom tuning):
-
-- YDB / local YDB:
-  - `YDB_LOCAL_GRPC_PORT` (default `2136`): internal YDB gRPC port.
-  - `YDB_LOCAL_MON_PORT` (default `8765`): internal YDB Embedded UI HTTP port.
-  - `YDB_DATABASE` (default `/local`).
-  - `YDB_ANONYMOUS_CREDENTIALS` (default `1` inside this image).
-  - `YDB_USE_IN_MEMORY_PDISKS` (default `0`, values `0`/`1`): store data in RAM only when `1` (fast, non-persistent).
-  - `YDB_LOCAL_SURVIVE_RESTART` (default `0`, values `0`/`1`): control persistence across restarts when using a mounted data volume.
-  - `YDB_DEFAULT_LOG_LEVEL`, `YDB_FEATURE_FLAGS`, `YDB_ENABLE_COLUMN_TABLES`, `YDB_KAFKA_PROXY_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD` – passed through to YDB as in the official `local-ydb` image.
-
-- ydb-qdrant:
-  - `PORT` (default `8080`): HTTP port inside the container.
-  - `LOG_LEVEL` (default `info`).
-  - `VECTOR_INDEX_BUILD_ENABLED` (default `true` in `multi_table` mode, `false` in `one_table` mode).
-  - `YDB_QDRANT_COLLECTION_STORAGE_MODE` / `YDB_QDRANT_TABLE_LAYOUT` (`multi_table` or `one_table`).
-  - `YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE`.
-
-> Note: In the `ydb-qdrant-local` image, `YDB_ENDPOINT` is unconditionally set to `grpc://localhost:<YDB_LOCAL_GRPC_PORT>` by the entrypoint — any user-provided value is ignored. Use the standalone `ydb-qdrant` image if you need to connect to an external YDB.
-
-#### Apple Silicon (Mac) notes
-
-The `ydb-qdrant-local` image is built on top of the `local-ydb` Docker image, which is x86_64/amd64-only. On Apple Silicon (M1/M2/M3) you need to run it under x86_64/amd64 emulation:
-
-- Enable Rosetta (x86_64/amd64 emulation) in your Docker backend:
-  - Docker Desktop: enable Rosetta to run x86_64/amd64 containers.
-  - Or use Colima as in the YDB docs:
-    - `colima start --arch aarch64 --vm-type=vz --vz-rosetta`
-- When running the container, force the amd64 platform explicitly:
-
-```bash
-docker run --platform linux/amd64 -d --name ydb-qdrant-local \
-  -p 8080:8080 -p 8765:8765 \
-  ghcr.io/astandrik/ydb-qdrant-local:latest
-```
-
-This keeps behavior aligned with the official YDB `local-ydb` image recommendations for macOS/Apple Silicon.
-
-#### Docker Compose
-
-Example `docker-compose.yml` (can be used instead of raw `docker run`):
-
-```yaml
-services:
-  ydb-qdrant:
-    image: ghcr.io/astandrik/ydb-qdrant:latest
-    ports:
-      - "8080:8080"
-    env_file:
-      - .env
-    environment:
-      YDB_ENDPOINT: ${YDB_ENDPOINT}
-      YDB_DATABASE: ${YDB_DATABASE}
-      YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS: /sa-key.json
-      PORT: ${PORT:-8080}
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-    volumes:
-      - ${YDB_SA_KEY_PATH}:/sa-key.json:ro
-```
-
-Example `.env` (per environment):
-
-```bash
-YDB_ENDPOINT=grpcs://ydb.serverless.yandexcloud.net:2135
-YDB_DATABASE=/ru-central1/<cloud>/<db>
-YDB_SA_KEY_PATH=/abs/path/to/ydb-sa.json
-PORT=8080
-LOG_LEVEL=info
-```
-
-- **Updating to a newer image with Compose** (no rebuild):
-  - Pull the latest tag and restart the service:
-    ```bash
-    docker-compose pull ydb-qdrant
-    docker-compose up -d ydb-qdrant
-    ```
-
-- **Environment**: uses the same variables as documented in **Configure credentials** (`YDB_ENDPOINT`, `YDB_DATABASE`, one of the `YDB_*_CREDENTIALS` options, optional `PORT`/`LOG_LEVEL`).
-- **Qdrant URL for tools/clients**: set to `http://localhost:8080` (or `http://<host>:<hostPort>` if you map a different port).
-- **Health check inside container**: `GET http://localhost:8080/health`.
+For full deployment options (local builds, all-in-one image, Docker Compose, Apple Silicon notes), see [docs/deployment-and-docker.md](docs/deployment-and-docker.md).
 
 
 ## API Reference
@@ -456,64 +310,10 @@ curl -X POST http://localhost:8080/collections/mycol/points/delete \
   -d '{"points": ["1"]}'
 ```
 
-## Notes
-- Storage layout:
-- **multi_table** (default): one YDB table per collection; metadata is tracked in `qdr__collections`.
-- **one_table**: a single global table `qdrant_all_points` with `(uid, point_id)` PK, where `uid` encodes tenant+collection. Columns: `uid Utf8`, `point_id Utf8`, `embedding String` (binary float), `embedding_bit String` (bit‑quantized), `payload JsonDocument`.
-- **Schema migrations** (one_table mode): automatic schema/backfill steps for `qdrant_all_points` are disabled by default. To opt in, set `YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE=true` after backing up data; otherwise the service will error if the `embedding_bit` column is missing or needs backfill.
-- Per‑collection table schema (multi_table): `point_id Utf8` (PK), `embedding String` (binary), `payload JsonDocument`.
-- Vectors are serialized with `Knn::ToBinaryStringFloat`.
-- Search uses a single-phase top‑k over `embedding` with automatic YDB vector index (`emb_idx`) when available; falls back to table scan if missing.
-- **Vector index auto-build** (multi_table mode only): After ≥100 points upserted + 5s quiet window, a `vector_kmeans_tree` index (levels=1, clusters=128) is built automatically. Incremental updates (<100 points) skip index rebuild. In one_table mode, vector indexes are not supported; searches use a two‑phase approximate+exact flow over `qdrant_all_points` (bit‑quantized candidates via `embedding_bit` using the corresponding distance function, then exact re‑ranking over `embedding`). Note: For Dot metric, Phase 1 uses CosineDistance as a proxy since there is no direct distance equivalent for inner product on bit vectors.
-- **Concurrency**: During index rebuilds, YDB may return transient `Aborted`/schema metadata errors. Upserts include bounded retries with backoff to handle this automatically.
-- Filters are not yet modeled; can be added if needed.
+## Architecture and Storage
 
-## Scoring semantics
-- Cosine/Dot: higher score is better; `score_threshold` filters with `>=`.
-- Euclid/Manhattan: lower score is better; `score_threshold` filters with `<=`.
+For details on the YDB storage layout (multi_table vs one_table), vector serialization, vector index auto-build behavior, request normalization, and Qdrant compatibility semantics, see [docs/architecture-and-storage.md](docs/architecture-and-storage.md).
 
-## Request normalization (Qdrant-compatible)
-- Accepts `limit` as alias of `top`.
-- Accepts `with_payload` as boolean/object/array (object/array treated as `true`).
-- Extracts query vector from common shapes: `vector`, `embedding`, `query.vector`, `query.nearest.vector`, or nested keys.
+## Evaluation, CI, and Release
 
-## Qdrant compatibility scope
-This service implements a minimal subset expected by common tooling:
-- Create/get/delete collection
-- Upsert points
-- Top‑k search with optional payload
-- Delete points
-
-Compatibility notes:
-- Accepts `PUT /collections/:collection/points` as an alias of upsert.
-- Accepts `POST /collections/:collection/points/query` as an alias of search.
-- Accepts `limit` as an alias of `top`; honors `score_threshold`.
-- Search response shape: `{ status: "ok", result: { points: [{ id, score, payload? }] } }`.
-- `PUT /collections/:collection/index` is a no-op (Qdrant compatibility; Roo Code calls this for payload indexes). The YDB vector index (`emb_idx`) is built automatically after ≥100 points are upserted + 5-second quiet window. Incremental updates (<100 points) skip rebuild.
-
-For broader Qdrant API coverage, extend routes in `src/routes/*`.
-
-## Releasing & publishing (maintainers)
-
-- **Versioning**
-  - Use semantic versioning as described in the npm docs.
-  - From `ydb-qdrant/`, run `npm version patch|minor|major` to bump the version and create a git tag (for example, `ydb-qdrant-v0.2.0`).
-- **Manual publish**
-  - Ensure you are logged in to npm (`npm whoami`).
-  - From `ydb-qdrant/`, run:
-    - `npm publish`  
-    This will run tests and build via the `prepublishOnly` script before uploading the tarball.
-- **CI publish**
-  - GitHub Actions workflow `.github/workflows/publish-ydb-qdrant.yml` publishes on tags matching `ydb-qdrant-v*`.
-  - Configure the `NPM_TOKEN` secret in the repository; the workflow runs `npm ci`, `npm test`, `npm run build`, and `npm publish`.
-
-## References
-- YDB docs (overview): https://ydb.tech/docs/en/
-- YDB vector indexes (vector_kmeans_tree): https://ydb.tech/docs/en/dev/vector-indexes
-- YDB VIEW syntax for indexes: https://ydb.tech/docs/en/yql/reference/syntax/select/secondary_index
-- YQL getting started: https://ydb.tech/docs/en/getting_started/yql/
-- YQL reference (syntax, functions): https://ydb.tech/docs/en/yql/reference/
-- YQL functions index: https://ydb.tech/docs/en/yql/reference/functions/
-- ydb-sdk (Node.js): https://github.com/ydb-platform/ydb-nodejs-sdk
-- YDB Cloud (endpoints, auth): https://cloud.yandex.com/en/docs/ydb/
-- IR evaluation (precision/recall/F1, MAP, nDCG): [Manning et al., *Introduction to Information Retrieval*, Chapter 8](https://nlp.stanford.edu/IR-book/pdf/08eval.pdf)
+Badges at the top of this README link to build, test, integration, and recall/F1 workflows. For a deeper explanation of how recall is measured and how publishing to npm works, see [docs/evaluation-and-ci.md](docs/evaluation-and-ci.md).
