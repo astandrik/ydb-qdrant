@@ -1,0 +1,123 @@
+name: Recall tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  recall_tests:
+    name: Semantic recall tests (multi_table + one_table)
+    runs-on: ubuntu-latest
+
+    services:
+      ydb:
+        image: ghcr.io/ydb-platform/local-ydb:nightly
+        ports:
+          - 2136:2136
+        options: --hostname localhost
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Wait for YDB to be ready
+        run: |
+          echo "Waiting for YDB at grpc://localhost:2136 ..."
+          for i in {1..30}; do
+            if nc -z localhost 2136; then
+              echo "YDB is accepting connections on port 2136"
+              exit 0
+            fi
+            echo "YDB not ready yet, retrying..."
+            sleep 2
+          done
+          echo "YDB did not become ready in time"
+          exit 1
+
+      - name: Run recall tests
+        run: npm run test:recall | tee recall.log
+        env:
+          YDB_ENDPOINT: grpc://localhost:2136
+          YDB_DATABASE: /local
+          YDB_ANONYMOUS_CREDENTIALS: "1"
+
+      - name: Extract mean recall
+        id: recall
+        run: |
+          MULTI=$(grep 'RECALL_MEAN_MULTI_TABLE' recall.log | tail -1 | awk '{print $2}')
+          ONE=$(grep 'RECALL_MEAN_ONE_TABLE' recall.log | tail -1 | awk '{print $2}')
+
+          if [ -z "$MULTI" ]; then
+            echo "No multi_table recall value found in logs"
+            exit 1
+          fi
+
+          if [ -z "$ONE" ]; then
+            echo "No one_table recall value found in logs"
+            exit 1
+          fi
+
+          echo "mean_recall_multi=$MULTI" >> "$GITHUB_OUTPUT"
+          echo "mean_recall_one=$ONE" >> "$GITHUB_OUTPUT"
+
+      - name: Publish recall badge JSON
+        run: |
+          MULTI="${{ steps.recall.outputs.mean_recall_multi }}"
+          ONE="${{ steps.recall.outputs.mean_recall_one }}"
+
+          if [ -z "$MULTI" ] || [ -z "$ONE" ]; then
+            echo "mean_recall_multi or mean_recall_one output is empty"
+            exit 1
+          fi
+
+          color_for_value () {
+            local v="$1"
+            if awk "BEGIN { exit !($v >= 0.8) }"; then
+              echo "brightgreen"
+            elif awk "BEGIN { exit !($v >= 0.6) }"; then
+              echo "orange"
+            else
+              echo "red"
+            fi
+          }
+
+          COLOR_MULTI=$(color_for_value "$MULTI")
+          COLOR_ONE=$(color_for_value "$ONE")
+
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git fetch origin
+          git checkout -B recall-badges
+
+          # multi_table badge JSON
+          printf '{\n' > recall-multi-table.json
+          printf '  "schemaVersion": 1,\n' >> recall-multi-table.json
+          printf '  "label": "recall (multi_table)",\n' >> recall-multi-table.json
+          printf '  "message": "%.3f",\n' "$MULTI" >> recall-multi-table.json
+          printf '  "color": "%s"\n' "$COLOR_MULTI" >> recall-multi-table.json
+          printf '}\n' >> recall-multi-table.json
+
+          # one_table badge JSON
+          printf '{\n' > recall-one-table.json
+          printf '  "schemaVersion": 1,\n' >> recall-one-table.json
+          printf '  "label": "recall (one_table)",\n' >> recall-one-table.json
+          printf '  "message": "%.3f",\n' "$ONE" >> recall-one-table.json
+          printf '  "color": "%s"\n' "$COLOR_ONE" >> recall-one-table.json
+          printf '}\n' >> recall-one-table.json
+
+          git add recall-multi-table.json recall-one-table.json
+          git commit -m "Update recall badge [skip ci]" || echo "No changes to commit"
+          git push origin recall-badges || echo "Failed to push recall-badges (likely from a fork PR)"
+

@@ -192,6 +192,14 @@ Collection created automatically on first use.
   - Workflow `publish-ydb-qdrant.yml` runs on tags matching `ydb-qdrant-v*` and publishes the package to npm with `npm publish` (using `NPM_TOKEN`).
   - `prepublishOnly` script in `package.json` enforces `npm test` and `npm run build` before any manual `npm publish`.
 
+## Semantic recall/completeness tests
+
+- Integration tests include a semantic recall check for the multi_table layout in `test/integration/YdbRecallIntegration.test.ts` (seeded clustered dataset, Recall@K threshold) and a smaller recall check for the one_table layout in `test/integration/YdbRealIntegration.one-table.test.ts`.
+- Both are executed in CI via the `npm run test:integration` script, which runs:
+  - multi_table + index disabled (table-scan only),
+  - multi_table + index enabled (including the recall test),
+  - one_table (global table with quantized embeddings).
+
 ## References
 - YDB docs (overview): https://ydb.tech/docs/en/
 - YQL getting started: https://ydb.tech/docs/en/getting_started/yql/
