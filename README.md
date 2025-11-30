@@ -201,6 +201,23 @@ For full tables of popular embedding models and their dimensions, see [docs/vect
 - API key optional (not enforced)
 - Full control and privacy
 
+**Option 3: All-in-one local YDB + ydb-qdrant (Docker)**
+
+Run a single container that includes both YDB and ydb-qdrant (no external YDB required):
+
+```bash
+docker run -d --name ydb-qdrant-local \
+  -p 8080:8080 \
+  -p 8765:8765 \
+  ghcr.io/astandrik/ydb-qdrant-local:latest
+```
+
+- HTTP API available at `http://localhost:8080`
+- YDB Embedded UI at `http://localhost:8765`
+- No credentials or env vars needed for local dev
+
+For detailed configuration and env tuning, see [docs/deployment-and-docker.md](docs/deployment-and-docker.md).
+
 ### cURL smoke test (Self-hosted)
 ```bash
 # 1) Install & run
@@ -263,7 +280,7 @@ docker run -d --name ydb-qdrant \
   ghcr.io/astandrik/ydb-qdrant:latest
 ```
 
-For full deployment options (local builds, all-in-one image, Docker Compose, Apple Silicon notes), see [docs/deployment-and-docker.md](docs/deployment-and-docker.md).
+For full deployment options (standalone image, all-in-one `ydb-qdrant-local`, Docker Compose, Apple Silicon notes), see [docs/deployment-and-docker.md](docs/deployment-and-docker.md).
 
 
 ## API Reference
