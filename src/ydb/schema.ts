@@ -83,7 +83,22 @@ export async function ensureGlobalPointsTable(): Promise<void> {
           ALTER TABLE ${GLOBAL_POINTS_TABLE}
           ADD COLUMN embedding_bit String;
         `;
-      await s.executeQuery(alterDdl);
+
+      const rawSession = s as unknown as {
+        sessionId: string;
+        api: {
+          executeSchemeQuery: (req: {
+            sessionId: string;
+            yqlText: string;
+          }) => Promise<unknown>;
+        };
+      };
+
+      await rawSession.api.executeSchemeQuery({
+        sessionId: rawSession.sessionId,
+        yqlText: alterDdl,
+      });
+
       logger.info(
         `added embedding_bit column to existing table ${GLOBAL_POINTS_TABLE}`
       );

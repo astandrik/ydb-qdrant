@@ -10,12 +10,12 @@ on:
 
 jobs:
   integration_tests:
-    name: YDB integration tests (local-ydb nightly)
+    name: YDB integration tests (local-ydb stable-25-3)
     runs-on: ubuntu-latest
 
     services:
       ydb:
-        image: ghcr.io/ydb-platform/local-ydb:nightly
+        image: ghcr.io/ydb-platform/local-ydb:stable-25-3
         ports:
           - 2136:2136
         options: --hostname localhost

@@ -4,6 +4,10 @@
 [![Tests](https://img.shields.io/github/actions/workflow/status/astandrik/ydb-qdrant/ci-tests.yml?branch=main&label=tests)](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-tests.yml)
 [![Integration Tests](https://img.shields.io/github/actions/workflow/status/astandrik/ydb-qdrant/ci-integration.yml?branch=main&label=integration%20tests)](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-integration.yml)
 [![Coverage](https://coveralls.io/repos/github/astandrik/ydb-qdrant/badge.svg?branch=main)](https://coveralls.io/github/astandrik/ydb-qdrant?branch=main)
+
+[![Recall (multi_table)](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astandrik/ydb-qdrant/recall-badges/recall-multi-table.json)](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-recall.yml)
+[![Recall (one_table)](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astandrik/ydb-qdrant/recall-badges/recall-one-table.json)](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-recall.yml)
+
 [![npm version](https://img.shields.io/npm/v/ydb-qdrant.svg)](https://www.npmjs.com/package/ydb-qdrant)
 [![Docker Image](https://img.shields.io/badge/docker-ghcr.io%2Fastandrik%2Fydb--qdrant-blue?logo=docker)](https://github.com/users/astandrik/packages/container/package/ydb-qdrant)
 [![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://opensource.org/licenses/ISC)

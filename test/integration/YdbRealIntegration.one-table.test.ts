@@ -9,6 +9,15 @@ import {
   Column,
   Types,
 } from "../../src/ydb/client.js";
+import {
+  RECALL_DIM,
+  RECALL_K,
+  MIN_MEAN_RECALL,
+  buildGoldenDataset,
+  computeRecall,
+} from "./helpers/recall-test-utils.js";
+
+const RNG_SEED = 4242;
 
 describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
   const tenant = process.env.YDB_QDRANT_INTEGRATION_TENANT ?? "itest_tenant";
@@ -24,6 +33,54 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
   it("guards: COLLECTION_STORAGE_MODE must be one_table for this test suite", () => {
     expect(COLLECTION_STORAGE_MODE).toBe("one_table");
   });
+
+  it("achieves reasonable Recall@K on a small golden dataset (one_table)", async () => {
+    const collection = `${collectionBase}_one_table_recall_${Date.now()}`;
+
+    await client.createCollection(collection, {
+      vectors: {
+        size: RECALL_DIM,
+        distance: "Cosine",
+        data_type: "float",
+      },
+    });
+
+    const { points, queries } = buildGoldenDataset(RNG_SEED);
+
+    await client.upsertPoints(collection, {
+      points: points.map((p) => ({
+        id: p.id,
+        vector: p.vector,
+      })),
+    });
+
+    const recalls: number[] = [];
+
+    for (const query of queries) {
+      const result = await client.searchPoints(collection, {
+        vector: query.vector,
+        top: RECALL_K,
+        with_payload: false,
+      });
+
+      const retrievedIds = (result.points ?? []).map((p) => p.id);
+      const recall = computeRecall(query.relevantIds, retrievedIds);
+      recalls.push(recall);
+    }
+
+    const meanRecall = recalls.reduce((sum, r) => sum + r, 0) / recalls.length;
+
+    // Used by CI to build a dynamic Shields.io badge with the actual recall value for one_table.
+    console.log(`RECALL_MEAN_ONE_TABLE ${meanRecall.toFixed(4)}`);
+
+    expect(meanRecall).toBeGreaterThanOrEqual(MIN_MEAN_RECALL);
+
+    try {
+      await client.deleteCollection(collection);
+    } catch {
+      // ignore cleanup failures
+    }
+  }, 30000);
 
   it("creates collection, upserts points to global table, and performs search", async () => {
     const collection = `${collectionBase}_one_table_basic_${Date.now()}`;
@@ -312,13 +369,27 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     expect(columnsBefore).toContain("embedding");
     expect(columnsBefore).not.toContain("embedding_bit");
 
-    // Step 4: Run migration (ALTER TABLE + backfill)
+    // Step 4: Run migration (ALTER TABLE via schema API + backfill via data query)
     await withSession(async (s) => {
       const alterDdl = `
         ALTER TABLE ${legacyTable}
         ADD COLUMN embedding_bit String;
       `;
-      await s.executeQuery(alterDdl);
+
+      const rawSession = s as unknown as {
+        sessionId: string;
+        api: {
+          executeSchemeQuery: (req: {
+            sessionId: string;
+            yqlText: string;
+          }) => Promise<unknown>;
+        };
+      };
+
+      await rawSession.api.executeSchemeQuery({
+        sessionId: rawSession.sessionId,
+        yqlText: alterDdl,
+      });
 
       const backfillDdl = `
         UPDATE ${legacyTable}

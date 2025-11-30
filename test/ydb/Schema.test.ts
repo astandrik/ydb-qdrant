@@ -46,7 +46,9 @@ const withSessionMock = withSession as unknown as Mock;
 const loggerInfoMock = logger.info as unknown as Mock;
 
 // Reset module state between tests
-async function resetSchemaModule(envOverrides?: Record<string, string>): Promise<{
+async function resetSchemaModule(
+  envOverrides?: Record<string, string>
+): Promise<{
   ensureGlobalPointsTable: typeof import("../../src/ydb/schema.js")["ensureGlobalPointsTable"];
   GLOBAL_POINTS_TABLE: typeof import("../../src/ydb/schema.js")["GLOBAL_POINTS_TABLE"];
 }> {
@@ -78,6 +80,7 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
       await resetSchemaModule();
 
     const session = {
+      sessionId: "test-session",
       describeTable: vi.fn().mockResolvedValue({
         columns: [
           { name: "uid" },
@@ -89,6 +92,9 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
       }),
       createTable: vi.fn(),
       executeQuery: vi.fn(),
+      api: {
+        executeSchemeQuery: vi.fn().mockResolvedValue(undefined),
+      },
     };
 
     withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
@@ -112,9 +118,13 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
       await resetSchemaModule();
 
     const session = {
+      sessionId: "test-session",
       describeTable: vi.fn().mockRejectedValue(new Error("Table not found")),
       createTable: vi.fn().mockResolvedValue(undefined),
       executeQuery: vi.fn(),
+      api: {
+        executeSchemeQuery: vi.fn().mockResolvedValue(undefined),
+      },
     };
 
     withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
@@ -136,6 +146,7 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
       await resetSchemaModule();
 
     const session = {
+      sessionId: "test-session",
       describeTable: vi.fn().mockResolvedValue({
         columns: [
           { name: "uid" },
@@ -146,6 +157,9 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
       }),
       createTable: vi.fn(),
       executeQuery: vi.fn().mockResolvedValue(undefined),
+      api: {
+        executeSchemeQuery: vi.fn().mockResolvedValue(undefined),
+      },
     };
 
     withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
@@ -166,6 +180,7 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
       await resetSchemaModule({ YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE: "true" });
 
     const session = {
+      sessionId: "test-session",
       describeTable: vi.fn().mockResolvedValue({
         columns: [
           { name: "uid" },
@@ -177,6 +192,9 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
       }),
       createTable: vi.fn(),
       executeQuery: vi.fn().mockResolvedValue(undefined),
+      api: {
+        executeSchemeQuery: vi.fn().mockResolvedValue(undefined),
+      },
     };
 
     withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
@@ -187,14 +205,18 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
 
     expect(session.describeTable).toHaveBeenCalledWith(GLOBAL_POINTS_TABLE);
     expect(session.createTable).not.toHaveBeenCalled();
-    expect(session.executeQuery).toHaveBeenCalledTimes(2);
+    expect(session.api.executeSchemeQuery).toHaveBeenCalledTimes(1);
 
-    const alterCall = session.executeQuery.mock.calls[0][0] as string;
-    expect(alterCall).toContain("ALTER TABLE");
-    expect(alterCall).toContain(GLOBAL_POINTS_TABLE);
-    expect(alterCall).toContain("ADD COLUMN embedding_bit");
+    const alterReq = session.api.executeSchemeQuery.mock.calls[0][0] as {
+      yqlText: string;
+    };
+    expect(alterReq.yqlText).toContain("ALTER TABLE");
+    expect(alterReq.yqlText).toContain(GLOBAL_POINTS_TABLE);
+    expect(alterReq.yqlText).toContain("ADD COLUMN embedding_bit");
 
-    const updateCall = session.executeQuery.mock.calls[1][0] as string;
+    expect(session.executeQuery).toHaveBeenCalledTimes(1);
+
+    const updateCall = session.executeQuery.mock.calls[0][0] as string;
     expect(updateCall).toContain("UPDATE");
     expect(updateCall).toContain(GLOBAL_POINTS_TABLE);
     expect(updateCall).toContain("Knn::ToBinaryStringBit");
@@ -213,6 +235,7 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
       await resetSchemaModule();
 
     const session = {
+      sessionId: "test-session",
       describeTable: vi.fn().mockResolvedValue({
         columns: [
           { name: "uid" },
@@ -223,11 +246,12 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
         ],
       }),
       createTable: vi.fn(),
-      executeQuery: vi
-        .fn()
-        .mockResolvedValueOnce({
-          resultSets: [{ rows: [{}] }],
-        }),
+      executeQuery: vi.fn().mockResolvedValueOnce({
+        resultSets: [{ rows: [{}] }],
+      }),
+      api: {
+        executeSchemeQuery: vi.fn().mockResolvedValue(undefined),
+      },
     };
 
     withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
@@ -252,6 +276,7 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
       await resetSchemaModule({ YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE: "true" });
 
     const session = {
+      sessionId: "test-session",
       describeTable: vi.fn().mockResolvedValue({
         columns: [
           { name: "uid" },
@@ -270,6 +295,9 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
         })
         // Second call: backfill UPDATE
         .mockResolvedValueOnce(undefined),
+      api: {
+        executeSchemeQuery: vi.fn().mockResolvedValue(undefined),
+      },
     };
 
     withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
