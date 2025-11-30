@@ -8,7 +8,7 @@ import {
   computeRecall,
 } from "./helpers/recall-test-utils.js";
 
-const RNG_SEED = 4242;
+const RNG_SEED = 42;
 
 describe("YDB recall integration (multi_table, real YDB)", () => {
   const tenant = process.env.YDB_QDRANT_INTEGRATION_TENANT ?? "itest_tenant";
