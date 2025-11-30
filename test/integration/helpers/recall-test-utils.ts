@@ -13,8 +13,8 @@ export type GoldenQuery = {
 };
 
 export const RECALL_DIM = 16;
-export const CLUSTERS_COUNT = 4;
-export const POINTS_PER_CLUSTER = 100;
+export const CLUSTERS_COUNT = 16;
+export const POINTS_PER_CLUSTER = 80;
 export const RECALL_K = 80;
 export const MIN_MEAN_RECALL = 0.8;
 
@@ -73,6 +73,9 @@ export function buildGoldenDataset(seed: number): {
   return { points, queries };
 }
 
+// Metrics follow standard IR definitions (see Manning et al.,
+// "Introduction to Information Retrieval", Chapter 8: Evaluation in information retrieval —
+// https://nlp.stanford.edu/IR-book/pdf/08eval.pdf).
 export function computeRecall(
   relevantIds: string[],
   retrievedIds: string[]
@@ -80,4 +83,29 @@ export function computeRecall(
   const retrievedSet = new Set(retrievedIds);
   const found = relevantIds.filter((id) => retrievedSet.has(id)).length;
   return found / relevantIds.length;
+}
+
+export function computePrecisionAndRecall(
+  relevantIds: string[],
+  retrievedIds: string[]
+): { precision: number; recall: number } {
+  const retrievedSet = new Set(retrievedIds);
+  const found = relevantIds.filter((id) => retrievedSet.has(id)).length;
+
+  const precision = retrievedIds.length === 0 ? 0 : found / retrievedIds.length;
+  const recall = relevantIds.length === 0 ? 0 : found / relevantIds.length;
+
+  return { precision, recall };
+}
+
+export function computeF1(
+  relevantIds: string[],
+  retrievedIds: string[]
+): number {
+  const { precision, recall } = computePrecisionAndRecall(
+    relevantIds,
+    retrievedIds
+  );
+  if (precision === 0 && recall === 0) return 0;
+  return (2 * precision * recall) / (precision + recall);
 }
