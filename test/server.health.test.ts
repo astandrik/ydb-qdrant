@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Request, Response } from "express";
 
-const isYdbAvailableMock = vi.fn<[], Promise<boolean>>();
+const isYdbAvailableMock = vi.fn<() => Promise<boolean>>();
 
 vi.mock("../src/ydb/client.js", () => ({
   isYdbAvailable: (...args: unknown[]) => isYdbAvailableMock(...(args as [])),
@@ -59,5 +59,3 @@ describe("GET /health", () => {
     });
   });
 });
-
-
