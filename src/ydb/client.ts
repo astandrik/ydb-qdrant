@@ -14,6 +14,10 @@ const {
 
 export { Types, TypedValues, TableDescription, Column };
 
+const DRIVER_READY_TIMEOUT_MS = 15000;
+const TABLE_SESSION_TIMEOUT_MS = 20000;
+const YDB_HEALTHCHECK_READY_TIMEOUT_MS = 5000;
+
 type DriverConfig = {
   endpoint?: string;
   database?: string;
@@ -55,7 +59,7 @@ function getOrCreateDriver(): InstanceType<typeof Driver> {
 
 export async function readyOrThrow(): Promise<void> {
   const d = getOrCreateDriver();
-  const ok = await d.ready(10000);
+  const ok = await d.ready(DRIVER_READY_TIMEOUT_MS);
   if (!ok) {
     throw new Error(
       "YDB driver is not ready in 10s. Check connectivity and credentials."
@@ -67,5 +71,16 @@ export async function withSession<T>(
   fn: (s: Session) => Promise<T>
 ): Promise<T> {
   const d = getOrCreateDriver();
-  return await d.tableClient.withSession(fn, 15000);
+  return await d.tableClient.withSession(fn, TABLE_SESSION_TIMEOUT_MS);
+}
+
+export async function isYdbAvailable(
+  timeoutMs = YDB_HEALTHCHECK_READY_TIMEOUT_MS
+): Promise<boolean> {
+  const d = getOrCreateDriver();
+  try {
+    return await d.ready(timeoutMs);
+  } catch {
+    return false;
+  }
 }
