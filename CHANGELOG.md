@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## [4.5.0](https://github.com/astandrik/ydb-qdrant/compare/v4.4.0...v4.5.0) (2025-12-01)
+
+
+### Features
+
+* make service self-healing ([#105](https://github.com/astandrik/ydb-qdrant/issues/105)) ([fb8fcd1](https://github.com/astandrik/ydb-qdrant/commit/fb8fcd1b87baee8fa86785f1c2f595353ba0e39a))
+
+
+### Bug Fixes
+
+* badge ([6189e98](https://github.com/astandrik/ydb-qdrant/commit/6189e986f459d946507f558c40ee6cfea82305ac))
+* fix license ([#106](https://github.com/astandrik/ydb-qdrant/issues/106)) ([b913766](https://github.com/astandrik/ydb-qdrant/commit/b913766dcd2acac16142e6f6f5d7df36934f5519))
+
 ## [4.4.0](https://github.com/astandrik/ydb-qdrant/compare/v4.3.6...v4.4.0) (2025-11-30)
 
 
