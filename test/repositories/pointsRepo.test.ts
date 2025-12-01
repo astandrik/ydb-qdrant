@@ -7,6 +7,11 @@ vi.mock("../../src/ydb/client.js", () => {
       BYTES: "BYTES",
       JSON_DOCUMENT: "JSON_DOCUMENT",
       FLOAT: "FLOAT",
+      list: vi.fn((t: unknown) => ({ kind: "list", t })),
+      struct: vi.fn((fields: Record<string, unknown>) => ({
+        kind: "struct",
+        fields,
+      })),
     },
     TypedValues: {
       utf8: vi.fn((v: string) => ({ type: "utf8", v })),
@@ -51,7 +56,6 @@ import {
   deletePoints,
 } from "../../src/repositories/pointsRepo.js";
 import * as ydbClient from "../../src/ydb/client.js";
-import * as helpers from "../../src/ydb/helpers.js";
 import { notifyUpsert } from "../../src/indexing/IndexScheduler.js";
 
 const withSessionMock = ydbClient.withSession as unknown as Mock;
@@ -79,9 +83,7 @@ describe("pointsRepo (with mocked YDB)", () => {
       4
     );
 
-    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(2);
-    expect(helpers.buildVectorParam).toHaveBeenCalled();
-    expect(helpers.buildJsonOrEmpty).toHaveBeenCalled();
+    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
     expect(result).toBe(2);
     expect(notifyUpsert).toHaveBeenCalledWith("qdr_tenant_a__my_collection", 2);
   });
@@ -267,12 +269,12 @@ describe("pointsRepo (with mocked YDB)", () => {
     expect(result).toBe(1);
     expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
     const yql = sessionMock.executeQuery.mock.calls[0][0] as string;
-    expect(yql).toContain("DECLARE $uid AS Utf8");
+    expect(yql).toContain("DECLARE $rows AS List<Struct<");
     expect(yql).toContain(
       "UPSERT INTO qdrant_all_points (uid, point_id, embedding, embedding_bit, payload)"
     );
-    expect(yql).toContain("Knn::ToBinaryStringFloat($vec)");
-    expect(yql).toContain("Knn::ToBinaryStringBit($vec)");
+    expect(yql).toContain("Knn::ToBinaryStringFloat(vec)");
+    expect(yql).toContain("Knn::ToBinaryStringBit(vec)");
   });
 
   it("searches points with uid parameter for one_table mode (Cosine)", async () => {
