@@ -57,6 +57,7 @@ import {
 } from "../../src/repositories/pointsRepo.js";
 import * as ydbClient from "../../src/ydb/client.js";
 import { notifyUpsert } from "../../src/indexing/IndexScheduler.js";
+import { UPSERT_BATCH_SIZE } from "../../src/ydb/schema.js";
 
 const withSessionMock = ydbClient.withSession as unknown as Mock;
 
@@ -86,6 +87,34 @@ describe("pointsRepo (with mocked YDB)", () => {
     expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
     expect(result).toBe(2);
     expect(notifyUpsert).toHaveBeenCalledWith("qdr_tenant_a__my_collection", 2);
+  });
+
+  it("upserts more than UPSERT_BATCH_SIZE points in multiple batches (multi_table)", async () => {
+    const sessionMock = {
+      executeQuery: vi.fn(),
+    };
+
+    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
+      await fn(sessionMock);
+    });
+
+    const total = UPSERT_BATCH_SIZE + 50;
+    const points = Array.from({ length: total }, (_, i) => ({
+      id: `p${i}`,
+      vector: [0, 0, 0, 1],
+      payload: { i },
+    }));
+
+    const result = await upsertPoints("qdr_tenant_a__my_collection", points, 4);
+
+    expect(result).toBe(total);
+    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(
+      Math.ceil(total / UPSERT_BATCH_SIZE)
+    );
+    expect(notifyUpsert).toHaveBeenCalledWith(
+      "qdr_tenant_a__my_collection",
+      total
+    );
   });
 
   it("throws on vector dimension mismatch in upsertPoints", async () => {
@@ -275,6 +304,36 @@ describe("pointsRepo (with mocked YDB)", () => {
     );
     expect(yql).toContain("Knn::ToBinaryStringFloat(vec)");
     expect(yql).toContain("Knn::ToBinaryStringBit(vec)");
+  });
+
+  it("upserts more than UPSERT_BATCH_SIZE points in multiple batches (one_table)", async () => {
+    const sessionMock = {
+      executeQuery: vi.fn(),
+    };
+
+    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
+      await fn(sessionMock);
+    });
+
+    const total = UPSERT_BATCH_SIZE + 50;
+    const points = Array.from({ length: total }, (_, i) => ({
+      id: `p${i}`,
+      vector: [0, 0, 0, 1],
+      payload: { i },
+    }));
+
+    const result = await upsertPoints(
+      "qdrant_all_points",
+      points,
+      4,
+      "qdr_tenant_a__my_collection"
+    );
+
+    expect(result).toBe(total);
+    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(
+      Math.ceil(total / UPSERT_BATCH_SIZE)
+    );
+    expect(notifyUpsert).toHaveBeenCalledWith("qdrant_all_points", total);
   });
 
   it("searches points with uid parameter for one_table mode (Cosine)", async () => {
