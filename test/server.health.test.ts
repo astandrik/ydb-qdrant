@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { Request, Response } from "express";
+import type { Request } from "express";
+import { createMockRes } from "./helpers/routeTestHelpers.js";
 
 const isYdbAvailableMock = vi.fn<() => Promise<boolean>>();
 
@@ -8,28 +9,6 @@ vi.mock("../src/ydb/client.js", () => ({
 }));
 
 import { healthHandler } from "../src/server.js";
-
-type MockResponse = Response & { statusCode: number; body?: unknown };
-
-function createMockRes(): MockResponse {
-  const res: {
-    statusCode: number;
-    body?: unknown;
-    status: (code: number) => Response;
-    json: (payload: unknown) => Response;
-  } = {
-    statusCode: 200,
-    status(code: number) {
-      res.statusCode = code;
-      return res as unknown as Response;
-    },
-    json(payload: unknown) {
-      res.body = payload;
-      return res as unknown as Response;
-    },
-  };
-  return res as unknown as MockResponse;
-}
 
 describe("GET /health", () => {
   beforeEach(() => {
