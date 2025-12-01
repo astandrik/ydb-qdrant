@@ -13,13 +13,21 @@ import {
   RECALL_DIM,
   RECALL_K,
   MIN_MEAN_RECALL,
-  buildGoldenDataset,
+  DATASET_SIZE,
+  QUERY_COUNT,
+  buildRealisticDataset,
   computeRecall,
   computeF1,
 } from "./helpers/recall-test-utils.js";
 
 const RNG_SEED = 4242;
 
+/**
+ * Integration tests for one_table storage mode with realistic recall benchmark.
+ *
+ * Uses ANN-benchmarks methodology with random vectors and exact ground truth.
+ * Reference: https://github.com/erikbern/ann-benchmarks
+ */
 describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
   const tenant = process.env.YDB_QDRANT_INTEGRATION_TENANT ?? "itest_tenant";
   const collectionBase =
@@ -35,7 +43,7 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     expect(COLLECTION_STORAGE_MODE).toBe("one_table");
   });
 
-  it("achieves reasonable Recall@K on a small golden dataset (one_table)", async () => {
+  it(`achieves reasonable Recall@${RECALL_K} on ${DATASET_SIZE} random ${RECALL_DIM}D vectors (one_table)`, async () => {
     const collection = `${collectionBase}_one_table_recall_${Date.now()}`;
 
     await client.createCollection(collection, {
@@ -46,7 +54,8 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
       },
     });
 
-    const { points, queries } = buildGoldenDataset(RNG_SEED);
+    // Build realistic dataset with random vectors and exact ground truth
+    const { points, queries } = buildRealisticDataset(RNG_SEED);
 
     await client.upsertPoints(collection, {
       points: points.map((p) => ({
@@ -74,10 +83,18 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
 
     const meanRecall = recalls.reduce((sum, r) => sum + r, 0) / recalls.length;
     const meanF1 = f1s.reduce((sum, v) => sum + v, 0) / f1s.length;
+    const minRecall = Math.min(...recalls);
+    const maxRecall = Math.max(...recalls);
 
-    // Used by CI to build a dynamic Shields.io badge with the actual recall value for one_table.
+    // Output for CI badges and monitoring
     console.log(`RECALL_MEAN_ONE_TABLE ${meanRecall.toFixed(4)}`);
     console.log(`F1_MEAN_ONE_TABLE ${meanF1.toFixed(4)}`);
+    console.log(
+      `Recall@${RECALL_K} stats: mean=${meanRecall.toFixed(4)}, min=${minRecall.toFixed(4)}, max=${maxRecall.toFixed(4)}`
+    );
+    console.log(
+      `Dataset: ${DATASET_SIZE} points, ${QUERY_COUNT} queries, ${RECALL_DIM}D vectors`
+    );
 
     expect(meanRecall).toBeGreaterThanOrEqual(MIN_MEAN_RECALL);
 
@@ -86,7 +103,7 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     } catch {
       // ignore cleanup failures
     }
-  }, 30000);
+  }, 120000); // Increased timeout for larger dataset with 768D vectors
 
   it("creates collection, upserts points to global table, and performs search", async () => {
     const collection = `${collectionBase}_one_table_basic_${Date.now()}`;
