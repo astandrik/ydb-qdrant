@@ -39,12 +39,34 @@ wait_for_ydb() {
   exit 1
 }
 
-export YDB_ENDPOINT="grpc://localhost:${YDB_LOCAL_GRPC_PORT}"
+monitor_ydb() {
+  local host="127.0.0.1"
+  local port="${YDB_LOCAL_GRPC_PORT}"
+  local failures=0
+  local max_failures="${YDB_QDRANT_LOCAL_MAX_YDB_FAILURES:-5}"
+  local interval="${YDB_QDRANT_LOCAL_YDB_CHECK_INTERVAL:-10}"
+
+  while true; do
+    if echo >"/dev/tcp/${host}/${port}" 2>/dev/null; then
+      failures=0
+    else
+      failures=$((failures + 1))
+      echo "Embedded YDB not reachable on ${host}:${port} (${failures}/${max_failures})" >&2
+      if [ "${failures}" -ge "${max_failures}" ]; then
+        echo "Embedded YDB unreachable for too long; exiting to trigger container restart" >&2
+        kill 1 || exit 1
+      fi
+    fi
+    sleep "${interval}"
+  done
+}
+
+export YDB_ENDPOINT="grpc://127.0.0.1:${YDB_LOCAL_GRPC_PORT}"
 start_local_ydb
 wait_for_ydb
 
 export PORT
 
+monitor_ydb &
+
 exec node --experimental-specifier-resolution=node --enable-source-maps dist/index.js
-
-

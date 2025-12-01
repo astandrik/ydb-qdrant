@@ -66,8 +66,38 @@ Key env vars (all optional; the image provides sensible defaults, override only 
   - `VECTOR_INDEX_BUILD_ENABLED` (default `true` in `multi_table` mode, `false` in `one_table` mode).
   - `YDB_QDRANT_COLLECTION_STORAGE_MODE` / `YDB_QDRANT_TABLE_LAYOUT` (`multi_table` or `one_table`).
   - `YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE`.
+  - `YDB_QDRANT_LOCAL_MAX_YDB_FAILURES` (default `5`): number of consecutive embedded YDB TCP health check failures in the local monitor before exiting with a non-zero status (used to trigger container restart under a restart policy).
+  - `YDB_QDRANT_LOCAL_YDB_CHECK_INTERVAL` (default `10`): interval in seconds between embedded YDB TCP health checks performed by the local monitor.
 
-> Note: In the `ydb-qdrant-local` image, `YDB_ENDPOINT` is unconditionally set to `grpc://localhost:<YDB_LOCAL_GRPC_PORT>` by the entrypoint — any user-provided value is ignored. Use the standalone `ydb-qdrant` image if you need to connect to an external YDB.
+> Note: In the `ydb-qdrant-local` image, `YDB_ENDPOINT` is unconditionally set to `grpc://127.0.0.1:<YDB_LOCAL_GRPC_PORT>` by the entrypoint — any user-provided value is ignored. Use the standalone `ydb-qdrant` image if you need to connect to an external YDB.
+
+#### Health checks and self-healing (`ydb-qdrant-local`)
+
+The local image exposes `/health` on port `8080`. This endpoint reports `status: "ok"` only when both the HTTP server and the embedded YDB instance are reachable. If YDB is down, `/health` returns HTTP 503 so Docker health checks can detect the failure.
+
+When running with a restart policy, Docker or your orchestrator can automatically restart the container if the process exits or the container is marked unhealthy. A typical local run with a restart policy:
+
+```bash
+docker run -d --name ydb-qdrant-local \
+  --restart=unless-stopped \
+  -p 8080:8080 \
+  -p 8765:8765 \
+  ghcr.io/astandrik/ydb-qdrant-local:latest
+```
+
+For Docker Compose:
+
+```yaml
+services:
+  ydb-qdrant-local:
+    image: ghcr.io/astandrik/ydb-qdrant-local:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+      - "8765:8765"
+```
+
+Together with the embedded YDB monitor in the entrypoint script, this allows a simple Docker or Compose setup to recover automatically when the embedded YDB process dies.
 
 #### Persistence across restarts (optional)
 
