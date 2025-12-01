@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## [4.5.1](https://github.com/astandrik/ydb-qdrant/compare/v4.5.0...v4.5.1) (2025-12-01)
+
+
+### Bug Fixes
+
+* container restarts ([#108](https://github.com/astandrik/ydb-qdrant/issues/108)) ([372e2f0](https://github.com/astandrik/ydb-qdrant/commit/372e2f0869a8ba27044d5556ca749f532a27f5df))
+
 ## [4.5.0](https://github.com/astandrik/ydb-qdrant/compare/v4.4.0...v4.5.0) (2025-12-01)
 
 
