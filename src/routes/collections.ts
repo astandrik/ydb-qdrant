@@ -18,6 +18,7 @@ collectionsRouter.put(
         tenant: req.header("X-Tenant-Id") ?? undefined,
         collection: String(req.params.collection),
         apiKey: req.header("api-key") ?? undefined,
+        userAgent: req.header("User-Agent") ?? undefined,
       });
       res.json({ status: "ok", result });
     } catch (err: unknown) {
@@ -38,6 +39,7 @@ collectionsRouter.put("/:collection", async (req: Request, res: Response) => {
         tenant: req.header("X-Tenant-Id") ?? undefined,
         collection: String(req.params.collection),
         apiKey: req.header("api-key") ?? undefined,
+        userAgent: req.header("User-Agent") ?? undefined,
       },
       req.body
     );
@@ -58,6 +60,7 @@ collectionsRouter.get("/:collection", async (req: Request, res: Response) => {
       tenant: req.header("X-Tenant-Id") ?? undefined,
       collection: String(req.params.collection),
       apiKey: req.header("api-key") ?? undefined,
+      userAgent: req.header("User-Agent") ?? undefined,
     });
     res.json({ status: "ok", result });
   } catch (err: unknown) {
@@ -78,6 +81,7 @@ collectionsRouter.delete(
         tenant: req.header("X-Tenant-Id") ?? undefined,
         collection: String(req.params.collection),
         apiKey: req.header("api-key") ?? undefined,
+        userAgent: req.header("User-Agent") ?? undefined,
       });
       res.json({ status: "ok", result });
     } catch (err: unknown) {
