@@ -17,6 +17,7 @@ export interface CollectionContextInput {
   tenant: string | undefined;
   collection: string;
   apiKey?: string;
+  userAgent?: string;
 }
 
 export interface NormalizedCollectionContext {
@@ -31,7 +32,8 @@ export function normalizeCollectionContext(
   return normalizeCollectionContextShared(
     input.tenant,
     input.collection,
-    input.apiKey
+    input.apiKey,
+    input.userAgent
   ) as NormalizedCollectionContext;
 }
 
