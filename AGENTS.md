@@ -195,11 +195,37 @@ Collection created automatically on first use.
 
 ## Semantic recall/completeness tests
 
-- Integration tests include a semantic recall check for the multi_table layout in `test/integration/YdbRecallIntegration.test.ts` (seeded clustered dataset, Recall@K threshold) and a smaller recall check for the one_table layout in `test/integration/YdbRealIntegration.one-table.test.ts`.
-- Both are executed in CI via the `npm run test:integration` script, which runs:
-  - multi_table + index disabled (table-scan only),
-  - multi_table + index enabled (including the recall test),
-  - one_table (global table with quantized embeddings).
+Integration tests include realistic recall benchmarks following [ANN-benchmarks](https://github.com/erikbern/ann-benchmarks) methodology:
+
+- **Benchmark parameters** (in `test/integration/helpers/recall-test-utils.ts`):
+  - Dimensions: 768 (matches transformer embeddings like sentence-transformers)
+  - Dataset size: 5,000 random normalized vectors
+  - Query count: 50 queries
+  - K: 10 (top-K retrieval)
+  - Distance: Cosine (angular)
+  - Ground truth: exact brute-force k-NN computation
+  - Pass threshold: 30% mean recall (realistic for approximate search)
+
+- **Methodology**:
+  - Random vectors instead of trivially-separated clusters
+  - Ground truth computed via exact cosine similarity ranking
+  - Expected recall: 30-70% depending on index/quantization configuration
+  - References: [ANN-benchmarks](https://ann-benchmarks.com/), [Aumüller et al., SISAP 2017](https://itu.dk/~maau/additional/sisap2017-preprint.pdf)
+
+- **Test files**:
+  - `test/integration/YdbRecallIntegration.test.ts` — multi_table layout recall benchmark
+  - `test/integration/YdbRealIntegration.one-table.test.ts` — one_table layout recall benchmark
+
+- **CI execution** via `npm run test:integration`:
+  - multi_table + index disabled (table-scan only)
+  - multi_table + index enabled (with vector index)
+  - one_table (global table with bit-quantized embeddings)
+
+- **CI output** (for Shields.io badges):
+  - `RECALL_MEAN_MULTI_TABLE <value>`
+  - `F1_MEAN_MULTI_TABLE <value>`
+  - `RECALL_MEAN_ONE_TABLE <value>`
+  - `F1_MEAN_ONE_TABLE <value>`
 
 ## References
 - YDB docs (overview): https://ydb.tech/docs/en/

@@ -39,9 +39,6 @@ export const RECALL_K = 10;
 // This is a pass/fail threshold, not a target - actual recall is reported
 export const MIN_MEAN_RECALL = 0.3;
 
-// Legacy constants for backwards compatibility with buildGoldenDataset
-export const CLUSTERS_COUNT = 16;
-export const POINTS_PER_CLUSTER = 80;
 
 export function createSeededRng(seed: number): () => number {
   let state = seed >>> 0;
@@ -124,61 +121,6 @@ export function buildRealisticDataset(seed: number): {
       relevantIds,
     };
   });
-
-  return { points, queries };
-}
-
-/**
- * Legacy function: Build a trivial dataset with one-hot cluster centers.
- * Uses fixed 16-dimensional vectors for backwards compatibility.
- *
- * WARNING: This dataset is trivially easy (100% recall expected) because:
- * - One-hot cluster centers are orthogonal (maximally separated)
- * - Minimal noise means near-zero inter-cluster similarity
- *
- * @deprecated Use buildRealisticDataset for meaningful recall benchmarks
- */
-export function buildGoldenDataset(seed: number): {
-  points: GoldenPoint[];
-  queries: GoldenQuery[];
-} {
-  // Use fixed legacy dimension (16) to maintain one-hot structure
-  const legacyDim = 16;
-
-  const centers: Vec[] = Array.from(
-    { length: CLUSTERS_COUNT },
-    (_, idx): Vec => {
-      const base: Vec = Array.from({ length: legacyDim }, () => 0);
-      base[idx] = 1;
-      return base;
-    }
-  );
-
-  const rng = createSeededRng(seed);
-  const points: GoldenPoint[] = [];
-
-  centers.forEach((center, clusterIndex) => {
-    for (let i = 0; i < POINTS_PER_CLUSTER; i += 1) {
-      const noise: Vec = Array.from(
-        { length: legacyDim },
-        () => (rng() - 0.5) * 0.1
-      );
-      const v: Vec = normalize(center.map((value, idx) => value + noise[idx]));
-      points.push({
-        id: `c${clusterIndex}_${i}`,
-        vector: v,
-        clusterIndex,
-      });
-    }
-  });
-
-  const queries: GoldenQuery[] = centers.map((center, clusterIndex) => ({
-    name: `cluster_${clusterIndex}`,
-    vector: center,
-    relevantIds: points
-      .filter((p) => p.clusterIndex === clusterIndex)
-      .map((p) => p.id),
-  }));
 
   return { points, queries };
 }
