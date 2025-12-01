@@ -54,7 +54,7 @@ monitor_ydb() {
       echo "Embedded YDB not reachable on ${host}:${port} (${failures}/${max_failures})" >&2
       if [ "${failures}" -ge "${max_failures}" ]; then
         echo "Embedded YDB unreachable for too long; exiting to trigger container restart" >&2
-        kill 1 || exit 1
+        exit 1
       fi
     fi
     sleep "${interval}"

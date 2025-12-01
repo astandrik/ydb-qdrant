@@ -5,19 +5,23 @@ import { pointsRouter } from "./routes/points.js";
 import { requestLogger } from "./middleware/requestLogger.js";
 import { isYdbAvailable } from "./ydb/client.js";
 
+export async function healthHandler(
+  _req: Request,
+  res: Response
+): Promise<void> {
+  const ok = await isYdbAvailable();
+  if (!ok) {
+    res.status(503).json({ status: "error", error: "YDB unavailable" });
+    return;
+  }
+  res.json({ status: "ok" });
+}
+
 export function buildServer() {
   const app = express();
   app.use(express.json({ limit: "20mb" }));
   app.use(requestLogger);
-  app.get("/health", async (_req: Request, res: Response) => {
-    const ok = await isYdbAvailable();
-    if (!ok) {
-      return res
-        .status(503)
-        .json({ status: "error", error: "YDB unavailable" });
-    }
-    res.json({ status: "ok" });
-  });
+  app.get("/health", healthHandler);
   app.use("/collections", collectionsRouter);
   app.use("/collections", pointsRouter);
   return app;

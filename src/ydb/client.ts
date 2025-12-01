@@ -28,6 +28,10 @@ type DriverConfig = {
 let overrideConfig: DriverConfig | undefined;
 let driver: InstanceType<typeof Driver> | undefined;
 
+export function __setDriverForTests(fake: unknown): void {
+  driver = fake as InstanceType<typeof Driver> | undefined;
+}
+
 export function configureDriver(config: DriverConfig): void {
   if (driver) {
     // Driver already created; keep existing connection settings.
@@ -62,7 +66,9 @@ export async function readyOrThrow(): Promise<void> {
   const ok = await d.ready(DRIVER_READY_TIMEOUT_MS);
   if (!ok) {
     throw new Error(
-      "YDB driver is not ready in 10s. Check connectivity and credentials."
+      `YDB driver is not ready in ${
+        DRIVER_READY_TIMEOUT_MS / 1000
+      }s. Check connectivity and credentials.`
     );
   }
 }
