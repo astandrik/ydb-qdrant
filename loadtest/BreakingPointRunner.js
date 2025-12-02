@@ -1,26 +1,15 @@
 #!/usr/bin/env node
 
 /**
- * BreakingPointRunner
+ * BreakingPointRunner (ESM)
  *
  * Helper script to approximate the breaking-point VUs by running
  * multiple k6 stress tests in "fixed" mode at different MAX_VUS values.
  *
- * Usage (from repo root):
- *   node loadtest/BreakingPointRunner.js
- *
- * Optional environment variables:
- *   BREAK_MIN_VUS        - starting VU level (default: 100)
- *   BREAK_MAX_VUS        - upper bound for VUs (default: 2000)
- *   BREAK_ERROR_THRESHOLD - error-rate threshold in percent (default: 5)
- *   BREAK_MAX_RUNS       - max k6 runs (default: 8)
- *   BASE_URL             - forwarded to k6 (default: http://localhost:8080)
- *
- * This script does not change CI behaviour; it is intended for manual
- * capacity exploration on a developer or dedicated load machine.
+ * Intended for CI usage via `.github/workflows/ci-load-stress.yml`.
  */
 
-const { spawnSync } = require("node:child_process");
+import { spawnSync } from "node:child_process";
 
 function parseNumberEnv(name, defaultValue) {
   const raw = process.env[name];
