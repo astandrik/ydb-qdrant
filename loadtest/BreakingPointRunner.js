@@ -21,6 +21,8 @@ function parseNumberEnv(name, defaultValue) {
 const MIN_VUS = parseNumberEnv("BREAK_MIN_VUS", 100);
 const MAX_VUS_BOUND = parseNumberEnv("BREAK_MAX_VUS", 2000);
 const ERROR_THRESHOLD_PERCENT = parseNumberEnv("BREAK_ERROR_THRESHOLD", 5);
+// Latency threshold for p95 search requests (milliseconds)
+const P95_THRESHOLD_MS = parseNumberEnv("BREAK_P95_MS", 5000);
 const MAX_RUNS = parseNumberEnv("BREAK_MAX_RUNS", 8);
 
 if (MIN_VUS <= 0 || MAX_VUS_BOUND <= 0 || MIN_VUS > MAX_VUS_BOUND) {
@@ -60,22 +62,35 @@ function runOnce(targetVus) {
 
   const vusMatch = output.match(/STRESS_MAX_VUS\s+(\d+)/);
   const errorMatch = output.match(/STRESS_ERROR_RATE\s+([0-9.]+)/);
+  const p95Match = output.match(/STRESS_SEARCH_P95\s+([0-9.]+)/);
 
-  if (!vusMatch || !errorMatch) {
-    console.error("Could not parse STRESS_MAX_VUS or STRESS_ERROR_RATE from k6 output.");
+  if (!vusMatch || !errorMatch || !p95Match) {
+    console.error(
+      "Could not parse STRESS_MAX_VUS, STRESS_ERROR_RATE, or STRESS_SEARCH_P95 from k6 output."
+    );
     process.exit(1);
   }
 
   const vus = Number(vusMatch[1]);
   const errorPercent = Number(errorMatch[1]);
+  const searchP95 = Number(p95Match[1]);
 
   console.log(
     `Run @ ${vus} VUs → error=${errorPercent.toFixed(
       4
-    )}% (threshold=${ERROR_THRESHOLD_PERCENT}%)`
+    )}% (threshold=${ERROR_THRESHOLD_PERCENT}%), p95=${searchP95.toFixed(
+      2
+    )}ms (threshold=${P95_THRESHOLD_MS}ms)`
   );
 
-  return { vus, errorPercent };
+  return { vus, errorPercent, searchP95 };
+}
+
+function isFail(runResult) {
+  return (
+    runResult.errorPercent > ERROR_THRESHOLD_PERCENT ||
+    runResult.searchP95 > P95_THRESHOLD_MS
+  );
 }
 
 function main() {
@@ -88,13 +103,13 @@ function main() {
 
   while (current <= MAX_VUS_BOUND && runs < MAX_RUNS) {
     runs += 1;
-    const { vus, errorPercent } = runOnce(current);
+    const result = runOnce(current);
 
-    if (errorPercent <= ERROR_THRESHOLD_PERCENT) {
-      safeVus = vus;
+    if (!isFail(result)) {
+      safeVus = result.vus;
       current *= 2;
     } else {
-      failVus = vus;
+      failVus = result.vus;
       break;
     }
   }
@@ -117,19 +132,19 @@ function main() {
   while (low <= high && runs < MAX_RUNS) {
     const mid = Math.floor((low + high) / 2);
     runs += 1;
-    const { vus, errorPercent } = runOnce(mid);
+    const result = runOnce(mid);
 
-    if (errorPercent <= ERROR_THRESHOLD_PERCENT) {
-      safeVus = vus;
-      low = vus + 1;
+    if (!isFail(result)) {
+      safeVus = result.vus;
+      low = result.vus + 1;
     } else {
-      failVus = vus;
-      high = vus - 1;
+      failVus = result.vus;
+      high = result.vus - 1;
     }
   }
 
   console.log(
-    `Approximate breaking point window: safe up to ${safeVus} VUs, failing from ${failVus} VUs (threshold ${ERROR_THRESHOLD_PERCENT}% error rate).`
+    `Approximate breaking point window: safe up to ${safeVus} VUs, failing from ${failVus} VUs (thresholds: error ${ERROR_THRESHOLD_PERCENT}%, p95 ${P95_THRESHOLD_MS}ms).`
   );
 }
 

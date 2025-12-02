@@ -101,6 +101,8 @@ jobs:
           BREAK_MIN_VUS: 100
           BREAK_MAX_VUS: 1500
           BREAK_ERROR_THRESHOLD: 5
+          # Treat very high latency as breaking, even if error rate stays low
+          BREAK_P95_MS: 4000
           BREAK_MAX_RUNS: 5
           # Shorter fixed duration per step to keep CI time reasonable
           FIXED_DURATION: "1m"
