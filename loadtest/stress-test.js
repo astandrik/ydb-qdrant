@@ -322,7 +322,7 @@ export function handleSummary(data) {
     {
       name: "Stress: Throughput",
       unit: "ops/s",
-      value: avgRPS
+      value: avgRPS,
     },
     {
       name: "Stress: Max VUs",
