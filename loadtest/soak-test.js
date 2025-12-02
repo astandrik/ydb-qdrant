@@ -159,7 +159,7 @@ export function handleSummary(data) {
   const upsertP95 = data.metrics.upsert_latency?.values?.["p(95)"] || 0;
   const errorRate = data.metrics.http_req_failed?.values?.rate || 0;
   const totalOps = data.metrics.total_operations?.values?.count || 0;
-  const duration = data.state.testRunDurationMs / 1000;
+  const duration = (data.state.testRunDurationMs || 0) / 1000;
   const opsPerSec = duration > 0 ? totalOps / duration : 0;
 
   console.log("\n========== SOAK TEST SUMMARY ==========");

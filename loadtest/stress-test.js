@@ -43,7 +43,21 @@ const totalOperations = new Counter("total_operations");
 // Note: Using k6's built-in 'vus' metric instead of custom Gauge for VU tracking
 
 // Error threshold for breaking point detection (calculated post-test in handleSummary)
-const ERROR_THRESHOLD = 0.05; // 5% error rate = breaking point
+const DEFAULT_ERROR_THRESHOLD = 0.05; // 5% error rate = breaking point
+const ERROR_THRESHOLD_ENV = __ENV.ERROR_THRESHOLD;
+const ERROR_THRESHOLD =
+  ERROR_THRESHOLD_ENV !== undefined &&
+  !Number.isNaN(Number(ERROR_THRESHOLD_ENV))
+    ? Number(ERROR_THRESHOLD_ENV)
+    : DEFAULT_ERROR_THRESHOLD;
+
+// Maximum VUs target for the stress profile (can be overridden via MAX_VUS)
+const DEFAULT_MAX_VUS = 100;
+const MAX_VUS_ENV = __ENV.MAX_VUS;
+const MAX_VUS =
+  MAX_VUS_ENV !== undefined && !Number.isNaN(Number(MAX_VUS_ENV))
+    ? Number(MAX_VUS_ENV)
+    : DEFAULT_MAX_VUS;
 
 // Test configuration
 export const options = {
@@ -54,10 +68,10 @@ export const options = {
     { duration: "1m", target: 20 },
     // Ramp to 50 VUs over 1 minute
     { duration: "1m", target: 50 },
-    // Ramp to 100 VUs over 1 minute
-    { duration: "1m", target: 100 },
+    // Ramp to MAX_VUS over 1 minute
+    { duration: "1m", target: MAX_VUS },
     // Stay at max load for 30 seconds
-    { duration: "30s", target: 100 },
+    { duration: "30s", target: MAX_VUS },
     // Recovery: ramp down over 30 seconds
     { duration: "30s", target: 0 },
   ],
@@ -171,7 +185,7 @@ export function handleSummary(data) {
   const upsertP95 = data.metrics.upsert_latency?.values?.["p(95)"] || 0;
   const errorRate = data.metrics.http_req_failed?.values?.rate || 0;
   const totalOps = data.metrics.total_operations?.values?.count || 0;
-  const duration = data.state.testRunDurationMs / 1000;
+  const duration = (data.state.testRunDurationMs || 0) / 1000;
   const avgRPS = duration > 0 ? totalOps / duration : 0;
 
   // Calculate max VUs reached (using k6's built-in vus metric)
