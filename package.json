@@ -16,8 +16,8 @@
   "scripts": {
     "test": "vitest run --exclude \"test/integration/**\"",
     "test:coverage": "vitest run --coverage --exclude \"test/integration/**\"",
-    "test:integration": "VECTOR_INDEX_BUILD_ENABLED=false vitest run test/integration/YdbRealIntegration.index-disabled.test.ts && VECTOR_INDEX_BUILD_ENABLED=true vitest run test/integration/YdbRealIntegration.test.ts test/integration/YdbRecallIntegration.test.ts && YDB_QDRANT_COLLECTION_STORAGE_MODE=one_table vitest run test/integration/YdbRealIntegration.one-table.test.ts",
-    "test:recall": "VECTOR_INDEX_BUILD_ENABLED=true vitest run test/integration/YdbRecallIntegration.test.ts && YDB_QDRANT_COLLECTION_STORAGE_MODE=one_table vitest run test/integration/YdbRealIntegration.one-table.test.ts",
+    "test:integration": "VECTOR_INDEX_BUILD_ENABLED=false vitest run test/integration/YdbRealIntegration.index-disabled.test.ts && VECTOR_INDEX_BUILD_ENABLED=true vitest run test/integration/YdbRealIntegration.test.ts test/integration/YdbRecallIntegration.test.ts && YDB_QDRANT_COLLECTION_STORAGE_MODE=one_table YDB_QDRANT_SEARCH_MODE=approximate vitest run test/integration/YdbRealIntegration.one-table.test.ts && YDB_QDRANT_COLLECTION_STORAGE_MODE=one_table YDB_QDRANT_SEARCH_MODE=exact vitest run test/integration/YdbRealIntegration.one-table.test.ts",
+    "test:recall": "VECTOR_INDEX_BUILD_ENABLED=true vitest run test/integration/YdbRecallIntegration.test.ts && YDB_QDRANT_COLLECTION_STORAGE_MODE=one_table YDB_QDRANT_SEARCH_MODE=approximate vitest run test/integration/YdbRealIntegration.one-table.test.ts && YDB_QDRANT_COLLECTION_STORAGE_MODE=one_table YDB_QDRANT_SEARCH_MODE=exact vitest run test/integration/YdbRealIntegration.one-table.test.ts",
     "load:soak": "k6 run loadtest/soak-test.js",
     "load:stress": "k6 run loadtest/stress-test.js",
     "build": "tsc -p tsconfig.json",

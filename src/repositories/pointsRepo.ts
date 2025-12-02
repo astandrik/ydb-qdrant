@@ -5,6 +5,11 @@ import {
   deletePointsMultiTable,
 } from "./pointsRepo.multi-table.js";
 import {
+  SEARCH_MODE,
+  OVERFETCH_MULTIPLIER,
+  type SearchMode,
+} from "../config/env.js";
+import {
   upsertPointsOneTable,
   searchPointsOneTable,
   deletePointsOneTable,
@@ -37,6 +42,7 @@ export async function searchPoints(
 ): Promise<
   Array<{ id: string; score: number; payload?: Record<string, unknown> }>
 > {
+  const mode: SearchMode | undefined = SEARCH_MODE;
   if (uid) {
     return await searchPointsOneTable(
       tableName,
@@ -45,7 +51,9 @@ export async function searchPoints(
       withPayload,
       distance,
       dimension,
-      uid
+      uid,
+      mode,
+      OVERFETCH_MULTIPLIER
     );
   }
   return await searchPointsMultiTable(

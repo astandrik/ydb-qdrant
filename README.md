@@ -3,6 +3,8 @@
 [![Build](https://img.shields.io/github/actions/workflow/status/astandrik/ydb-qdrant/ci-build.yml?branch=main&label=build)](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-build.yml)
 [![Tests](https://img.shields.io/github/actions/workflow/status/astandrik/ydb-qdrant/ci-tests.yml?branch=main&label=tests)](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-tests.yml)
 [![Integration Tests](https://img.shields.io/github/actions/workflow/status/astandrik/ydb-qdrant/ci-integration.yml?branch=main&label=integration%20tests)](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-integration.yml)
+[![k6 Soak Load Test](https://img.shields.io/github/actions/workflow/status/astandrik/ydb-qdrant/ci-load-soak.yml?branch=main&label=k6%20soak%20load%20test)](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-load-soak.yml)
+[![k6 Stress Load Test](https://img.shields.io/github/actions/workflow/status/astandrik/ydb-qdrant/ci-load-stress.yml?branch=main&label=k6%20stress%20load%20test)](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-load-stress.yml)
 [![Coverage](https://coveralls.io/repos/github/astandrik/ydb-qdrant/badge.svg?branch=main)](https://coveralls.io/github/astandrik/ydb-qdrant?branch=main)
 
 [![Recall (multi_table)](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astandrik/ydb-qdrant/recall-badges/recall-multi-table.json)](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-recall.yml)
@@ -90,6 +92,9 @@ export PORT=8080
 export LOG_LEVEL=info
 # Collection storage mode (optional; default is multi_table)
 export YDB_QDRANT_COLLECTION_STORAGE_MODE=multi_table   # or one_table
+# One-table search tuning (one_table mode only)
+export YDB_QDRANT_SEARCH_MODE=approximate               # or exact
+export YDB_QDRANT_OVERFETCH_MULTIPLIER=10               # candidate multiplier in approximate mode
 ```
 
 ## Use as a Node.js library (npm package)

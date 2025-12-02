@@ -90,7 +90,9 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     console.log(`RECALL_MEAN_ONE_TABLE ${meanRecall.toFixed(4)}`);
     console.log(`F1_MEAN_ONE_TABLE ${meanF1.toFixed(4)}`);
     console.log(
-      `Recall@${RECALL_K} stats: mean=${meanRecall.toFixed(4)}, min=${minRecall.toFixed(4)}, max=${maxRecall.toFixed(4)}`
+      `Recall@${RECALL_K} stats: mean=${meanRecall.toFixed(
+        4
+      )}, min=${minRecall.toFixed(4)}, max=${maxRecall.toFixed(4)}`
     );
     console.log(
       `Dataset: ${DATASET_SIZE} points, ${QUERY_COUNT} queries, ${RECALL_DIM}D vectors`
@@ -162,7 +164,7 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     const query = `
       DECLARE $uid AS Utf8;
       DECLARE $point_id AS Utf8;
-      SELECT uid, point_id, embedding, embedding_bit FROM ${GLOBAL_POINTS_TABLE}
+      SELECT uid, point_id, embedding, embedding_quantized FROM ${GLOBAL_POINTS_TABLE}
       WHERE uid = $uid AND point_id = $point_id;
     `;
 
@@ -176,7 +178,7 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     const rowset = res.resultSets?.[0];
     expect(rowset?.rows?.length).toBe(1);
     const row = rowset?.rows?.[0];
-    // items: [uid, point_id, embedding, embedding_bit]
+    // items: [uid, point_id, embedding, embedding_quantized]
     expect(row?.items?.[0]?.textValue).toBe(expectedUid);
     expect(row?.items?.[1]?.textValue).toBe("uid_test_point");
     // Just verify that both binary columns are present and non-empty
@@ -340,13 +342,13 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     }
   });
 
-  it("migrates existing table by adding embedding_bit column and backfilling", async () => {
+  it("migrates existing table by adding embedding_quantized column for legacy layouts", async () => {
     // This test simulates the migration scenario for existing deployments
-    // We create a legacy table without embedding_bit, insert data, then run migration
+    // We create a legacy table without embedding_quantized, insert data, then run migration
 
     const legacyTable = `qdrant_migration_test_${Date.now()}`;
 
-    // Step 1: Create a legacy table without embedding_bit column
+    // Step 1: Create a legacy table without embedding_quantized column
     await withSession(async (s) => {
       const desc = new TableDescription()
         .withColumns(
@@ -359,7 +361,7 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
       await s.createTable(legacyTable, desc);
     });
 
-    // Step 2: Insert a test row with only embedding (no embedding_bit)
+    // Step 2: Insert a test row with only embedding (no embedding_quantized)
     const testUid = "migration_test_uid";
     const testVector = [1.0, 0.0, 0.0, 0.0];
     await withSession(async (s) => {
@@ -384,19 +386,19 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
       });
     });
 
-    // Step 3: Verify the table has no embedding_bit column initially
+    // Step 3: Verify the table has no embedding_quantized column initially
     const descBefore = await withSession(async (s) => {
       return await s.describeTable(legacyTable);
     });
     const columnsBefore = descBefore.columns?.map((c) => c.name) ?? [];
     expect(columnsBefore).toContain("embedding");
-    expect(columnsBefore).not.toContain("embedding_bit");
+    expect(columnsBefore).not.toContain("embedding_quantized");
 
-    // Step 4: Run migration (ALTER TABLE via schema API + backfill via data query)
+    // Step 4: Run migration (ALTER TABLE via schema API to add embedding_quantized)
     await withSession(async (s) => {
       const alterDdl = `
         ALTER TABLE ${legacyTable}
-        ADD COLUMN embedding_bit String;
+        ADD COLUMN embedding_quantized String;
       `;
 
       const rawSession = s as unknown as {
@@ -413,13 +415,6 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
         sessionId: rawSession.sessionId,
         yqlText: alterDdl,
       });
-
-      const backfillDdl = `
-        UPDATE ${legacyTable}
-        SET embedding_bit = Untag(Knn::ToBinaryStringBit(Knn::FloatFromBinaryString(embedding)), "BitVector")
-        WHERE embedding_bit IS NULL;
-      `;
-      await s.executeQuery(backfillDdl);
     });
 
     // Step 5: Verify the column was added
@@ -427,25 +422,7 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
       return await s.describeTable(legacyTable);
     });
     const columnsAfter = descAfter.columns?.map((c) => c.name) ?? [];
-    expect(columnsAfter).toContain("embedding_bit");
-
-    // Step 6: Verify the backfill populated embedding_bit
-    const verifyQuery = `
-      DECLARE $uid AS Utf8;
-      SELECT uid, point_id, embedding, embedding_bit FROM ${legacyTable}
-      WHERE uid = $uid;
-    `;
-    const verifyRes = await withSession(async (s) => {
-      return await s.executeQuery(verifyQuery, {
-        $uid: TypedValues.utf8(testUid),
-      });
-    });
-
-    const row = verifyRes.resultSets?.[0]?.rows?.[0];
-    expect(row).toBeDefined();
-    // items: [uid, point_id, embedding, embedding_bit]
-    expect(row?.items?.[2]).toBeDefined(); // embedding
-    expect(row?.items?.[3]).toBeDefined(); // embedding_bit should now be populated
+    expect(columnsAfter).toContain("embedding_quantized");
 
     // Cleanup: drop the test table
     try {

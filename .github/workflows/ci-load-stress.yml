@@ -11,7 +11,7 @@ on:
 
 jobs:
   stress_test:
-    name: Stress test (${{ matrix.storage_mode }}, ramping load)
+    name: Stress test (${{ matrix.storage_mode }}, mode=${{ matrix.search_mode }}, ramping load)
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -19,7 +19,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        storage_mode: [multi_table, one_table]
+        include:
+          - storage_mode: multi_table
+            search_mode: approximate
+          - storage_mode: one_table
+            search_mode: approximate
+          - storage_mode: one_table
+            search_mode: exact
 
     services:
       ydb:
@@ -75,6 +81,7 @@ jobs:
           YDB_DATABASE: /local
           YDB_ANONYMOUS_CREDENTIALS: "1"
           YDB_QDRANT_COLLECTION_STORAGE_MODE: ${{ matrix.storage_mode }}
+          YDB_QDRANT_SEARCH_MODE: ${{ matrix.search_mode }}
           PORT: 8080
           LOG_LEVEL: warn
 
@@ -289,6 +296,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stress-test-log-${{ matrix.storage_mode }}
+          name: stress-test-log-${{ matrix.storage_mode }}-${{ matrix.search_mode }}
           path: stress.log
           retention-days: 7

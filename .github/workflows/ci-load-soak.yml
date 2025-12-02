@@ -11,7 +11,7 @@ on:
 
 jobs:
   soak_test:
-    name: Soak test (${{ matrix.storage_mode }}, 10 VUs, 2.5min)
+    name: Soak test (${{ matrix.storage_mode }}, mode=${{ matrix.search_mode }}, 10 VUs, 2.5min)
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -19,7 +19,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        storage_mode: [multi_table, one_table]
+        include:
+          - storage_mode: multi_table
+            search_mode: approximate
+          - storage_mode: one_table
+            search_mode: approximate
+          - storage_mode: one_table
+            search_mode: exact
 
     services:
       ydb:
@@ -75,6 +81,7 @@ jobs:
           YDB_DATABASE: /local
           YDB_ANONYMOUS_CREDENTIALS: "1"
           YDB_QDRANT_COLLECTION_STORAGE_MODE: ${{ matrix.storage_mode }}
+          YDB_QDRANT_SEARCH_MODE: ${{ matrix.search_mode }}
           PORT: 8080
           LOG_LEVEL: warn
 
@@ -251,6 +258,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: soak-test-log-${{ matrix.storage_mode }}
+          name: soak-test-log-${{ matrix.storage_mode }}-${{ matrix.search_mode }}
           path: soak.log
           retention-days: 7
