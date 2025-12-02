@@ -233,7 +233,9 @@ k6 load tests verify HTTP API performance under sustained and increasing load.
 
 - **Test scripts** (in `loadtest/`):
   - `soak-test.js` — constant load (10 VUs for ~2.5min) to verify sustained performance
-  - `stress-test.js` — ramping load (5→100 VUs over ~4min) to find breaking point
+  - `stress-test.js` — supports two modes:
+      - **Ramp mode** (default, for manual runs): ramping load (5→100 VUs over ~4min) to find breaking point
+      - **Fixed mode** (used by CI via BreakingPointRunner): constant VUs for capacity search
   - `config.js` — shared configuration, thresholds, vector generation helpers
   - `helpers/setup.js` — collection setup/teardown, health check utilities
 
