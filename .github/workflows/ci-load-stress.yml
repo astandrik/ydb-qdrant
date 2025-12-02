@@ -167,30 +167,24 @@ jobs:
             exit 0
           fi
 
-          if grep -q 'id="ydb-qdrant-bench-compact"' "$INDEX_PATH"; then
-            echo "Compact benchmark style already present; nothing to do"
+          if grep -q 'id="ydb-qdrant-bench-grid"' "$INDEX_PATH"; then
+            echo "Compact benchmark grid style already present; nothing to do"
           else
-            echo "Injecting compact benchmark style into $INDEX_PATH"
+            echo "Injecting compact benchmark grid style into $INDEX_PATH"
             tmpfile="$(mktemp)"
             awk '
               /<\/head>/ && !done {
-                print "  <style id=\"ydb-qdrant-bench-compact\">"
-                print "    main {"
+                print "  <style id=\"ydb-qdrant-bench-grid\">"
+                print "    .benchmark-graphs {"
                 print "      display: grid;"
-                print "      grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));"
+                print "      grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));"
                 print "      gap: 16px;"
                 print "      align-items: flex-start;"
+                print "      width: 100%;"
                 print "    }"
-                print "    main > div, main > section {"
-                print "      margin: 0;"
-                print "    }"
-                print "    main canvas {"
+                print "    .benchmark-chart {"
+                print "      max-width: 100%;"
                 print "      max-height: 320px !important;"
-                print "    }"
-                print "    @media (max-width: 768px) {"
-                print "      main {"
-                print "        grid-template-columns: 1fr;"
-                print "      }"
                 print "    }"
                 print "  </style>"
                 done = 1
