@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
     strategy:
       fail-fast: false
       matrix:
@@ -213,6 +214,45 @@ jobs:
           else
             echo "⚠️ Breaking point detected at ${BREAKING_VUS} VUs (${BREAKING_RPS} RPS)" >> $GITHUB_STEP_SUMMARY
           fi
+
+      - name: Comment stress load test results on PR
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          STORAGE_MODE: ${{ matrix.storage_mode }}
+          MAX_VUS: ${{ steps.metrics.outputs.max_vus }}
+          AVG_RPS: ${{ steps.metrics.outputs.avg_rps }}
+          SEARCH_P95: ${{ steps.metrics.outputs.search_p95 }}
+          SEARCH_P99: ${{ steps.metrics.outputs.search_p99 }}
+          ERROR_RATE: ${{ steps.metrics.outputs.error_rate }}
+          BREAKING_VUS: ${{ steps.metrics.outputs.breaking_vus }}
+          BREAKING_RPS: ${{ steps.metrics.outputs.breaking_rps }}
+        run: |
+          BODY="$(cat <<EOF
+          ### Load test (stress, ${STORAGE_MODE})
+
+          | Metric | Value |
+          |--------|-------|
+          | Max VUs reached | ${MAX_VUS} |
+          | Average RPS | ${AVG_RPS} |
+          | Search p95 | ${SEARCH_P95} ms |
+          | Search p99 | ${SEARCH_P99} ms |
+          | Error rate | ${ERROR_RATE} % |
+
+          #### Breaking point
+
+          $(if [ "${BREAKING_VUS}" = "-1" ]; then \
+            echo "No breaking point detected within the tested range."; \
+          else \
+            echo "Breaking point detected at **${BREAKING_VUS} VUs** (~${BREAKING_RPS} RPS)."; \
+          fi)
+          EOF
+          )"
+
+          gh api \
+            repos/${{ github.repository }}/issues/${PR_NUMBER}/comments \
+            -f body="$BODY"
 
       - name: Stop server
         if: always()

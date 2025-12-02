@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
     strategy:
       fail-fast: false
       matrix:
@@ -187,6 +188,33 @@ jobs:
           echo "| Search p95 | ${SEARCH_P95}ms |" >> $GITHUB_STEP_SUMMARY
           echo "| Search p99 | ${SEARCH_P99}ms |" >> $GITHUB_STEP_SUMMARY
           echo "| Error rate | ${ERROR_RATE}% |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Comment soak load test results on PR
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          STORAGE_MODE: ${{ matrix.storage_mode }}
+          OPS_PER_SEC: ${{ steps.metrics.outputs.ops_per_sec }}
+          SEARCH_P95: ${{ steps.metrics.outputs.search_p95 }}
+          SEARCH_P99: ${{ steps.metrics.outputs.search_p99 }}
+          ERROR_RATE: ${{ steps.metrics.outputs.error_rate }}
+        run: |
+          BODY="$(cat <<EOF
+          ### Load test (soak, ${STORAGE_MODE})
+
+          | Metric | Value |
+          |--------|-------|
+          | Operations/sec | ${OPS_PER_SEC} |
+          | Search p95 | ${SEARCH_P95} ms |
+          | Search p99 | ${SEARCH_P99} ms |
+          | Error rate | ${ERROR_RATE} % |
+          EOF
+          )"
+
+          gh api \
+            repos/${{ github.repository }}/issues/${PR_NUMBER}/comments \
+            -f body="$BODY"
 
       - name: Stop server
         if: always()

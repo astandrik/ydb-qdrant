@@ -59,6 +59,14 @@ const MAX_VUS =
     ? Number(MAX_VUS_ENV)
     : DEFAULT_MAX_VUS;
 
+// Optional latency threshold (ms) for breaking point detection (e.g. from BREAK_P95_MS)
+const DEFAULT_P95_BREAK_MS = 0;
+const P95_BREAK_MS_ENV = __ENV.BREAK_P95_MS;
+const P95_BREAK_MS =
+  P95_BREAK_MS_ENV !== undefined && !Number.isNaN(Number(P95_BREAK_MS_ENV))
+    ? Number(P95_BREAK_MS_ENV)
+    : DEFAULT_P95_BREAK_MS;
+
 // Mode for stress test: "ramp" (default) or "fixed" (constant VUs for capacity search)
 const STRESS_MODE = __ENV.STRESS_MODE || "ramp";
 
@@ -225,19 +233,40 @@ export function handleSummary(data) {
   console.log(`  Upsert p95: ${upsertP95}ms`);
   console.log(`\nError rate: ${(errorRate * 100).toFixed(2)}%`);
 
-  // Determine breaking point post-test based on overall error rate
-  // If error rate >= threshold, the system was stressed beyond capacity
-  const breakingPointDetected = errorRate >= ERROR_THRESHOLD;
+  // Determine breaking point post-test based on overall error rate and latency
+  // If error rate >= threshold or search p95 exceeds P95_BREAK_MS (when set),
+  // the system was stressed beyond capacity.
+  const errorExceeded = errorRate >= ERROR_THRESHOLD;
+  const latencyExceeded =
+    P95_BREAK_MS > 0 ? searchP95 >= P95_BREAK_MS : false;
+  const breakingPointDetected = errorExceeded || latencyExceeded;
   // When breaking point is detected, report max VUs as the breaking point
   // (since we can't determine exact time without time-series data)
   const breakingPointVUs = breakingPointDetected ? maxVUs : 0;
 
   if (breakingPointDetected) {
     console.log(`\n!!! BREAKING POINT DETECTED !!!`);
-    console.log(`  Error rate exceeded ${(ERROR_THRESHOLD * 100).toFixed(0)}% threshold`);
+    if (errorExceeded) {
+      console.log(
+        `  Error rate exceeded ${(ERROR_THRESHOLD * 100).toFixed(
+          0
+        )}% threshold`
+      );
+    }
+    if (latencyExceeded) {
+      console.log(
+        `  Search p95 exceeded ${P95_BREAK_MS}ms threshold (p95=${searchP95}ms)`
+      );
+    }
     console.log(`  Max VUs reached: ${maxVUs}`);
   } else {
-    console.log(`\nNo breaking point detected (error rate stayed below ${ERROR_THRESHOLD * 100}%)`);
+    console.log(
+      `\nNo breaking point detected (error rate < ${
+        ERROR_THRESHOLD * 100
+      }% and p95 <= ${
+        P95_BREAK_MS > 0 ? P95_BREAK_MS : "∞"
+      }ms over the full run)`
+    );
   }
   console.log("==========================================\n");
 
