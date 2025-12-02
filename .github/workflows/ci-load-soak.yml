@@ -13,6 +13,8 @@ jobs:
   soak_test:
     name: Soak test (${{ matrix.storage_mode }}, 10 VUs, 2.5min)
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -112,6 +114,22 @@ jobs:
           gh-pages-branch: gh-pages
           benchmark-data-dir-path: dev/bench
 
+      - name: Store capacity benchmark results
+        uses: benchmark-action/github-action-benchmark@v1
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: "Load Test - Soak Capacity (${{ matrix.storage_mode }}, 768D)"
+          tool: "customBiggerIsBetter"
+          output-file-path: soak-benchmark-capacity.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          alert-threshold: "150%"
+          comment-on-alert: true
+          fail-on-alert: false
+          # Store results in gh-pages branch under ./dev/bench
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/bench
+
       - name: Compare benchmark results (PR)
         uses: benchmark-action/github-action-benchmark@v1
         if: github.event_name == 'pull_request'
@@ -121,6 +139,24 @@ jobs:
           name: "Load Test - Soak (${{ matrix.storage_mode }}, 768D)"
           tool: "customSmallerIsBetter"
           output-file-path: soak-benchmark.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: false
+          alert-threshold: "150%"
+          comment-on-alert: true
+          fail-on-alert: false
+          # Compare against results in gh-pages branch
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/bench
+
+      - name: Compare capacity benchmark results (PR)
+        uses: benchmark-action/github-action-benchmark@v1
+        if: github.event_name == 'pull_request'
+        # Skip gracefully if gh-pages branch doesn't exist yet (first run)
+        continue-on-error: true
+        with:
+          name: "Load Test - Soak Capacity (${{ matrix.storage_mode }}, 768D)"
+          tool: "customBiggerIsBetter"
+          output-file-path: soak-benchmark-capacity.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: false
           alert-threshold: "150%"

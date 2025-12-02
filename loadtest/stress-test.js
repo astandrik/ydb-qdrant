@@ -172,7 +172,7 @@ export function handleSummary(data) {
   const errorRate = data.metrics.http_req_failed?.values?.rate || 0;
   const totalOps = data.metrics.total_operations?.values?.count || 0;
   const duration = data.state.testRunDurationMs / 1000;
-  const avgRPS = totalOps / duration;
+  const avgRPS = duration > 0 ? totalOps / duration : 0;
 
   // Calculate max VUs reached (using k6's built-in vus metric)
   const maxVUs = data.metrics.vus?.values?.max || 0;
@@ -223,54 +223,64 @@ export function handleSummary(data) {
 
   // Benchmark-compatible JSON output for github-action-benchmark
   // Format: array of { name, unit, value } objects
-  const benchmarkResults = [
+  // Split into:
+  // - smaller-is-better metrics (latency, error rate)
+  // - bigger-is-better metrics (throughput, VUs)
+  const smallerIsBetterResults = [
     {
       name: "Stress: Search Latency p95",
       unit: "ms",
-      value: parseFloat(searchP95) || 0,
+      value: searchP95 || 0,
     },
     {
       name: "Stress: Search Latency p99",
       unit: "ms",
-      value: parseFloat(searchP99) || 0,
+      value: searchP99 || 0,
     },
     {
       name: "Stress: Search Latency max",
       unit: "ms",
-      value: parseFloat(searchMax) || 0,
+      value: searchMax || 0,
     },
     {
       name: "Stress: Upsert Latency p95",
       unit: "ms",
-      value: parseFloat(upsertP95) || 0,
+      value: upsertP95 || 0,
     },
     {
       name: "Stress: Error Rate",
       unit: "%",
       value: parseFloat((errorRate * 100).toFixed(4)),
     },
+  ];
+
+  const biggerIsBetterResults = [
     {
       name: "Stress: Throughput",
       unit: "ops/s",
-      value: parseFloat(avgRPS.toFixed(2)),
-      biggerIsBetter: true,
+      value: avgRPS
     },
     {
       name: "Stress: Max VUs",
       unit: "VUs",
       value: maxVUs,
-      biggerIsBetter: true,
     },
     {
       name: "Stress: Breaking Point VUs",
       unit: "VUs",
       value: breakingPointDetected ? breakingPointVUs : maxVUs,
-      biggerIsBetter: true,
     },
   ];
 
   return {
     stdout: JSON.stringify(data, null, 2),
-    "./stress-benchmark.json": JSON.stringify(benchmarkResults, null, 2),
+    // Keep existing path for smaller-is-better metrics (latency, error rate)
+    "./stress-benchmark.json": JSON.stringify(smallerIsBetterResults, null, 2),
+    // New path for bigger-is-better metrics (throughput, capacity)
+    "./stress-benchmark-capacity.json": JSON.stringify(
+      biggerIsBetterResults,
+      null,
+      2
+    ),
   };
 }

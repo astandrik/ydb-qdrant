@@ -160,7 +160,7 @@ export function handleSummary(data) {
   const errorRate = data.metrics.http_req_failed?.values?.rate || 0;
   const totalOps = data.metrics.total_operations?.values?.count || 0;
   const duration = data.state.testRunDurationMs / 1000;
-  const opsPerSec = totalOps / duration;
+  const opsPerSec = duration > 0 ? totalOps / duration : 0;
 
   console.log("\n========== SOAK TEST SUMMARY ==========");
   console.log(`Total operations: ${totalOps}`);
@@ -180,38 +180,49 @@ export function handleSummary(data) {
 
   // Benchmark-compatible JSON output for github-action-benchmark
   // Format: array of { name, unit, value } objects
-  // Using "customSmallerIsBetter" for latency/errors, throughput tracked separately
-  const benchmarkResults = [
+  // Split into:
+  // - smaller-is-better metrics (latency, error rate)
+  // - bigger-is-better metrics (throughput)
+  const smallerIsBetterResults = [
     {
       name: "Soak: Search Latency p95",
       unit: "ms",
-      value: parseFloat(searchP95) || 0,
+      value: searchP95 || 0,
     },
     {
       name: "Soak: Search Latency p99",
       unit: "ms",
-      value: parseFloat(searchP99) || 0,
+      value: searchP99 || 0,
     },
     {
       name: "Soak: Upsert Latency p95",
       unit: "ms",
-      value: parseFloat(upsertP95) || 0,
+      value: upsertP95 || 0,
     },
     {
       name: "Soak: Error Rate",
       unit: "%",
       value: parseFloat((errorRate * 100).toFixed(4)),
     },
+  ];
+
+  const biggerIsBetterResults = [
     {
       name: "Soak: Throughput",
       unit: "ops/s",
-      value: parseFloat(opsPerSec.toFixed(2)),
-      biggerIsBetter: true,
+      value: opsPerSec,
     },
   ];
 
   return {
     stdout: JSON.stringify(data, null, 2),
-    "./soak-benchmark.json": JSON.stringify(benchmarkResults, null, 2),
+    // Smaller-is-better metrics (latency, error rate)
+    "./soak-benchmark.json": JSON.stringify(smallerIsBetterResults, null, 2),
+    // Bigger-is-better metrics (throughput capacity)
+    "./soak-benchmark-capacity.json": JSON.stringify(
+      biggerIsBetterResults,
+      null,
+      2
+    ),
   };
 }
