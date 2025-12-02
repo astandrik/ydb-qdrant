@@ -149,6 +149,47 @@ jobs:
           gh-pages-branch: gh-pages
           benchmark-data-dir-path: dev/bench
 
+      - name: Make benchmark charts more compact on gh-pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          set -e
+
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          # Ensure we have the latest gh-pages branch locally
+          git fetch origin gh-pages:gh-pages || git fetch origin gh-pages
+          git switch gh-pages || git checkout gh-pages
+
+          INDEX_PATH="dev/bench/index.html"
+          if [ ! -f "$INDEX_PATH" ]; then
+            echo "No $INDEX_PATH found on gh-pages; skipping compact layout tweak"
+            exit 0
+          fi
+
+          if grep -q 'id=\"ydb-qdrant-bench-compact\"' "$INDEX_PATH"; then
+            echo "Compact benchmark style already present; nothing to do"
+          else
+            echo "Injecting compact benchmark style into $INDEX_PATH"
+            tmpfile="$(mktemp)"
+            awk '
+              /<\/head>/ && !done {
+                print "  <style id=\"ydb-qdrant-bench-compact\">"
+                print "    body canvas {"
+                print "      max-height: 320px !important;"
+                print "    }"
+                print "  </style>"
+                done = 1
+              }
+              { print }
+            ' "$INDEX_PATH" > "$tmpfile"
+            mv "$tmpfile" "$INDEX_PATH"
+          fi
+
+          git add "$INDEX_PATH"
+          git commit -m "Make benchmark charts more compact [skip ci]" || echo "No changes to commit"
+          git push origin gh-pages || echo "Failed to push gh-pages (possibly from a fork)"
+
       - name: Compare benchmark results (PR)
         uses: benchmark-action/github-action-benchmark@v1
         if: github.event_name == 'pull_request'
