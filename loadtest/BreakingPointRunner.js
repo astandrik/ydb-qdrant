@@ -39,6 +39,7 @@ function runOnce(targetVus) {
     MAX_VUS: String(targetVus),
     STRESS_MODE: "fixed",
     ERROR_THRESHOLD: String(ERROR_THRESHOLD_PERCENT / 100),
+    BREAK_P95_MS: String(P95_THRESHOLD_MS),
   };
 
   const result = spawnSync(
