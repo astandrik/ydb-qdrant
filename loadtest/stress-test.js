@@ -240,9 +240,9 @@ export function handleSummary(data) {
   const latencyExceeded =
     P95_BREAK_MS > 0 ? searchP95 >= P95_BREAK_MS : false;
   const breakingPointDetected = errorExceeded || latencyExceeded;
-  // When breaking point is detected, report max VUs as the breaking point
-  // (since we can't determine exact time without time-series data)
-  const breakingPointVUs = breakingPointDetected ? maxVUs : 0;
+  // Breaking point VUs: maxVUs when detected, -1 when no breaking point found
+  // This makes the metric distinct from "Max VUs" for benchmark tracking
+  const breakingPointVUs = breakingPointDetected ? maxVUs : -1;
 
   if (breakingPointDetected) {
     console.log(`\n!!! BREAKING POINT DETECTED !!!`);
@@ -332,7 +332,7 @@ export function handleSummary(data) {
     {
       name: "Stress: Breaking Point VUs",
       unit: "VUs",
-      value: breakingPointDetected ? breakingPointVUs : maxVUs,
+      value: breakingPointVUs,
     },
   ];
 

@@ -224,10 +224,13 @@ jobs:
             const heading = "### Load test (soak, " + storageMode + ")";
             let newBody;
             if (body.includes(heading)) {
-              const pattern = new RegExp("\\n" + heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "[\\s\\S]*?(?=\\n### Load test \\(|$)");
-              newBody = body.replace(pattern, "\n" + block);
+              // Replace existing block (handles both start-of-string and mid-string)
+              const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              const pattern = new RegExp("(^|\\n)" + escapedHeading + "[\\s\\S]*?(?=\\n### Load test \\(|$)");
+              newBody = body.replace(pattern, "$1" + block);
             } else {
-              newBody = body ? body + "\n\n" + block + "\n" : block + "\n";
+              // Append to end
+              newBody = body ? body.trimEnd() + "\n\n" + block + "\n" : block + "\n";
             }
             process.stdout.write(newBody);
           ')"
