@@ -258,6 +258,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: soak-test-log-${{ matrix.storage_mode }}
+          name: soak-test-log-${{ matrix.storage_mode }}-${{ matrix.search_mode }}
           path: soak.log
           retention-days: 7

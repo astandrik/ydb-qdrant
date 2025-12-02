@@ -344,7 +344,7 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
 
   it("migrates existing table by adding embedding_quantized column for legacy layouts", async () => {
     // This test simulates the migration scenario for existing deployments
-    // We create a legacy table without embedding_bit, insert data, then run migration
+    // We create a legacy table without embedding_quantized, insert data, then run migration
 
     const legacyTable = `qdrant_migration_test_${Date.now()}`;
 

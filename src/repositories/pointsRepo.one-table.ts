@@ -215,9 +215,10 @@ async function searchPointsOneTableExact(
       `;
 
       params = {
-        $qbinf: TypedValues.bytes
-          ? TypedValues.bytes(binaries.float)
-          : (binaries.float as unknown as Ydb.ITypedValue),
+        $qbinf:
+          typeof TypedValues.bytes === "function"
+            ? TypedValues.bytes(binaries.float)
+            : (binaries.float as unknown as Ydb.ITypedValue),
         $k: TypedValues.uint32(top),
         $uid: TypedValues.utf8(uid),
       };
@@ -363,9 +364,10 @@ async function searchPointsOneTableApproximate(
       );
 
       const phase1Params: QueryParams = {
-        $qbin_bit: TypedValues.bytes
-          ? TypedValues.bytes(binaries.bit)
-          : (binaries.bit as unknown as Ydb.ITypedValue),
+        $qbin_bit:
+          typeof TypedValues.bytes === "function"
+            ? TypedValues.bytes(binaries.bit)
+            : (binaries.bit as unknown as Ydb.ITypedValue),
         $k: TypedValues.uint32(candidateLimit),
         $uid: TypedValues.utf8(uid),
       };
@@ -430,9 +432,10 @@ async function searchPointsOneTableApproximate(
       const idsParam = TypedValues.list(Types.UTF8, candidateIds);
 
       const phase2Params: QueryParams = {
-        $qbinf: TypedValues.bytes
-          ? TypedValues.bytes(binaries.float)
-          : (binaries.float as unknown as Ydb.ITypedValue),
+        $qbinf:
+          typeof TypedValues.bytes === "function"
+            ? TypedValues.bytes(binaries.float)
+            : (binaries.float as unknown as Ydb.ITypedValue),
         $k: TypedValues.uint32(safeTop),
         $uid: TypedValues.utf8(uid),
         $ids: idsParam,
