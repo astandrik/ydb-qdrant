@@ -203,11 +203,11 @@ function trackErrorRate(success) {
 
 // Handle summary output
 export function handleSummary(data) {
-  const searchP50 = data.metrics.search_latency?.values?.["p(50)"] || "N/A";
-  const searchP95 = data.metrics.search_latency?.values?.["p(95)"] || "N/A";
-  const searchP99 = data.metrics.search_latency?.values?.["p(99)"] || "N/A";
-  const searchMax = data.metrics.search_latency?.values?.max || "N/A";
-  const upsertP95 = data.metrics.upsert_latency?.values?.["p(95)"] || "N/A";
+  const searchP50 = data.metrics.search_latency?.values?.["p(50)"] || 0;
+  const searchP95 = data.metrics.search_latency?.values?.["p(95)"] || 0;
+  const searchP99 = data.metrics.search_latency?.values?.["p(99)"] || 0;
+  const searchMax = data.metrics.search_latency?.values?.max || 0;
+  const upsertP95 = data.metrics.upsert_latency?.values?.["p(95)"] || 0;
   const errorRate = data.metrics.http_req_failed?.values?.rate || 0;
   const totalOps = data.metrics.total_operations?.values?.count || 0;
   const duration = data.state.testRunDurationMs / 1000;
@@ -253,7 +253,56 @@ export function handleSummary(data) {
     console.log(`STRESS_BREAKING_POINT_RPS ${avgRPS.toFixed(2)}`);
   }
 
+  // Benchmark-compatible JSON output for github-action-benchmark
+  // Format: array of { name, unit, value } objects
+  const benchmarkResults = [
+    {
+      name: "Stress: Search Latency p95",
+      unit: "ms",
+      value: parseFloat(searchP95) || 0,
+    },
+    {
+      name: "Stress: Search Latency p99",
+      unit: "ms",
+      value: parseFloat(searchP99) || 0,
+    },
+    {
+      name: "Stress: Search Latency max",
+      unit: "ms",
+      value: parseFloat(searchMax) || 0,
+    },
+    {
+      name: "Stress: Upsert Latency p95",
+      unit: "ms",
+      value: parseFloat(upsertP95) || 0,
+    },
+    {
+      name: "Stress: Error Rate",
+      unit: "%",
+      value: parseFloat((errorRate * 100).toFixed(4)),
+    },
+    {
+      name: "Stress: Throughput",
+      unit: "ops/s",
+      value: parseFloat(avgRPS.toFixed(2)),
+      biggerIsBetter: true,
+    },
+    {
+      name: "Stress: Max VUs",
+      unit: "VUs",
+      value: maxVUs,
+      biggerIsBetter: true,
+    },
+    {
+      name: "Stress: Breaking Point VUs",
+      unit: "VUs",
+      value: breakingPointDetected ? breakingPointVUs : maxVUs,
+      biggerIsBetter: true,
+    },
+  ];
+
   return {
     stdout: JSON.stringify(data, null, 2),
+    "./stress-benchmark.json": JSON.stringify(benchmarkResults, null, 2),
   };
 }

@@ -272,6 +272,18 @@ k6 load tests verify HTTP API performance under sustained and increasing load.
   - `SOAK_OPS_PER_SEC`, `SOAK_SEARCH_P95`, `SOAK_SEARCH_P99`, `SOAK_ERROR_RATE`
   - `STRESS_MAX_VUS`, `STRESS_AVG_RPS`, `STRESS_BREAKING_POINT_VUS`, `STRESS_BREAKING_POINT_RPS`
 
+- **Benchmark storage & regression detection**:
+  - Uses `benchmark-action/github-action-benchmark` for historical tracking
+  - Results stored in `gh-pages` branch under `dev/bench/`
+  - Automatic regression detection with 150% threshold (alerts if metric degrades by 50%)
+  - PR comments show comparison against baseline from `main`
+  - Benchmark JSON output files: `soak-benchmark.json`, `stress-benchmark.json`
+  - Tracked metrics (per test):
+    - Latencies: p95, p99, max (smaller is better)
+    - Error rate (smaller is better)
+    - Throughput (bigger is better)
+    - Stress-specific: Max VUs, Breaking Point VUs
+
 ## References
 - YDB docs (overview): https://ydb.tech/docs/en/
 - YQL getting started: https://ydb.tech/docs/en/getting_started/yql/

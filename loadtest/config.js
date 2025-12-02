@@ -7,7 +7,8 @@ export const BASE_URL = __ENV.BASE_URL || "http://localhost:8080";
 
 // Test collection configuration
 export const COLLECTION_NAME = __ENV.COLLECTION_NAME || `loadtest_${Date.now()}`;
-export const VECTOR_DIM = 128;
+// 768D matches transformer embeddings (sentence-transformers, BERT) - same as recall tests
+export const VECTOR_DIM = 768;
 export const TENANT_ID = __ENV.TENANT_ID || "loadtest_tenant";
 
 // Thresholds for soak test (pass/fail criteria)

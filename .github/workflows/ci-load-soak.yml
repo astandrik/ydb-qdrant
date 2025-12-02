@@ -85,9 +85,43 @@ jobs:
           exit 1
 
       - name: Run soak test
-        run: k6 run loadtest/soak-test.js 2>&1 | tee soak.log
+        run: |
+          k6 run loadtest/soak-test.js 2>&1 | tee soak.log
+          # k6 outputs benchmark JSON to ./soak-benchmark.json via handleSummary
         env:
           BASE_URL: http://localhost:8080
+
+      - name: Store benchmark results
+        uses: benchmark-action/github-action-benchmark@v1
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: "Load Test - Soak (768D vectors)"
+          tool: "customSmallerIsBetter"
+          output-file-path: soak-benchmark.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          alert-threshold: "150%"
+          comment-on-alert: true
+          fail-on-alert: false
+          # Store results in gh-pages branch under ./dev/bench
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/bench
+
+      - name: Compare benchmark results (PR)
+        uses: benchmark-action/github-action-benchmark@v1
+        if: github.event_name == 'pull_request'
+        with:
+          name: "Load Test - Soak (768D vectors)"
+          tool: "customSmallerIsBetter"
+          output-file-path: soak-benchmark.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: false
+          alert-threshold: "150%"
+          comment-on-alert: true
+          fail-on-alert: false
+          # Compare against results in gh-pages branch
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/bench
 
       - name: Extract metrics
         id: metrics

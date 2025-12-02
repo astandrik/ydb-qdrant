@@ -155,17 +155,18 @@ function performUpsert(data) {
 
 // Handle summary output
 export function handleSummary(data) {
-  const searchP95 = data.metrics.search_latency?.values?.["p(95)"] || "N/A";
-  const searchP99 = data.metrics.search_latency?.values?.["p(99)"] || "N/A";
-  const upsertP95 = data.metrics.upsert_latency?.values?.["p(95)"] || "N/A";
+  const searchP95 = data.metrics.search_latency?.values?.["p(95)"] || 0;
+  const searchP99 = data.metrics.search_latency?.values?.["p(99)"] || 0;
+  const upsertP95 = data.metrics.upsert_latency?.values?.["p(95)"] || 0;
   const errorRate = data.metrics.http_req_failed?.values?.rate || 0;
   const totalOps = data.metrics.total_operations?.values?.count || 0;
   const duration = data.state.testRunDurationMs / 1000;
+  const opsPerSec = totalOps / duration;
 
   console.log("\n========== SOAK TEST SUMMARY ==========");
   console.log(`Total operations: ${totalOps}`);
   console.log(`Test duration: ${duration.toFixed(1)}s`);
-  console.log(`Throughput: ${(totalOps / duration).toFixed(2)} ops/s`);
+  console.log(`Throughput: ${opsPerSec.toFixed(2)} ops/s`);
   console.log(`Search p95: ${searchP95}ms`);
   console.log(`Search p99: ${searchP99}ms`);
   console.log(`Upsert p95: ${upsertP95}ms`);
@@ -173,12 +174,45 @@ export function handleSummary(data) {
   console.log("========================================\n");
 
   // Output for CI parsing
-  console.log(`SOAK_OPS_PER_SEC ${(totalOps / duration).toFixed(2)}`);
+  console.log(`SOAK_OPS_PER_SEC ${opsPerSec.toFixed(2)}`);
   console.log(`SOAK_SEARCH_P95 ${searchP95}`);
   console.log(`SOAK_SEARCH_P99 ${searchP99}`);
   console.log(`SOAK_ERROR_RATE ${(errorRate * 100).toFixed(4)}`);
 
+  // Benchmark-compatible JSON output for github-action-benchmark
+  // Format: array of { name, unit, value } objects
+  // Using "customSmallerIsBetter" for latency/errors, throughput tracked separately
+  const benchmarkResults = [
+    {
+      name: "Soak: Search Latency p95",
+      unit: "ms",
+      value: parseFloat(searchP95) || 0,
+    },
+    {
+      name: "Soak: Search Latency p99",
+      unit: "ms",
+      value: parseFloat(searchP99) || 0,
+    },
+    {
+      name: "Soak: Upsert Latency p95",
+      unit: "ms",
+      value: parseFloat(upsertP95) || 0,
+    },
+    {
+      name: "Soak: Error Rate",
+      unit: "%",
+      value: parseFloat((errorRate * 100).toFixed(4)),
+    },
+    {
+      name: "Soak: Throughput",
+      unit: "ops/s",
+      value: parseFloat(opsPerSec.toFixed(2)),
+      biggerIsBetter: true,
+    },
+  ];
+
   return {
     stdout: JSON.stringify(data, null, 2),
+    "./soak-benchmark.json": JSON.stringify(benchmarkResults, null, 2),
   };
 }
