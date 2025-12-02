@@ -23,10 +23,9 @@
 
 import http from "k6/http";
 import { check, sleep } from "k6";
-import { Counter, Rate, Trend, Gauge } from "k6/metrics";
+import { Counter, Rate, Trend } from "k6/metrics";
 import {
   BASE_URL,
-  COLLECTION_NAME,
   VECTOR_DIM,
   TENANT_ID,
   STRESS_THRESHOLDS,
@@ -41,17 +40,10 @@ const upsertLatency = new Trend("upsert_latency", true);
 const searchErrors = new Rate("search_errors");
 const upsertErrors = new Rate("upsert_errors");
 const totalOperations = new Counter("total_operations");
-const currentVUs = new Gauge("current_vus");
+// Note: Using k6's built-in 'vus' metric instead of custom Gauge for VU tracking
 
-// Breaking point tracking (in-memory, updated during test)
-let breakingPointDetected = false;
-let breakingPointVUs = 0;
-let breakingPointRPS = 0;
-let breakingPointP99 = 0;
-let recentErrors = [];
-let recentOps = [];
+// Error threshold for breaking point detection (calculated post-test in handleSummary)
 const ERROR_THRESHOLD = 0.05; // 5% error rate = breaking point
-const WINDOW_SIZE = 100; // Rolling window for error rate calculation
 
 // Test configuration
 export const options = {
@@ -98,21 +90,14 @@ export default function (data) {
     return;
   }
 
-  // Track current VUs
-  currentVUs.add(__VU);
-
   // Mix of operations: 80% search, 20% upsert (search-heavy for stress)
   const opRoll = Math.random();
 
-  let success;
   if (opRoll < 0.8) {
-    success = performSearch(data);
+    performSearch(data);
   } else {
-    success = performUpsert(data);
+    performUpsert(data);
   }
-
-  // Track error rate in rolling window
-  trackErrorRate(success);
 
   // Minimal delay to maximize load
   sleep(0.05);
@@ -175,33 +160,9 @@ function performUpsert(data) {
   return success;
 }
 
-function trackErrorRate(success) {
-  const now = Date.now();
-  recentErrors.push({ time: now, error: !success });
-  recentOps.push({ time: now });
-
-  // Keep only recent window
-  const cutoff = now - 5000; // 5 second window
-  recentErrors = recentErrors.filter((e) => e.time > cutoff);
-  recentOps = recentOps.filter((o) => o.time > cutoff);
-
-  if (recentOps.length >= WINDOW_SIZE && !breakingPointDetected) {
-    const errorCount = recentErrors.filter((e) => e.error).length;
-    const errorRate = errorCount / recentOps.length;
-
-    if (errorRate >= ERROR_THRESHOLD) {
-      breakingPointDetected = true;
-      breakingPointVUs = __VU;
-      breakingPointRPS = recentOps.length / 5; // ops per second
-      console.log(`\n!!! BREAKING POINT DETECTED !!!`);
-      console.log(`VUs: ${breakingPointVUs}`);
-      console.log(`Error rate: ${(errorRate * 100).toFixed(2)}%`);
-      console.log(`RPS: ${breakingPointRPS.toFixed(2)}`);
-    }
-  }
-}
-
 // Handle summary output
+// Note: Breaking point detection is done here post-test using aggregated metrics
+// to avoid race conditions from shared mutable state across VUs
 export function handleSummary(data) {
   const searchP50 = data.metrics.search_latency?.values?.["p(50)"] || 0;
   const searchP95 = data.metrics.search_latency?.values?.["p(95)"] || 0;
@@ -213,8 +174,8 @@ export function handleSummary(data) {
   const duration = data.state.testRunDurationMs / 1000;
   const avgRPS = totalOps / duration;
 
-  // Calculate max VUs reached
-  const maxVUs = data.metrics.current_vus?.values?.max || 0;
+  // Calculate max VUs reached (using k6's built-in vus metric)
+  const maxVUs = data.metrics.vus?.values?.max || 0;
 
   console.log("\n========== STRESS TEST SUMMARY ==========");
   console.log(`Total operations: ${totalOps}`);
@@ -229,10 +190,17 @@ export function handleSummary(data) {
   console.log(`  Upsert p95: ${upsertP95}ms`);
   console.log(`\nError rate: ${(errorRate * 100).toFixed(2)}%`);
 
+  // Determine breaking point post-test based on overall error rate
+  // If error rate >= threshold, the system was stressed beyond capacity
+  const breakingPointDetected = errorRate >= ERROR_THRESHOLD;
+  // When breaking point is detected, report max VUs as the breaking point
+  // (since we can't determine exact time without time-series data)
+  const breakingPointVUs = breakingPointDetected ? maxVUs : 0;
+
   if (breakingPointDetected) {
-    console.log(`\n!!! BREAKING POINT !!!`);
-    console.log(`  VUs at break: ${breakingPointVUs}`);
-    console.log(`  RPS at break: ${breakingPointRPS.toFixed(2)}`);
+    console.log(`\n!!! BREAKING POINT DETECTED !!!`);
+    console.log(`  Error rate exceeded ${(ERROR_THRESHOLD * 100).toFixed(0)}% threshold`);
+    console.log(`  Max VUs reached: ${maxVUs}`);
   } else {
     console.log(`\nNo breaking point detected (error rate stayed below ${ERROR_THRESHOLD * 100}%)`);
   }
@@ -247,7 +215,7 @@ export function handleSummary(data) {
 
   if (breakingPointDetected) {
     console.log(`STRESS_BREAKING_POINT_VUS ${breakingPointVUs}`);
-    console.log(`STRESS_BREAKING_POINT_RPS ${breakingPointRPS.toFixed(2)}`);
+    console.log(`STRESS_BREAKING_POINT_RPS ${avgRPS.toFixed(2)}`);
   } else {
     console.log(`STRESS_BREAKING_POINT_VUS -1`);
     console.log(`STRESS_BREAKING_POINT_RPS ${avgRPS.toFixed(2)}`);

@@ -11,8 +11,12 @@ on:
 
 jobs:
   stress_test:
-    name: Stress test (ramping load, find breaking point)
+    name: Stress test (${{ matrix.storage_mode }}, ramping load)
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        storage_mode: [multi_table, one_table]
 
     services:
       ydb:
@@ -67,6 +71,7 @@ jobs:
           YDB_ENDPOINT: grpc://localhost:2136
           YDB_DATABASE: /local
           YDB_ANONYMOUS_CREDENTIALS: "1"
+          YDB_QDRANT_COLLECTION_STORAGE_MODE: ${{ matrix.storage_mode }}
           PORT: 8080
           LOG_LEVEL: warn
 
@@ -97,7 +102,7 @@ jobs:
         uses: benchmark-action/github-action-benchmark@v1
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
-          name: "Load Test - Stress (768D vectors)"
+          name: "Load Test - Stress (${{ matrix.storage_mode }}, 768D)"
           tool: "customSmallerIsBetter"
           output-file-path: stress-benchmark.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -112,8 +117,10 @@ jobs:
       - name: Compare benchmark results (PR)
         uses: benchmark-action/github-action-benchmark@v1
         if: github.event_name == 'pull_request'
+        # Skip gracefully if gh-pages branch doesn't exist yet (first run)
+        continue-on-error: true
         with:
-          name: "Load Test - Stress (768D vectors)"
+          name: "Load Test - Stress (${{ matrix.storage_mode }}, 768D)"
           tool: "customSmallerIsBetter"
           output-file-path: stress-benchmark.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -144,7 +151,7 @@ jobs:
           echo "breaking_vus=${BREAKING_VUS}" >> "$GITHUB_OUTPUT"
           echo "breaking_rps=${BREAKING_RPS}" >> "$GITHUB_OUTPUT"
 
-          echo "### Stress Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "### Stress Test Results (${{ matrix.storage_mode }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
@@ -173,6 +180,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stress-test-log
+          name: stress-test-log-${{ matrix.storage_mode }}
           path: stress.log
           retention-days: 7

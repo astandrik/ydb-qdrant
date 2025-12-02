@@ -23,7 +23,6 @@ import { check, sleep } from "k6";
 import { Counter, Rate, Trend } from "k6/metrics";
 import {
   BASE_URL,
-  COLLECTION_NAME,
   VECTOR_DIM,
   TENANT_ID,
   SOAK_THRESHOLDS,

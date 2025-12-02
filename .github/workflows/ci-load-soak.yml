@@ -11,8 +11,12 @@ on:
 
 jobs:
   soak_test:
-    name: Soak test (constant load, 10 VUs, 2.5min)
+    name: Soak test (${{ matrix.storage_mode }}, 10 VUs, 2.5min)
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        storage_mode: [multi_table, one_table]
 
     services:
       ydb:
@@ -67,6 +71,7 @@ jobs:
           YDB_ENDPOINT: grpc://localhost:2136
           YDB_DATABASE: /local
           YDB_ANONYMOUS_CREDENTIALS: "1"
+          YDB_QDRANT_COLLECTION_STORAGE_MODE: ${{ matrix.storage_mode }}
           PORT: 8080
           LOG_LEVEL: warn
 
@@ -95,7 +100,7 @@ jobs:
         uses: benchmark-action/github-action-benchmark@v1
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
-          name: "Load Test - Soak (768D vectors)"
+          name: "Load Test - Soak (${{ matrix.storage_mode }}, 768D)"
           tool: "customSmallerIsBetter"
           output-file-path: soak-benchmark.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -110,8 +115,10 @@ jobs:
       - name: Compare benchmark results (PR)
         uses: benchmark-action/github-action-benchmark@v1
         if: github.event_name == 'pull_request'
+        # Skip gracefully if gh-pages branch doesn't exist yet (first run)
+        continue-on-error: true
         with:
-          name: "Load Test - Soak (768D vectors)"
+          name: "Load Test - Soak (${{ matrix.storage_mode }}, 768D)"
           tool: "customSmallerIsBetter"
           output-file-path: soak-benchmark.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -136,7 +143,7 @@ jobs:
           echo "search_p99=${SEARCH_P99}" >> "$GITHUB_OUTPUT"
           echo "error_rate=${ERROR_RATE}" >> "$GITHUB_OUTPUT"
 
-          echo "### Soak Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "### Soak Test Results (${{ matrix.storage_mode }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
@@ -156,6 +163,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: soak-test-log
+          name: soak-test-log-${{ matrix.storage_mode }}
           path: soak.log
           retention-days: 7
