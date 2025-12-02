@@ -202,7 +202,7 @@ jobs:
         run: |
           EXISTING_BODY="$(gh api repos/${{ github.repository }}/pulls/${PR_NUMBER} --jq '.body // ""')"
 
-          LOAD_BLOCK="$(cat <<EOF
+          LOAD_BLOCK="$(cat <<EOF | sed 's/^          //'
           ### Load test (soak, ${STORAGE_MODE})
 
           | Metric | Value |
@@ -214,7 +214,7 @@ jobs:
           EOF
           )"
 
-          NEW_BODY="${EXISTING_BODY}\n\n---\n${LOAD_BLOCK}"
+          NEW_BODY="$(printf '%s\n\n%s\n' "$EXISTING_BODY" "$LOAD_BLOCK")"
 
           gh api \
             repos/${{ github.repository }}/pulls/${PR_NUMBER} \
