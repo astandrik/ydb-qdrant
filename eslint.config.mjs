@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 // https://typescript-eslint.io/getting-started/typed-linting
 export default [
   {
-    ignores: ["dist/**", "node_modules/**"],
+    ignores: ["dist/**", "node_modules/**", "loadtest/**"],
   },
   {
     languageOptions: {

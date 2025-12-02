@@ -1,0 +1,256 @@
+name: Load test (soak)
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  soak_test:
+    name: Soak test (${{ matrix.storage_mode }}, 10 VUs, 2.5min)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    strategy:
+      fail-fast: false
+      matrix:
+        storage_mode: [multi_table, one_table]
+
+    services:
+      ydb:
+        image: ghcr.io/ydb-platform/local-ydb:stable-25-3
+        ports:
+          - 2136:2136
+        options: --hostname localhost
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install k6
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Wait for YDB to be ready
+        run: |
+          echo "Waiting for YDB at grpc://localhost:2136 ..."
+          for i in {1..30}; do
+            if nc -z localhost 2136; then
+              echo "YDB is accepting connections on port 2136"
+              exit 0
+            fi
+            echo "YDB not ready yet, retrying..."
+            sleep 2
+          done
+          echo "YDB did not become ready in time"
+          exit 1
+
+      - name: Start HTTP server
+        run: |
+          npm start &
+          echo $! > server.pid
+          sleep 5
+        env:
+          YDB_ENDPOINT: grpc://localhost:2136
+          YDB_DATABASE: /local
+          YDB_ANONYMOUS_CREDENTIALS: "1"
+          YDB_QDRANT_COLLECTION_STORAGE_MODE: ${{ matrix.storage_mode }}
+          PORT: 8080
+          LOG_LEVEL: warn
+
+      - name: Wait for server health
+        run: |
+          echo "Waiting for server health at http://localhost:8080/health ..."
+          for i in {1..30}; do
+            if curl -s http://localhost:8080/health | grep -q '"status":"ok"'; then
+              echo "Server is healthy"
+              exit 0
+            fi
+            echo "Server not ready yet, retrying..."
+            sleep 2
+          done
+          echo "Server did not become healthy in time"
+          exit 1
+
+      - name: Run soak test
+        run: |
+          k6 run loadtest/soak-test.js 2>&1 | tee soak.log
+          # k6 outputs benchmark JSON to ./soak-benchmark.json via handleSummary
+        env:
+          BASE_URL: http://localhost:8080
+
+      - name: Store benchmark results
+        uses: benchmark-action/github-action-benchmark@v1
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: "Load Test - Soak (${{ matrix.storage_mode }}, 768D)"
+          tool: "customSmallerIsBetter"
+          output-file-path: soak-benchmark.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          alert-threshold: "150%"
+          comment-on-alert: true
+          fail-on-alert: false
+          # Store results in gh-pages branch under ./dev/bench
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/bench
+
+      - name: Store capacity benchmark results
+        uses: benchmark-action/github-action-benchmark@v1
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: "Load Test - Soak Capacity (${{ matrix.storage_mode }}, 768D)"
+          tool: "customBiggerIsBetter"
+          output-file-path: soak-benchmark-capacity.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          alert-threshold: "150%"
+          comment-on-alert: true
+          fail-on-alert: false
+          # Store results in gh-pages branch under ./dev/bench
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/bench
+
+      - name: Compare benchmark results (PR)
+        uses: benchmark-action/github-action-benchmark@v1
+        if: github.event_name == 'pull_request'
+        # Skip gracefully if gh-pages branch doesn't exist yet (first run)
+        continue-on-error: true
+        with:
+          name: "Load Test - Soak (${{ matrix.storage_mode }}, 768D)"
+          tool: "customSmallerIsBetter"
+          output-file-path: soak-benchmark.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: false
+          alert-threshold: "150%"
+          comment-on-alert: true
+          fail-on-alert: false
+          # Compare against results in gh-pages branch
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/bench
+
+      - name: Compare capacity benchmark results (PR)
+        uses: benchmark-action/github-action-benchmark@v1
+        if: github.event_name == 'pull_request'
+        # Skip gracefully if gh-pages branch doesn't exist yet (first run)
+        continue-on-error: true
+        with:
+          name: "Load Test - Soak Capacity (${{ matrix.storage_mode }}, 768D)"
+          tool: "customBiggerIsBetter"
+          output-file-path: soak-benchmark-capacity.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: false
+          alert-threshold: "150%"
+          comment-on-alert: true
+          fail-on-alert: false
+          # Compare against results in gh-pages branch
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/bench
+
+      - name: Extract metrics
+        id: metrics
+        run: |
+          OPS_PER_SEC=$(grep 'SOAK_OPS_PER_SEC' soak.log | tail -1 | sed -E 's/.*SOAK_OPS_PER_SEC ([0-9.]+).*/\1/')
+          SEARCH_P95=$(grep 'SOAK_SEARCH_P95' soak.log | tail -1 | sed -E 's/.*SOAK_SEARCH_P95 ([0-9.]+).*/\1/')
+          SEARCH_P99=$(grep 'SOAK_SEARCH_P99' soak.log | tail -1 | sed -E 's/.*SOAK_SEARCH_P99 ([0-9.]+).*/\1/')
+          ERROR_RATE=$(grep 'SOAK_ERROR_RATE' soak.log | tail -1 | sed -E 's/.*SOAK_ERROR_RATE ([0-9.]+).*/\1/')
+
+          echo "ops_per_sec=${OPS_PER_SEC}" >> "$GITHUB_OUTPUT"
+          echo "search_p95=${SEARCH_P95}" >> "$GITHUB_OUTPUT"
+          echo "search_p99=${SEARCH_P99}" >> "$GITHUB_OUTPUT"
+          echo "error_rate=${ERROR_RATE}" >> "$GITHUB_OUTPUT"
+
+          echo "### Soak Test Results (${{ matrix.storage_mode }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Operations/sec | ${OPS_PER_SEC} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Search p95 | ${SEARCH_P95}ms |" >> $GITHUB_STEP_SUMMARY
+          echo "| Search p99 | ${SEARCH_P99}ms |" >> $GITHUB_STEP_SUMMARY
+          echo "| Error rate | ${ERROR_RATE}% |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Update PR description with soak load test results
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          STORAGE_MODE: ${{ matrix.storage_mode }}
+          OPS_PER_SEC: ${{ steps.metrics.outputs.ops_per_sec }}
+          SEARCH_P95: ${{ steps.metrics.outputs.search_p95 }}
+          SEARCH_P99: ${{ steps.metrics.outputs.search_p99 }}
+          ERROR_RATE: ${{ steps.metrics.outputs.error_rate }}
+        run: |
+          EXISTING_BODY="$(gh api repos/${{ github.repository }}/pulls/${PR_NUMBER} --jq '.body // ""')"
+
+          LOAD_BLOCK="$(cat <<EOF | sed 's/^          //'
+          ### Load test (soak, ${STORAGE_MODE})
+
+          | Metric | Value |
+          |--------|-------|
+          | Operations/sec | ${OPS_PER_SEC} |
+          | Search p95 | ${SEARCH_P95} ms |
+          | Search p99 | ${SEARCH_P99} ms |
+          | Error rate | ${ERROR_RATE} % |
+          EOF
+          )"
+
+          export EXISTING_BODY
+          export LOAD_BLOCK
+          export STORAGE_MODE
+          NEW_BODY="$(node -e '
+            const body = process.env.EXISTING_BODY || "";
+            const block = process.env.LOAD_BLOCK || "";
+            const storageMode = process.env.STORAGE_MODE || "";
+            const heading = "### Load test (soak, " + storageMode + ")";
+            let newBody;
+            if (body.includes(heading)) {
+              // Replace existing block (handles both start-of-string and mid-string)
+              const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              const pattern = new RegExp("(^|\\n)" + escapedHeading + "[\\s\\S]*?(?=\\n### Load test \\(|$)");
+              newBody = body.replace(pattern, "$1" + block);
+            } else {
+              // Append to end
+              newBody = body ? body.trimEnd() + "\n\n" + block + "\n" : block + "\n";
+            }
+            process.stdout.write(newBody);
+          ')"
+
+          gh api \
+            repos/${{ github.repository }}/pulls/${PR_NUMBER} \
+            -X PATCH \
+            -f body="$NEW_BODY"
+
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -f server.pid ]; then
+            kill $(cat server.pid) || true
+          fi
+
+      - name: Upload test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-test-log-${{ matrix.storage_mode }}
+          path: soak.log
+          retention-days: 7
