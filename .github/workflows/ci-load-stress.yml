@@ -98,7 +98,7 @@ jobs:
         env:
           BASE_URL: http://localhost:8080
           # Increase max VUs target to better surface breaking points in CI
-          MAX_VUS: 300
+          MAX_VUS: 1000
         # Don't fail on k6 threshold violations - stress test is informational
         continue-on-error: true
 
