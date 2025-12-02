@@ -157,7 +157,8 @@ export async function upsertPointsOneTable(
             rows: batch.map((p) => ({
               uid,
               point_id: String(p.id),
-              vector: p.vector,
+              vectorLength: p.vector.length,
+              vectorPreview: p.vector.slice(0, 3),
               payload: p.payload ?? {},
             })),
           },
@@ -259,7 +260,8 @@ async function searchPointsOneTableExact(
         params: {
           uid,
           top,
-          vector: queryVector,
+          vectorLength: queryVector.length,
+          vectorPreview: queryVector.slice(0, 3),
         },
       },
       "one_table search (exact): executing YQL"
@@ -357,7 +359,8 @@ async function searchPointsOneTableApproximate(
           params: {
             uid,
             top: candidateLimit,
-            vector: queryVector,
+            vectorLength: queryVector.length,
+            vectorPreview: queryVector.slice(0, 3),
           },
         },
         "one_table search (approximate, phase 1): executing YQL"
@@ -422,7 +425,8 @@ async function searchPointsOneTableApproximate(
           params: {
             uid,
             top: safeTop,
-            vector: queryVector,
+            vectorLength: queryVector.length,
+            vectorPreview: queryVector.slice(0, 3),
             ids: candidateIds,
           },
         },
@@ -505,7 +509,8 @@ async function searchPointsOneTableApproximate(
         params: {
           uid,
           top: candidateLimit,
-          vector: queryVector,
+          vectorLength: queryVector.length,
+          vectorPreview: queryVector.slice(0, 3),
         },
       },
       "one_table search (approximate, phase 1): executing YQL"
@@ -568,7 +573,8 @@ async function searchPointsOneTableApproximate(
         params: {
           uid,
           top: safeTop,
-          vector: queryVector,
+          vectorLength: queryVector.length,
+          vectorPreview: queryVector.slice(0, 3),
           ids: candidateIds,
         },
       },
