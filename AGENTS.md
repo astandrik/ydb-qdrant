@@ -227,6 +227,51 @@ Integration tests include realistic recall benchmarks following [ANN-benchmarks]
   - `RECALL_MEAN_ONE_TABLE <value>`
   - `F1_MEAN_ONE_TABLE <value>`
 
+## Load testing (k6)
+
+k6 load tests verify HTTP API performance under sustained and increasing load.
+
+- **Test scripts** (in `loadtest/`):
+  - `soak-test.js` — constant load (10 VUs for ~2.5min) to verify sustained performance
+  - `stress-test.js` — ramping load (5→100 VUs over ~4min) to find breaking point
+  - `config.js` — shared configuration, thresholds, vector generation helpers
+  - `helpers/setup.js` — collection setup/teardown, health check utilities
+
+- **Soak test profile**:
+  | Stage | Duration | VUs |
+  |-------|----------|-----|
+  | Ramp up | 30s | 0 → 10 |
+  | Steady | 2m | 10 |
+  | Ramp down | 10s | 10 → 0 |
+
+- **Soak test pass criteria**:
+  - Error rate < 1%
+  - Search p95 < 500ms
+  - Search p99 < 1000ms
+
+- **Stress test profile**:
+  | Stage | Duration | VUs |
+  |-------|----------|-----|
+  | Warm up | 30s | 0 → 5 |
+  | Ramp to 20 | 1m | 5 → 20 |
+  | Ramp to 50 | 1m | 20 → 50 |
+  | Ramp to 100 | 1m | 50 → 100 |
+  | Max load | 30s | 100 |
+  | Recovery | 30s | 100 → 0 |
+
+- **Stress test metrics**:
+  - Breaking point VUs (when error rate exceeds 5%)
+  - Max RPS before errors
+  - Latency percentiles at various load levels
+
+- **CI workflows**:
+  - `.github/workflows/ci-load-soak.yml` — runs soak test on PRs and main
+  - `.github/workflows/ci-load-stress.yml` — runs stress test on PRs and main
+
+- **CI output** (for monitoring):
+  - `SOAK_OPS_PER_SEC`, `SOAK_SEARCH_P95`, `SOAK_SEARCH_P99`, `SOAK_ERROR_RATE`
+  - `STRESS_MAX_VUS`, `STRESS_AVG_RPS`, `STRESS_BREAKING_POINT_VUS`, `STRESS_BREAKING_POINT_RPS`
+
 ## References
 - YDB docs (overview): https://ydb.tech/docs/en/
 - YQL getting started: https://ydb.tech/docs/en/getting_started/yql/

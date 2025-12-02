@@ -1,0 +1,144 @@
+name: Load test (stress)
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  stress_test:
+    name: Stress test (ramping load, find breaking point)
+    runs-on: ubuntu-latest
+
+    services:
+      ydb:
+        image: ghcr.io/ydb-platform/local-ydb:stable-25-3
+        ports:
+          - 2136:2136
+        options: --hostname localhost
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install k6
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Wait for YDB to be ready
+        run: |
+          echo "Waiting for YDB at grpc://localhost:2136 ..."
+          for i in {1..30}; do
+            if nc -z localhost 2136; then
+              echo "YDB is accepting connections on port 2136"
+              exit 0
+            fi
+            echo "YDB not ready yet, retrying..."
+            sleep 2
+          done
+          echo "YDB did not become ready in time"
+          exit 1
+
+      - name: Start HTTP server
+        run: |
+          npm start &
+          echo $! > server.pid
+          sleep 5
+        env:
+          YDB_ENDPOINT: grpc://localhost:2136
+          YDB_DATABASE: /local
+          YDB_ANONYMOUS_CREDENTIALS: "1"
+          PORT: 8080
+          LOG_LEVEL: warn
+
+      - name: Wait for server health
+        run: |
+          echo "Waiting for server health at http://localhost:8080/health ..."
+          for i in {1..30}; do
+            if curl -s http://localhost:8080/health | grep -q '"status":"ok"'; then
+              echo "Server is healthy"
+              exit 0
+            fi
+            echo "Server not ready yet, retrying..."
+            sleep 2
+          done
+          echo "Server did not become healthy in time"
+          exit 1
+
+      - name: Run stress test
+        run: k6 run loadtest/stress-test.js 2>&1 | tee stress.log
+        env:
+          BASE_URL: http://localhost:8080
+        # Don't fail on k6 threshold violations - stress test is informational
+        continue-on-error: true
+
+      - name: Extract metrics
+        id: metrics
+        run: |
+          MAX_VUS=$(grep 'STRESS_MAX_VUS' stress.log | tail -1 | awk '{print $2}')
+          AVG_RPS=$(grep 'STRESS_AVG_RPS' stress.log | tail -1 | awk '{print $2}')
+          SEARCH_P95=$(grep 'STRESS_SEARCH_P95' stress.log | tail -1 | awk '{print $2}')
+          SEARCH_P99=$(grep 'STRESS_SEARCH_P99' stress.log | tail -1 | awk '{print $2}')
+          ERROR_RATE=$(grep 'STRESS_ERROR_RATE' stress.log | tail -1 | awk '{print $2}')
+          BREAKING_VUS=$(grep 'STRESS_BREAKING_POINT_VUS' stress.log | tail -1 | awk '{print $2}')
+          BREAKING_RPS=$(grep 'STRESS_BREAKING_POINT_RPS' stress.log | tail -1 | awk '{print $2}')
+
+          echo "max_vus=${MAX_VUS}" >> "$GITHUB_OUTPUT"
+          echo "avg_rps=${AVG_RPS}" >> "$GITHUB_OUTPUT"
+          echo "search_p95=${SEARCH_P95}" >> "$GITHUB_OUTPUT"
+          echo "search_p99=${SEARCH_P99}" >> "$GITHUB_OUTPUT"
+          echo "error_rate=${ERROR_RATE}" >> "$GITHUB_OUTPUT"
+          echo "breaking_vus=${BREAKING_VUS}" >> "$GITHUB_OUTPUT"
+          echo "breaking_rps=${BREAKING_RPS}" >> "$GITHUB_OUTPUT"
+
+          echo "### Stress Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Max VUs reached | ${MAX_VUS} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Average RPS | ${AVG_RPS} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Search p95 | ${SEARCH_P95}ms |" >> $GITHUB_STEP_SUMMARY
+          echo "| Search p99 | ${SEARCH_P99}ms |" >> $GITHUB_STEP_SUMMARY
+          echo "| Error rate | ${ERROR_RATE}% |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Breaking Point" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "$BREAKING_VUS" = "-1" ]; then
+            echo "✅ No breaking point detected - system handled all load levels" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Breaking point detected at ${BREAKING_VUS} VUs (${BREAKING_RPS} RPS)" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -f server.pid ]; then
+            kill $(cat server.pid) || true
+          fi
+
+      - name: Upload test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stress-test-log
+          path: stress.log
+          retention-days: 7
