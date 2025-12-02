@@ -1,15 +1,15 @@
-import { TypedValues, withSession } from "../ydb/client.js";
+import { Types, TypedValues, withSession } from "../ydb/client.js";
 import type { Ydb } from "ydb-sdk";
-import { buildJsonOrEmpty, buildVectorParam } from "../ydb/helpers.js";
+import { buildVectorParam } from "../ydb/helpers.js";
 import type { DistanceKind } from "../types";
 import { logger } from "../logging/logger.js";
 import { notifyUpsert } from "../indexing/IndexScheduler.js";
 import { VECTOR_INDEX_BUILD_ENABLED } from "../config/env.js";
 import { mapDistanceToKnnFn } from "../utils/distance.js";
 import { withRetry, isTransientYdbError } from "../utils/retry.js";
+import { UPSERT_BATCH_SIZE } from "../ydb/schema.js";
 
 type QueryParams = { [key: string]: Ydb.ITypedValue };
-
 export async function upsertPointsMultiTable(
   tableName: string,
   points: Array<{
@@ -19,37 +19,60 @@ export async function upsertPointsMultiTable(
   }>,
   dimension: number
 ): Promise<number> {
+  for (const p of points) {
+    const id = String(p.id);
+    if (p.vector.length !== dimension) {
+      throw new Error(
+        `Vector dimension mismatch for id=${id}: got ${p.vector.length}, expected ${dimension}`
+      );
+    }
+  }
+
   let upserted = 0;
+
   await withSession(async (s) => {
-    for (const p of points) {
-      const id = String(p.id);
-      if (p.vector.length !== dimension) {
-        throw new Error(
-          `Vector dimension mismatch for id=${id}: got ${p.vector.length}, expected ${dimension}`
-        );
-      }
+    for (let i = 0; i < points.length; i += UPSERT_BATCH_SIZE) {
+      const batch = points.slice(i, i + UPSERT_BATCH_SIZE);
+
       const ddl = `
-        DECLARE $id AS Utf8;
-        DECLARE $vec AS List<Float>;
-        DECLARE $payload AS JsonDocument;
+        DECLARE $rows AS List<Struct<
+          point_id: Utf8,
+          vec: List<Float>,
+          payload: JsonDocument
+        >>;
+
         UPSERT INTO ${tableName} (point_id, embedding, payload)
-        VALUES (
-          $id,
-          Untag(Knn::ToBinaryStringFloat($vec), "FloatVector"),
-          $payload
-        );
+        SELECT
+          point_id,
+          Untag(Knn::ToBinaryStringFloat(vec), "FloatVector") AS embedding,
+          payload
+        FROM AS_TABLE($rows);
       `;
+
+      const rowType = Types.struct({
+        point_id: Types.UTF8,
+        vec: Types.list(Types.FLOAT),
+        payload: Types.JSON_DOCUMENT,
+      });
+
+      const rowsValue = TypedValues.list(
+        rowType,
+        batch.map((p) => ({
+          point_id: String(p.id),
+          vec: p.vector,
+          payload: JSON.stringify(p.payload ?? {}),
+        }))
+      );
+
       const params: QueryParams = {
-        $id: TypedValues.utf8(id),
-        $vec: buildVectorParam(p.vector),
-        $payload: buildJsonOrEmpty(p.payload),
+        $rows: rowsValue,
       };
 
       await withRetry(() => s.executeQuery(ddl, params), {
         isTransient: isTransientYdbError,
-        context: { tableName, id },
+        context: { tableName, batchSize: batch.length },
       });
-      upserted += 1;
+      upserted += batch.length;
     }
   });
   notifyUpsert(tableName, upserted);

@@ -4,6 +4,8 @@ import { GLOBAL_POINTS_AUTOMIGRATE_ENABLED } from "../config/env.js";
 import type { Ydb } from "ydb-sdk";
 
 export const GLOBAL_POINTS_TABLE = "qdrant_all_points";
+// Shared YDB-related constants for repositories.
+export const UPSERT_BATCH_SIZE = 100;
 
 let globalPointsTableReady = false;
 
