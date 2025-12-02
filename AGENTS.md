@@ -279,7 +279,7 @@ k6 load tests verify HTTP API performance under sustained and increasing load.
   - Results stored in `gh-pages` branch under `dev/bench/`
   - Automatic regression detection with 150% threshold (alerts if metric degrades by 50%)
   - PR comments show comparison against baseline from `main`
-  - Benchmark JSON output files: `soak-benchmark.json`, `stress-benchmark.json`
+  - Benchmark JSON output files: `soak-benchmark.json`, `stress-benchmark.json`, `soak-benchmark-capacity.json`, `stress-benchmark-capacity.json`
   - Tracked metrics (per test):
     - Latencies: p95, p99, max (smaller is better)
     - Error rate (smaller is better)
