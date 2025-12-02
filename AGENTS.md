@@ -260,7 +260,7 @@ k6 load tests verify HTTP API performance under sustained and increasing load.
   | Recovery | 30s | 100 → 0 |
 
 - **Stress test metrics**:
-  - Breaking point VUs (when error rate exceeds 5%)
+  - Breaking point VUs (when error rate exceeds 5% or p95 latency exceeds threshold)
   - Max RPS before errors
   - Latency percentiles at various load levels
 
