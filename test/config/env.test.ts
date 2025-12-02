@@ -12,6 +12,7 @@ describe("env.ts configuration", () => {
     delete process.env.YDB_QDRANT_SEARCH_MODE;
     delete process.env.YDB_QDRANT_OVERFETCH_MULTIPLIER;
     delete process.env.YDB_QDRANT_CLIENT_SIDE_SERIALIZATION_ENABLED;
+    delete process.env.YDB_QDRANT_UPSERT_BATCH_SIZE;
   });
 
   afterEach(() => {
@@ -168,5 +169,27 @@ describe("env.ts configuration", () => {
       expect(env.CLIENT_SIDE_SERIALIZATION_ENABLED).toBe(true);
     });
   });
-});
 
+  describe("UPSERT_BATCH_SIZE", () => {
+    it("defaults to 100 when YDB_QDRANT_UPSERT_BATCH_SIZE is not set", async () => {
+      const env = await import("../../src/config/env.js");
+      expect(env.UPSERT_BATCH_SIZE).toBe(100);
+    });
+
+    it("uses value from YDB_QDRANT_UPSERT_BATCH_SIZE when valid", async () => {
+      process.env.YDB_QDRANT_UPSERT_BATCH_SIZE = "50";
+
+      const env = await import("../../src/config/env.js");
+
+      expect(env.UPSERT_BATCH_SIZE).toBe(50);
+    });
+
+    it("clamps UPSERT_BATCH_SIZE to minimum 1 for values below 1", async () => {
+      process.env.YDB_QDRANT_UPSERT_BATCH_SIZE = "0";
+
+      const env = await import("../../src/config/env.js");
+
+      expect(env.UPSERT_BATCH_SIZE).toBe(1);
+    });
+  });
+});
