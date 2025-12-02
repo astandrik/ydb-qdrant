@@ -252,7 +252,23 @@ jobs:
           EOF
           )"
 
-          NEW_BODY="$(printf '%s\n\n%s\n' "$EXISTING_BODY" "$LOAD_BLOCK")"
+          export EXISTING_BODY
+          export LOAD_BLOCK
+          export STORAGE_MODE
+          NEW_BODY="$(node -e '
+            const body = process.env.EXISTING_BODY || "";
+            const block = process.env.LOAD_BLOCK || "";
+            const storageMode = process.env.STORAGE_MODE || "";
+            const heading = "### Load test (stress, " + storageMode + ")";
+            let newBody;
+            if (body.includes(heading)) {
+              const pattern = new RegExp("\\n" + heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "[\\s\\S]*?(?=\\n### Load test \\(|$)");
+              newBody = body.replace(pattern, "\n" + block);
+            } else {
+              newBody = body ? body + "\n\n" + block + "\n" : block + "\n";
+            }
+            process.stdout.write(newBody);
+          ')"
 
           gh api \
             repos/${{ github.repository }}/pulls/${PR_NUMBER} \
