@@ -164,8 +164,22 @@ jobs:
             awk '
               /<\/head>/ && !done {
                 print "  <style id=\"ydb-qdrant-bench-compact\">"
-                print "    body canvas {"
+                print "    main {"
+                print "      display: grid;"
+                print "      grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));"
+                print "      gap: 16px;"
+                print "      align-items: flex-start;"
+                print "    }"
+                print "    main > div, main > section {"
+                print "      margin: 0;"
+                print "    }"
+                print "    main canvas {"
                 print "      max-height: 320px !important;"
+                print "    }"
+                print "    @media (max-width: 768px) {"
+                print "      main {"
+                print "        grid-template-columns: 1fr;"
+                print "      }"
                 print "    }"
                 print "  </style>"
                 done = 1
