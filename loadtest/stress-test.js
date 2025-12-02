@@ -59,28 +59,49 @@ const MAX_VUS =
     ? Number(MAX_VUS_ENV)
     : DEFAULT_MAX_VUS;
 
+// Mode for stress test: "ramp" (default) or "fixed" (constant VUs for capacity search)
+const STRESS_MODE = __ENV.STRESS_MODE || "ramp";
+
+// Shared stage profiles
+const RAMP_STAGES = [
+  // Warm up: ramp to 5 VUs over 30 seconds
+  { duration: "30s", target: 5 },
+  // Ramp to 20 VUs over 1 minute
+  { duration: "1m", target: 20 },
+  // Ramp to 50 VUs over 1 minute
+  { duration: "1m", target: 50 },
+  // Ramp to MAX_VUS over 1 minute
+  { duration: "1m", target: MAX_VUS },
+  // Stay at max load for 30 seconds
+  { duration: "30s", target: MAX_VUS },
+  // Recovery: ramp down over 30 seconds
+  { duration: "30s", target: 0 },
+];
+
+const FIXED_DURATION = __ENV.FIXED_DURATION || "2m";
+
 // Test configuration
-export const options = {
-  stages: [
-    // Warm up: ramp to 5 VUs over 30 seconds
-    { duration: "30s", target: 5 },
-    // Ramp to 20 VUs over 1 minute
-    { duration: "1m", target: 20 },
-    // Ramp to 50 VUs over 1 minute
-    { duration: "1m", target: 50 },
-    // Ramp to MAX_VUS over 1 minute
-    { duration: "1m", target: MAX_VUS },
-    // Stay at max load for 30 seconds
-    { duration: "30s", target: MAX_VUS },
-    // Recovery: ramp down over 30 seconds
-    { duration: "30s", target: 0 },
-  ],
-  thresholds: STRESS_THRESHOLDS,
-  // Tags for filtering in results
-  tags: {
-    testType: "stress",
-  },
-};
+export const options =
+  STRESS_MODE === "fixed"
+    ? {
+        stages: [
+          // Quick ramp to target VUs, then hold
+          { duration: "15s", target: MAX_VUS },
+          { duration: FIXED_DURATION, target: MAX_VUS },
+        ],
+        thresholds: STRESS_THRESHOLDS,
+        tags: {
+          testType: "stress",
+        },
+      }
+    : {
+        stages: RAMP_STAGES,
+        thresholds: STRESS_THRESHOLDS,
+        // Tags for filtering in results
+        tags: {
+          testType: "stress",
+        },
+      };
 
 const headers = {
   "Content-Type": "application/json",

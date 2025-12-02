@@ -91,14 +91,19 @@ jobs:
           echo "Server did not become healthy in time"
           exit 1
 
-      - name: Run stress test
+      - name: Run stress test (CI breaking point search)
         run: |
-          k6 run loadtest/stress-test.js 2>&1 | tee stress.log
-          # k6 outputs benchmark JSON to ./stress-benchmark.json via handleSummary
+          node loadtest/BreakingPointRunner.js 2>&1 | tee stress.log
+          # k6 (via BreakingPointRunner) outputs benchmark JSON to ./stress-benchmark*.json via handleSummary
         env:
           BASE_URL: http://localhost:8080
-          # Increase max VUs target to better surface breaking points in CI
-          MAX_VUS: 1500
+          # Bounds and parameters for CI-only breaking-point exploration
+          BREAK_MIN_VUS: 100
+          BREAK_MAX_VUS: 1500
+          BREAK_ERROR_THRESHOLD: 5
+          BREAK_MAX_RUNS: 5
+          # Shorter fixed duration per step to keep CI time reasonable
+          FIXED_DURATION: "1m"
         # Don't fail on k6 threshold violations - stress test is informational
         continue-on-error: true
 
