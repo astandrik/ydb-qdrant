@@ -42,15 +42,19 @@ vi.mock("../../src/ydb/client.js", () => {
   };
 });
 
-vi.mock("../../src/config/env.js", () => ({
-  CollectionStorageMode: {
-    MultiTable: "multi_table",
-    OneTable: "one_table",
-  },
-  COLLECTION_STORAGE_MODE: "multi_table",
-  LOG_LEVEL: "info",
-  isOneTableMode: (mode: string) => mode === "one_table",
-}));
+vi.mock("../../src/config/env.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("../../src/config/env.js")
+  >("../../src/config/env.js");
+
+  return {
+    ...actual,
+    LOG_LEVEL: "info",
+    COLLECTION_STORAGE_MODE: actual.CollectionStorageMode.MultiTable,
+    isOneTableMode: (mode: CollectionStorageMode) =>
+      mode === actual.CollectionStorageMode.OneTable,
+  };
+});
 
 import { CollectionStorageMode } from "../../src/config/env.js";
 import {
@@ -228,7 +232,7 @@ describe("collectionsRepo (with mocked YDB)", () => {
           { name: "uid" },
           { name: "point_id" },
           { name: "embedding" },
-          { name: "embedding_bit" },
+          { name: "embedding_quantized" },
           { name: "payload" },
         ],
       }),
@@ -264,10 +268,9 @@ describe("collectionsRepo (with mocked YDB)", () => {
     );
 
     expect(sessionMock.dropTable).not.toHaveBeenCalled();
-    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(3);
+    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(2);
     const calls = sessionMock.executeQuery.mock.calls;
-    expect(calls[0][0]).toContain("SELECT 1 AS has_null");
-    expect(calls[1][0]).toContain("DELETE FROM qdrant_all_points WHERE uid");
-    expect(calls[2][0]).toContain("DELETE FROM qdr__collections");
+    expect(calls[0][0]).toContain("DELETE FROM qdrant_all_points WHERE uid");
+    expect(calls[1][0]).toContain("DELETE FROM qdr__collections");
   });
 });

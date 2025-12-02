@@ -90,6 +90,9 @@ export PORT=8080
 export LOG_LEVEL=info
 # Collection storage mode (optional; default is multi_table)
 export YDB_QDRANT_COLLECTION_STORAGE_MODE=multi_table   # or one_table
+# One-table search tuning (one_table mode only)
+export YDB_QDRANT_SEARCH_MODE=approximate               # or exact
+export YDB_QDRANT_OVERFETCH_MULTIPLIER=10               # candidate multiplier in approximate mode
 ```
 
 ## Use as a Node.js library (npm package)

@@ -86,12 +86,11 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
           { name: "uid" },
           { name: "point_id" },
           { name: "embedding" },
-          { name: "embedding_bit" },
+          { name: "embedding_quantized" },
           { name: "payload" },
         ],
       }),
       createTable: vi.fn(),
-      executeQuery: vi.fn(),
       api: {
         executeSchemeQuery: vi.fn().mockResolvedValue(undefined),
       },
@@ -105,12 +104,9 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
     await ensureGlobalPointsTable();
 
     expect(session.describeTable).toHaveBeenCalledWith(GLOBAL_POINTS_TABLE);
+    expect(session.describeTable).toHaveBeenCalledTimes(1);
     expect(session.createTable).not.toHaveBeenCalled();
-    // At least one executeQuery call for the NULL-check query; no backfill needed
-    expect(session.executeQuery).toHaveBeenCalled();
-    const checkCall = session.executeQuery.mock.calls[0][0] as string;
-    expect(checkCall).toContain("SELECT 1 AS has_null");
-    expect(checkCall).toContain("embedding_bit IS NULL");
+    expect(session.api.executeSchemeQuery).not.toHaveBeenCalled();
   });
 
   it("creates table when it does not exist", async () => {
@@ -141,7 +137,7 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
     );
   });
 
-  it("throws when embedding_bit column is missing and automigrate is disabled", async () => {
+  it("throws when embedding_quantized column is missing and automigrate is disabled", async () => {
     const { ensureGlobalPointsTable, GLOBAL_POINTS_TABLE } =
       await resetSchemaModule();
 
@@ -156,7 +152,6 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
         ],
       }),
       createTable: vi.fn(),
-      executeQuery: vi.fn().mockResolvedValue(undefined),
       api: {
         executeSchemeQuery: vi.fn().mockResolvedValue(undefined),
       },
@@ -167,15 +162,14 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
     });
 
     await expect(ensureGlobalPointsTable()).rejects.toThrow(
-      `Global points table ${GLOBAL_POINTS_TABLE} is missing required column embedding_bit; set YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE=true after backup to apply the migration manually.`
+      `Global points table ${GLOBAL_POINTS_TABLE} is missing required column embedding_quantized; apply the migration (e.g., ALTER TABLE ${GLOBAL_POINTS_TABLE} RENAME COLUMN embedding_bit TO embedding_quantized) or set YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE=true after backup to allow automatic migration.`
     );
 
     expect(session.describeTable).toHaveBeenCalledWith(GLOBAL_POINTS_TABLE);
     expect(session.createTable).not.toHaveBeenCalled();
-    expect(session.executeQuery).not.toHaveBeenCalled();
   });
 
-  it("adds embedding_bit column and backfills when automigration is opt-in", async () => {
+  it("adds embedding_quantized column when automigration is opt-in", async () => {
     const { ensureGlobalPointsTable, GLOBAL_POINTS_TABLE } =
       await resetSchemaModule({ YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE: "true" });
 
@@ -187,11 +181,10 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
           { name: "point_id" },
           { name: "embedding" },
           { name: "payload" },
-          // Note: embedding_bit is missing
+          // Note: embedding_quantized is missing
         ],
       }),
       createTable: vi.fn(),
-      executeQuery: vi.fn().mockResolvedValue(undefined),
       api: {
         executeSchemeQuery: vi.fn().mockResolvedValue(undefined),
       },
@@ -212,112 +205,10 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
     };
     expect(alterReq.yqlText).toContain("ALTER TABLE");
     expect(alterReq.yqlText).toContain(GLOBAL_POINTS_TABLE);
-    expect(alterReq.yqlText).toContain("ADD COLUMN embedding_bit");
-
-    expect(session.executeQuery).toHaveBeenCalledTimes(1);
-
-    const updateCall = session.executeQuery.mock.calls[0][0] as string;
-    expect(updateCall).toContain("UPDATE");
-    expect(updateCall).toContain(GLOBAL_POINTS_TABLE);
-    expect(updateCall).toContain("Knn::ToBinaryStringBit");
-    expect(updateCall).toContain("Knn::FloatFromBinaryString");
+    expect(alterReq.yqlText).toContain("ADD COLUMN embedding_quantized String");
 
     expect(loggerInfoMock).toHaveBeenCalledWith(
-      `added embedding_bit column to existing table ${GLOBAL_POINTS_TABLE}`
+      `added embedding_quantized column to existing table ${GLOBAL_POINTS_TABLE}`
     );
-    expect(loggerInfoMock).toHaveBeenCalledWith(
-      `backfilled embedding_bit column from embedding in ${GLOBAL_POINTS_TABLE}`
-    );
-  });
-
-  it("throws when embedding_bit column exists but legacy NULL values remain and automigrate is disabled", async () => {
-    const { ensureGlobalPointsTable, GLOBAL_POINTS_TABLE } =
-      await resetSchemaModule();
-
-    const session = {
-      sessionId: "test-session",
-      describeTable: vi.fn().mockResolvedValue({
-        columns: [
-          { name: "uid" },
-          { name: "point_id" },
-          { name: "embedding" },
-          { name: "embedding_bit" },
-          { name: "payload" },
-        ],
-      }),
-      createTable: vi.fn(),
-      executeQuery: vi.fn().mockResolvedValueOnce({
-        resultSets: [{ rows: [{}] }],
-      }),
-      api: {
-        executeSchemeQuery: vi.fn().mockResolvedValue(undefined),
-      },
-    };
-
-    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
-      return await fn(session);
-    });
-
-    await expect(ensureGlobalPointsTable()).rejects.toThrow(
-      `Global points table ${GLOBAL_POINTS_TABLE} requires backfill for embedding_bit; set YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE=true after backup to apply the migration manually.`
-    );
-
-    expect(session.describeTable).toHaveBeenCalledWith(GLOBAL_POINTS_TABLE);
-    expect(session.createTable).not.toHaveBeenCalled();
-    expect(session.executeQuery).toHaveBeenCalledTimes(1);
-
-    const checkCall = session.executeQuery.mock.calls[0][0] as string;
-    expect(checkCall).toContain("SELECT 1 AS has_null");
-    expect(checkCall).toContain("embedding_bit IS NULL");
-  });
-
-  it("backfills when embedding_bit column exists but legacy NULL values remain and automigrate is enabled", async () => {
-    const { ensureGlobalPointsTable, GLOBAL_POINTS_TABLE } =
-      await resetSchemaModule({ YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE: "true" });
-
-    const session = {
-      sessionId: "test-session",
-      describeTable: vi.fn().mockResolvedValue({
-        columns: [
-          { name: "uid" },
-          { name: "point_id" },
-          { name: "embedding" },
-          { name: "embedding_bit" },
-          { name: "payload" },
-        ],
-      }),
-      createTable: vi.fn(),
-      executeQuery: vi
-        .fn()
-        // First call: NULL-check query returns at least one row
-        .mockResolvedValueOnce({
-          resultSets: [{ rows: [{}] }],
-        })
-        // Second call: backfill UPDATE
-        .mockResolvedValueOnce(undefined),
-      api: {
-        executeSchemeQuery: vi.fn().mockResolvedValue(undefined),
-      },
-    };
-
-    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
-      return await fn(session);
-    });
-
-    await ensureGlobalPointsTable();
-
-    expect(session.describeTable).toHaveBeenCalledWith(GLOBAL_POINTS_TABLE);
-    expect(session.createTable).not.toHaveBeenCalled();
-    expect(session.executeQuery).toHaveBeenCalledTimes(2);
-
-    const checkCall = session.executeQuery.mock.calls[0][0] as string;
-    expect(checkCall).toContain("SELECT 1 AS has_null");
-    expect(checkCall).toContain("embedding_bit IS NULL");
-
-    const updateCall = session.executeQuery.mock.calls[1][0] as string;
-    expect(updateCall).toContain("UPDATE");
-    expect(updateCall).toContain(GLOBAL_POINTS_TABLE);
-    expect(updateCall).toContain("Knn::ToBinaryStringBit");
-    expect(updateCall).toContain("Knn::FloatFromBinaryString");
   });
 });

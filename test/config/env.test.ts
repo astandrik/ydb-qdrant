@@ -9,6 +9,9 @@ describe("env.ts configuration", () => {
     delete process.env.VECTOR_INDEX_BUILD_ENABLED;
     delete process.env.YDB_QDRANT_COLLECTION_STORAGE_MODE;
     delete process.env.YDB_QDRANT_TABLE_LAYOUT;
+    delete process.env.YDB_QDRANT_SEARCH_MODE;
+    delete process.env.YDB_QDRANT_OVERFETCH_MULTIPLIER;
+    delete process.env.YDB_QDRANT_CLIENT_SIDE_SERIALIZATION_ENABLED;
   });
 
   afterEach(() => {
@@ -128,6 +131,41 @@ describe("env.ts configuration", () => {
       expect(env.isOneTableMode(env.CollectionStorageMode.MultiTable)).toBe(
         false
       );
+    });
+  });
+
+  describe("SEARCH_MODE and OVERFETCH_MULTIPLIER", () => {
+    it("defaults to approximate search mode for one_table", async () => {
+      process.env.YDB_QDRANT_COLLECTION_STORAGE_MODE = "one_table";
+
+      const env = await import("../../src/config/env.js");
+
+      expect(env.SEARCH_MODE).toBe("approximate");
+    });
+
+    it("parses explicit exact search mode", async () => {
+      process.env.YDB_QDRANT_COLLECTION_STORAGE_MODE = "one_table";
+      process.env.YDB_QDRANT_SEARCH_MODE = "exact";
+
+      const env = await import("../../src/config/env.js");
+
+      expect(env.SEARCH_MODE).toBe("exact");
+    });
+
+    it("parses OVERFETCH_MULTIPLIER and clamps to minimum 1", async () => {
+      process.env.YDB_QDRANT_OVERFETCH_MULTIPLIER = "0";
+
+      const env = await import("../../src/config/env.js");
+
+      expect(env.OVERFETCH_MULTIPLIER).toBe(1);
+    });
+
+    it("parses CLIENT_SIDE_SERIALIZATION_ENABLED boolean flag", async () => {
+      process.env.YDB_QDRANT_CLIENT_SIDE_SERIALIZATION_ENABLED = "true";
+
+      const env = await import("../../src/config/env.js");
+
+      expect(env.CLIENT_SIDE_SERIALIZATION_ENABLED).toBe(true);
     });
   });
 });

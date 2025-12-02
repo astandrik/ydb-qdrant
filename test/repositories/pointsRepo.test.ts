@@ -33,6 +33,10 @@ vi.mock("../../src/ydb/helpers.js", () => {
       kind: "json",
       payload: payload ?? {},
     })),
+    buildVectorBinaryParams: vi.fn((vec: number[]) => ({
+      float: { kind: "float-bytes", vec },
+      bit: { kind: "bit-bytes", vec },
+    })),
   };
 });
 
@@ -40,15 +44,20 @@ vi.mock("../../src/indexing/IndexScheduler.js", () => ({
   notifyUpsert: vi.fn(),
 }));
 
-vi.mock("../../src/config/env.js", () => ({
-  LOG_LEVEL: "info",
-  VECTOR_INDEX_BUILD_ENABLED: true,
-  CollectionStorageMode: {
-    MultiTable: "multi_table",
-    OneTable: "one_table",
-  },
-  COLLECTION_STORAGE_MODE: "multi_table",
-}));
+vi.mock("../../src/config/env.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("../../src/config/env.js")
+  >("../../src/config/env.js");
+
+  return {
+    ...actual,
+    LOG_LEVEL: "info",
+    VECTOR_INDEX_BUILD_ENABLED: true,
+    COLLECTION_STORAGE_MODE: actual.CollectionStorageMode.MultiTable,
+    SEARCH_MODE: actual.SearchMode.Approximate,
+    CLIENT_SIDE_SERIALIZATION_ENABLED: false,
+  };
+});
 
 import {
   upsertPoints,
@@ -300,7 +309,7 @@ describe("pointsRepo (with mocked YDB)", () => {
     const yql = sessionMock.executeQuery.mock.calls[0][0] as string;
     expect(yql).toContain("DECLARE $rows AS List<Struct<");
     expect(yql).toContain(
-      "UPSERT INTO qdrant_all_points (uid, point_id, embedding, embedding_bit, payload)"
+      "UPSERT INTO qdrant_all_points (uid, point_id, embedding, embedding_quantized, payload)"
     );
     expect(yql).toContain("Knn::ToBinaryStringFloat(vec)");
     expect(yql).toContain("Knn::ToBinaryStringBit(vec)");
@@ -385,7 +394,7 @@ describe("pointsRepo (with mocked YDB)", () => {
     const phase1Yql = sessionMock.executeQuery.mock.calls[0][0] as string;
     const phase2Yql = sessionMock.executeQuery.mock.calls[1][0] as string;
     expect(phase1Yql).toContain("FROM qdrant_all_points");
-    expect(phase1Yql).toContain("embedding_bit");
+    expect(phase1Yql).toContain("embedding_quantized");
     expect(phase1Yql).toContain("ORDER BY Knn::CosineDistance");
     expect(phase2Yql).toContain("FROM qdrant_all_points");
     expect(phase2Yql).toContain("point_id IN $ids");
@@ -441,10 +450,50 @@ describe("pointsRepo (with mocked YDB)", () => {
     const phase2Yql = sessionMock.executeQuery.mock.calls[1][0] as string;
     // Phase 1 should use EuclideanDistance for Euclid metric
     expect(phase1Yql).toContain("ORDER BY Knn::EuclideanDistance");
-    expect(phase1Yql).toContain("embedding_bit");
+    expect(phase1Yql).toContain("embedding_quantized");
     // Phase 2 should use EuclideanDistance for exact re-ranking
     expect(phase2Yql).toContain("Knn::EuclideanDistance");
     expect(phase2Yql).toContain("ORDER BY score ASC");
+  });
+
+  it("uses exact mode when SEARCH_MODE is exact for one_table", async () => {
+    const sessionMock = {
+      executeQuery: vi.fn().mockResolvedValue({
+        resultSets: [
+          {
+            rows: [
+              {
+                items: [{ textValue: "p1" }, { floatValue: 0.9 }],
+              },
+            ],
+          },
+        ],
+      }),
+    };
+
+    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
+      return await fn(sessionMock);
+    });
+
+    // Override env mock for this test
+    const envMock = await import("../../src/config/env.js");
+    (envMock as unknown as { SEARCH_MODE: string }).SEARCH_MODE = "exact";
+
+    const result = await searchPoints(
+      "qdrant_all_points",
+      [0, 0, 0, 1],
+      5,
+      false,
+      "Cosine",
+      4,
+      "qdr_tenant_a__my_collection"
+    );
+
+    expect(result).toEqual([{ id: "p1", score: 0.9 }]);
+    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
+    const yql = sessionMock.executeQuery.mock.calls[0][0] as string;
+    expect(yql).toContain("FROM qdrant_all_points");
+    expect(yql).not.toContain("embedding_quantized");
   });
 
   it("deletes points with uid parameter for one_table mode", async () => {

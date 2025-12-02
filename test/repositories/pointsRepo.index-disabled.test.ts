@@ -35,15 +35,18 @@ vi.mock("../../src/indexing/IndexScheduler.js", () => ({
   notifyUpsert: vi.fn(),
 }));
 
-vi.mock("../../src/config/env.js", () => ({
-  LOG_LEVEL: "info",
-  VECTOR_INDEX_BUILD_ENABLED: false,
-  CollectionStorageMode: {
-    MultiTable: "multi_table",
-    OneTable: "one_table",
-  },
-  COLLECTION_STORAGE_MODE: "multi_table",
-}));
+vi.mock("../../src/config/env.js", async () => {
+  const actual = await vi.importActual<typeof import("../../src/config/env.js")>(
+    "../../src/config/env.js"
+  );
+
+  return {
+    ...actual,
+    LOG_LEVEL: "info",
+    VECTOR_INDEX_BUILD_ENABLED: false,
+    COLLECTION_STORAGE_MODE: actual.CollectionStorageMode.MultiTable,
+  };
+});
 
 import { searchPoints } from "../../src/repositories/pointsRepo.js";
 import * as ydbClient from "../../src/ydb/client.js";

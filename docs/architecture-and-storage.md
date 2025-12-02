@@ -6,7 +6,7 @@ YDB Qdrant-compatible service is a Node.js/TypeScript service and npm library th
 
 - **multi_table** (default): one YDB table per collection; metadata is tracked in `qdr__collections`.
 - **one_table**: a single global table `qdrant_all_points` with `(uid, point_id)` PK, where `uid` encodes tenant+collection.
-  - Columns: `uid Utf8`, `point_id Utf8`, `embedding String` (binary float), `embedding_bit String` (bit‑quantized), `payload JsonDocument`.
+  - Columns: `uid Utf8`, `point_id Utf8`, `embedding String` (binary float), `embedding_quantized String` (bit‑quantized), `payload JsonDocument`.
 
 Per‑collection table schema (multi_table):
 
@@ -20,7 +20,7 @@ In `one_table` mode, automatic schema/backfill steps for `qdrant_all_points` are
 
 - `YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE=true`
 
-after backing up data; otherwise the service will error if the `embedding_bit` column is missing or needs backfill.
+after backing up data; otherwise the service will error if the `embedding_quantized` column is missing and needs to be added (for example via `ALTER TABLE qdrant_all_points RENAME COLUMN embedding_bit TO embedding_quantized`).
 
 ### Vector Serialization and Index
 
@@ -34,7 +34,7 @@ Vector index auto-build (multi_table mode only):
 
 In `one_table` mode, vector indexes are not supported; searches use a two‑phase approximate+exact flow over `qdrant_all_points`:
 
-1. Bit‑quantized candidates via `embedding_bit` using the corresponding distance function.
+1. Bit‑quantized candidates via `embedding_quantized` using the corresponding distance function.
 2. Exact re‑ranking over `embedding`.
 
 For Dot metric, phase 1 uses `CosineDistance` as a proxy since there is no direct distance equivalent for inner product on bit vectors.
