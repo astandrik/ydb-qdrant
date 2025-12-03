@@ -126,3 +126,30 @@ export const UPSERT_BATCH_SIZE = parseIntegerEnv(
   100,
   { min: 1 }
 );
+
+// Session pool configuration
+const RAW_SESSION_POOL_MIN_SIZE = parseIntegerEnv(
+  process.env.YDB_SESSION_POOL_MIN_SIZE,
+  5,
+  { min: 1, max: 500 }
+);
+
+const RAW_SESSION_POOL_MAX_SIZE = parseIntegerEnv(
+  process.env.YDB_SESSION_POOL_MAX_SIZE,
+  100,
+  { min: 1, max: 500 }
+);
+
+const NORMALIZED_SESSION_POOL_MIN_SIZE =
+  RAW_SESSION_POOL_MIN_SIZE > RAW_SESSION_POOL_MAX_SIZE
+    ? RAW_SESSION_POOL_MAX_SIZE
+    : RAW_SESSION_POOL_MIN_SIZE;
+
+export const SESSION_POOL_MIN_SIZE = NORMALIZED_SESSION_POOL_MIN_SIZE;
+export const SESSION_POOL_MAX_SIZE = RAW_SESSION_POOL_MAX_SIZE;
+
+export const SESSION_KEEPALIVE_PERIOD_MS = parseIntegerEnv(
+  process.env.YDB_SESSION_KEEPALIVE_PERIOD_MS,
+  5000,
+  { min: 1000, max: 60000 }
+);
