@@ -36,6 +36,12 @@ type DriverConfig = {
 let overrideConfig: DriverConfig | undefined;
 let driver: InstanceType<typeof Driver> | undefined;
 let lastDriverRefreshAt = 0;
+let driverRefreshInFlight: Promise<void> | null = null;
+
+// Test-only: allows injecting a mock Driver factory
+let driverFactoryOverride:
+  | ((config: unknown) => InstanceType<typeof Driver>)
+  | undefined;
 
 function shouldTriggerDriverRefresh(error: unknown): boolean {
   if (!(error instanceof Error)) {
@@ -66,23 +72,46 @@ async function maybeRefreshDriverOnSessionError(error: unknown): Promise<void> {
     );
     return;
   }
+  if (driverRefreshInFlight) {
+    logger.warn(
+      { lastDriverRefreshAt, cooldownMs: DRIVER_REFRESH_COOLDOWN_MS },
+      "YDB driver refresh already in flight; skipping"
+    );
+    return;
+  }
+
   lastDriverRefreshAt = now;
   logger.warn(
     { err: error },
     "YDB session-related error detected; refreshing driver"
   );
   try {
-    await refreshDriver();
+    const refreshPromise = refreshDriver();
+    driverRefreshInFlight = refreshPromise;
+    await refreshPromise;
   } catch (refreshErr) {
     logger.error(
       { err: refreshErr },
       "YDB driver refresh failed; keeping current driver"
     );
+  } finally {
+    driverRefreshInFlight = null;
   }
 }
 
 export function __setDriverForTests(fake: unknown): void {
   driver = fake as InstanceType<typeof Driver> | undefined;
+}
+
+export function __setDriverFactoryForTests(
+  factory: ((config: unknown) => unknown) | undefined
+): void {
+  driverFactoryOverride = factory as typeof driverFactoryOverride;
+}
+
+export function __resetRefreshStateForTests(): void {
+  lastDriverRefreshAt = 0;
+  driverRefreshInFlight = null;
 }
 
 export function configureDriver(config: DriverConfig): void {
@@ -106,7 +135,7 @@ function getOrCreateDriver(): InstanceType<typeof Driver> {
           database: overrideConfig?.database ?? YDB_DATABASE,
         };
 
-  driver = new Driver({
+  const driverConfig = {
     ...base,
     authService: overrideConfig?.authService ?? getCredentialsFromEnv(),
     poolSettings: {
@@ -114,7 +143,11 @@ function getOrCreateDriver(): InstanceType<typeof Driver> {
       maxLimit: SESSION_POOL_MAX_SIZE,
       keepAlivePeriod: SESSION_KEEPALIVE_PERIOD_MS,
     },
-  });
+  };
+
+  driver = driverFactoryOverride
+    ? driverFactoryOverride(driverConfig)
+    : new Driver(driverConfig);
 
   logger.info(
     {
