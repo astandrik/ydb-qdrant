@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## [4.7.0](https://github.com/astandrik/ydb-qdrant/compare/v4.6.0...v4.7.0) (2025-12-02)
+
+
+### Features
+
+* batch upserts ([#115](https://github.com/astandrik/ydb-qdrant/issues/115)) ([a654fe6](https://github.com/astandrik/ydb-qdrant/commit/a654fe6f5e0a0aefdb58114d1df1e652d8a46940))
+* make one table refinements ([#118](https://github.com/astandrik/ydb-qdrant/issues/118)) ([e28db4d](https://github.com/astandrik/ydb-qdrant/commit/e28db4d5c68bd889b80df539543e7af16058fae9))
+
+
+### Bug Fixes
+
+* better charts ([5736d25](https://github.com/astandrik/ydb-qdrant/commit/5736d259bffe4533808880c7cada2f0f96a2c574))
+* enhance logs ([63237e2](https://github.com/astandrik/ydb-qdrant/commit/63237e22275bab9fa780f8f8b075e352188bb0b3))
+* grid ([aa67f23](https://github.com/astandrik/ydb-qdrant/commit/aa67f23b2d941ae15679167c2db020424a64d7c8))
+* grid ([018e269](https://github.com/astandrik/ydb-qdrant/commit/018e269410cca0edb5e92776597d67a132c8bfc3))
+* improve metrics with larger vectors ([#112](https://github.com/astandrik/ydb-qdrant/issues/112)) ([39e3bbd](https://github.com/astandrik/ydb-qdrant/commit/39e3bbde14bba93e718b6e15843f3d16d67184a4))
+* smaller charts ([d21d16d](https://github.com/astandrik/ydb-qdrant/commit/d21d16d6380fdccc5f2d3f202491b5431470ba01))
+
 ## [4.6.0](https://github.com/astandrik/ydb-qdrant/compare/v4.5.1...v4.6.0) (2025-12-01)
 
 
