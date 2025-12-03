@@ -1,6 +1,6 @@
 {
   "name": "ydb-qdrant",
-  "version": "4.7.1",
+  "version": "4.7.2",
   "main": "dist/package/api.js",
   "types": "dist/package/api.d.ts",
   "exports": {
