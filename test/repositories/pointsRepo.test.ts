@@ -347,32 +347,17 @@ describe("pointsRepo (with mocked YDB)", () => {
 
   it("searches points with uid parameter for one_table mode (Cosine)", async () => {
     const sessionMock = {
-      executeQuery: vi
-        .fn()
-        // Phase 1: candidates
-        .mockResolvedValueOnce({
-          resultSets: [
-            {
-              rows: [
-                {
-                  items: [{ textValue: "p1" }],
-                },
-              ],
-            },
-          ],
-        })
-        // Phase 2: rerank
-        .mockResolvedValueOnce({
-          resultSets: [
-            {
-              rows: [
-                {
-                  items: [{ textValue: "p1" }, { floatValue: 0.9 }],
-                },
-              ],
-            },
-          ],
-        }),
+      executeQuery: vi.fn().mockResolvedValue({
+        resultSets: [
+          {
+            rows: [
+              {
+                items: [{ textValue: "p1" }, { floatValue: 0.9 }],
+              },
+            ],
+          },
+        ],
+      }),
     };
 
     withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
@@ -390,44 +375,28 @@ describe("pointsRepo (with mocked YDB)", () => {
     );
 
     expect(result).toEqual([{ id: "p1", score: 0.9 }]);
-    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(2);
-    const phase1Yql = sessionMock.executeQuery.mock.calls[0][0] as string;
-    const phase2Yql = sessionMock.executeQuery.mock.calls[1][0] as string;
-    expect(phase1Yql).toContain("FROM qdrant_all_points");
-    expect(phase1Yql).toContain("embedding_quantized");
-    expect(phase1Yql).toContain("ORDER BY Knn::CosineDistance");
-    expect(phase2Yql).toContain("FROM qdrant_all_points");
-    expect(phase2Yql).toContain("point_id IN $ids");
+    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
+    const yql = sessionMock.executeQuery.mock.calls[0][0] as string;
+    expect(yql).toContain("FROM qdrant_all_points");
+    expect(yql).toContain("embedding_quantized");
+    expect(yql).toContain("ORDER BY Knn::CosineSimilarity");
+    expect(yql).toContain("Knn::CosineDistance");
+    expect(yql).toContain("ORDER BY score ASC");
   });
 
   it("searches points with uid parameter for one_table mode (Euclid)", async () => {
     const sessionMock = {
-      executeQuery: vi
-        .fn()
-        // Phase 1: candidates
-        .mockResolvedValueOnce({
-          resultSets: [
-            {
-              rows: [
-                {
-                  items: [{ textValue: "p1" }],
-                },
-              ],
-            },
-          ],
-        })
-        // Phase 2: rerank
-        .mockResolvedValueOnce({
-          resultSets: [
-            {
-              rows: [
-                {
-                  items: [{ textValue: "p1" }, { floatValue: 0.5 }],
-                },
-              ],
-            },
-          ],
-        }),
+      executeQuery: vi.fn().mockResolvedValue({
+        resultSets: [
+          {
+            rows: [
+              {
+                items: [{ textValue: "p1" }, { floatValue: 0.5 }],
+              },
+            ],
+          },
+        ],
+      }),
     };
 
     withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
@@ -445,15 +414,14 @@ describe("pointsRepo (with mocked YDB)", () => {
     );
 
     expect(result).toEqual([{ id: "p1", score: 0.5 }]);
-    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(2);
-    const phase1Yql = sessionMock.executeQuery.mock.calls[0][0] as string;
-    const phase2Yql = sessionMock.executeQuery.mock.calls[1][0] as string;
-    // Phase 1 should use EuclideanDistance for Euclid metric
-    expect(phase1Yql).toContain("ORDER BY Knn::EuclideanDistance");
-    expect(phase1Yql).toContain("embedding_quantized");
-    // Phase 2 should use EuclideanDistance for exact re-ranking
-    expect(phase2Yql).toContain("Knn::EuclideanDistance");
-    expect(phase2Yql).toContain("ORDER BY score ASC");
+    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
+    const yql = sessionMock.executeQuery.mock.calls[0][0] as string;
+    // Approximate phase should use EuclideanDistance for Euclid metric
+    expect(yql).toContain("ORDER BY Knn::EuclideanDistance");
+    expect(yql).toContain("embedding_quantized");
+    // Exact phase should use EuclideanDistance for re-ranking
+    expect(yql).toContain("Knn::EuclideanDistance");
+    expect(yql).toContain("ORDER BY score ASC");
   });
 
   it("uses exact mode when SEARCH_MODE is exact for one_table", async () => {

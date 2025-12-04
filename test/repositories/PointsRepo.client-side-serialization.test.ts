@@ -114,32 +114,17 @@ describe("pointsRepo one_table with client-side serialization", () => {
 
   it("uses binary string params for approximate search phases when client-side serialization is enabled", async () => {
     const sessionMock = {
-      executeQuery: vi
-        .fn()
-        // Phase 1: candidates
-        .mockResolvedValueOnce({
-          resultSets: [
-            {
-              rows: [
-                {
-                  items: [{ textValue: "p1" }],
-                },
-              ],
-            },
-          ],
-        })
-        // Phase 2: rerank
-        .mockResolvedValueOnce({
-          resultSets: [
-            {
-              rows: [
-                {
-                  items: [{ textValue: "p1" }, { floatValue: 0.9 }],
-                },
-              ],
-            },
-          ],
-        }),
+      executeQuery: vi.fn().mockResolvedValue({
+        resultSets: [
+          {
+            rows: [
+              {
+                items: [{ textValue: "p1" }, { floatValue: 0.9 }],
+              },
+            ],
+          },
+        ],
+      }),
     };
 
     withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
@@ -159,15 +144,16 @@ describe("pointsRepo one_table with client-side serialization", () => {
     );
 
     expect(result).toEqual([{ id: "p1", score: 0.9 }]);
-    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(2);
+    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
 
-    const phase1Yql = sessionMock.executeQuery.mock.calls[0][0] as string;
-    const phase2Yql = sessionMock.executeQuery.mock.calls[1][0] as string;
+    const yql = sessionMock.executeQuery.mock.calls[0][0] as string;
 
-    expect(phase1Yql).toContain("DECLARE $qbin_bit AS String;");
-    expect(phase1Yql).not.toContain("Knn::ToBinaryStringBit");
-    expect(phase2Yql).toContain("DECLARE $qbinf AS String;");
-    expect(phase2Yql).not.toContain("Knn::ToBinaryStringFloat");
+    expect(yql).toContain("DECLARE $qbin_bit AS String;");
+    expect(yql).toContain("DECLARE $qbinf AS String;");
+    expect(yql).not.toContain("Knn::ToBinaryStringBit");
+    expect(yql).not.toContain("Knn::ToBinaryStringFloat");
+    expect(yql).toContain("embedding_quantized IS NOT NULL");
+    expect(yql).toContain("ORDER BY Knn::CosineSimilarity");
 
     expect(buildVectorBinaryParamsMock).toHaveBeenCalledWith([0, 0, 0, 1]);
     expect(buildVectorParamMock).not.toHaveBeenCalled();

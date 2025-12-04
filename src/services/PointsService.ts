@@ -203,11 +203,18 @@ async function executeSearch(
     threshold === undefined
       ? hits
       : hits.filter((hit) => {
-          const isSimilarity =
-            meta.distance === "Cosine" || meta.distance === "Dot";
-          if (isSimilarity) {
+          if (meta.distance === "Dot") {
+            // Dot: higher similarity is better; threshold is minimum similarity.
             return hit.score >= threshold;
           }
+          if (meta.distance === "Cosine") {
+            // Cosine: internal score is a distance in [0, 2]; IDE provides
+            // a minimum similarity s in [0, 1]. Approximate distance cutoff:
+            //   d_max = 1 - s
+            const distanceThreshold = 1 - threshold;
+            return hit.score <= distanceThreshold;
+          }
+          // Euclid / Manhattan: pure distance metrics; threshold is max distance.
           return hit.score <= threshold;
         });
 

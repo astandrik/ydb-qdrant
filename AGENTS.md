@@ -73,14 +73,14 @@ Notes
   - Global points table: `qdrant_all_points`
     - `uid Utf8`, `point_id Utf8`, `embedding String` (binary float), `embedding_quantized String` (bit‑quantized), `payload JsonDocument`
     - Primary key: `(uid, point_id)` where `uid` is derived from tenant+collection (uses the same naming as per‑collection tables).
-    - **Note**: Vector indexes are not supported in one‑table mode. Searches use a two‑phase flow: (1) approximate candidate selection over `embedding_quantized` using the corresponding distance function (Cosine→CosineDistance, Euclid→EuclideanDistance, Manhattan→ManhattanDistance, Dot→CosineDistance as proxy), then (2) exact re‑ranking over `embedding` with the configured distance metric.
+    - **Note**: Vector indexes are not supported in one‑table mode. Searches use a two‑phase flow: (1) approximate candidate selection over `embedding_quantized` using the corresponding function (Cosine→CosineSimilarity DESC, Euclid→EuclideanDistance ASC, Manhattan→ManhattanDistance ASC, Dot→CosineDistance ASC as proxy), then (2) exact re‑ranking over `embedding` with the configured distance metric (CosineDistance ASC for Cosine, InnerProductSimilarity DESC for Dot, distance ASC for Euclid/Manhattan).
 
 ## YDB vector specifics (YQL)
 - Search: single-phase top-k using vector index when available
   - With index: `SELECT ... FROM <table> VIEW emb_idx ORDER BY Knn::<Fn>(embedding, $qbin) LIMIT k`
   - Fallback: `SELECT ... FROM <table> ORDER BY Knn::<Fn>(embedding, $qbin) LIMIT k` (table scan)
-  - Similarity: `CosineSimilarity`, `InnerProductSimilarity` (DESC)
-  - Distance: `EuclideanDistance`, `ManhattanDistance` (ASC)
+  - Multi-table and exact search: `CosineDistance` ASC for Cosine; `InnerProductSimilarity` DESC for Dot; `EuclideanDistance`/`ManhattanDistance` ASC for Euclid/Manhattan.
+  - One-table phase 1 (bit-quantized candidates): `CosineSimilarity` DESC for Cosine; `CosineDistance` ASC as proxy for Dot; distance ASC for Euclid/Manhattan.
 - Serialization:
   - `embedding` via `Untag(Knn::ToBinaryStringFloat($vec), "FloatVector")`
 - Vector index (`emb_idx`):
@@ -95,7 +95,7 @@ Notes
 - `logging/logger.ts` — pino logger (level from env).
 - `utils/tenant.ts` — `sanitizeTenantId`, `sanitizeCollectionName`, `metaKeyFor`, `tableNameFor`.
 - `utils/normalization.ts` — vector extraction (`extractVectorLoose`, `isNumberArray`) and search body normalization (`normalizeSearchBodyForSearch`, `normalizeSearchBodyForQuery`).
-- `utils/distance.ts` — distance mapping functions (`mapDistanceToKnnFn` for search, `mapDistanceToIndexParam` for index DDL).
+- `utils/distance.ts` — distance mapping functions (`mapDistanceToKnnFn` for exact/multi-table search, `mapDistanceToBitKnnFn` for one-table phase 1, `mapDistanceToIndexParam` for index DDL).
 - `utils/retry.ts` — generic retry wrapper (`withRetry`) with exponential backoff for transient YDB errors.
 - `types.ts` — shared types and Zod schemas (CreateCollectionReq, UpsertPointsReq, SearchReq, DeletePointsReq).
 - `ydb/client.ts` — ydb-sdk Driver init (CJS interop), `readyOrThrow`, `withSession`, `destroyDriver`, `refreshDriver`, and re‑exports `Types`, `TypedValues`. Session pool size and keepalive period are configurable via environment variables.
@@ -125,8 +125,14 @@ Notes
 - Vector index auto-build: threshold ≥100 points, quiet window 5s, defaults levels=1/clusters=128.
 
 ## Scoring semantics
-- Returned `score` follows Qdrant: higher‑is‑better for Cosine/Dot, lower‑is‑better for Euclid/Manhattan.
-- `score_threshold` is applied accordingly (>= for Cosine/Dot; <= for Euclid/Manhattan).
+- Returned `score`:
+  - Cosine: **distance** (lower is better; based on `Knn::CosineDistance`).
+  - Dot: **similarity** (higher is better; based on `Knn::InnerProductSimilarity`).
+  - Euclid/Manhattan: **distance** (lower is better).
+- `score_threshold` behavior:
+  - Cosine: treated as **minimum similarity** in \[0, 1\] (as described by common IDEs/UI); internally converted to a distance cutoff (≈`1 - threshold`) and applied as `score <= cutoff`.
+  - Dot: treated as **minimum similarity**; applied as `score >= threshold`.
+  - Euclid/Manhattan: treated as **maximum distance**; applied as `score <= threshold`.
 
 ## Request normalization
 - Accepts `limit` as alias of `top`; `with_payload` may be boolean/object/array (object/array treated as true).

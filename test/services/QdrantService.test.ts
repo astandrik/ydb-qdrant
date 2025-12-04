@@ -317,7 +317,7 @@ describe("QdrantService (with mocked YDB)", () => {
     vi.mocked(collectionsRepo.getCollectionMeta).mockResolvedValueOnce({
       table: "qdr_tenant_a__my_collection",
       dimension: 4,
-      distance: "Cosine",
+      distance: "Dot",
       vectorType: "float",
     });
     vi.mocked(pointsRepo.searchPoints).mockResolvedValueOnce([
@@ -356,6 +356,33 @@ describe("QdrantService (with mocked YDB)", () => {
         vector: [0, 0, 0, 1],
         top: 10,
         with_payload: false,
+        score_threshold: 0.5,
+      }
+    );
+
+    expect(result.points.map((p) => p.id)).toEqual(["p1"]);
+  });
+
+  it("interprets score_threshold for Cosine as minimum similarity while using distance scores", async () => {
+    vi.mocked(collectionsRepo.getCollectionMeta).mockResolvedValueOnce({
+      table: "qdr_tenant_a__my_collection",
+      dimension: 4,
+      distance: "Cosine",
+      vectorType: "float",
+    });
+    // Internal scores are distances; 0.1 is closer (more similar) than 0.7.
+    vi.mocked(pointsRepo.searchPoints).mockResolvedValueOnce([
+      { id: "p1", score: 0.1 },
+      { id: "p2", score: 0.7 },
+    ]);
+
+    const result = await searchPoints(
+      { tenant, collection },
+      {
+        vector: [0, 0, 0, 1],
+        top: 10,
+        with_payload: false,
+        // IDE provides similarity threshold; 0.5 → allow distances up to ~0.5.
         score_threshold: 0.5,
       }
     );
