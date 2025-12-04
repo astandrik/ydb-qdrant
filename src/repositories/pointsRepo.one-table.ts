@@ -332,20 +332,50 @@ async function searchPointsOneTableApproximate(
   const candidateLimit = Math.max(safeTop, rawCandidateLimit);
 
   const results = await withSession(async (s) => {
+    let yql: string;
+    let params: QueryParams;
+
     if (CLIENT_SIDE_SERIALIZATION_ENABLED) {
       const binaries = buildVectorBinaryParams(queryVector);
 
-      // Phase 1: approximate candidate selection using embedding_quantized
-      const phase1Query = `
+      yql = `
         DECLARE $qbin_bit AS String;
-        DECLARE $k AS Uint32;
+        DECLARE $qbinf AS String;
+        DECLARE $candidateLimit AS Uint32;
+        DECLARE $safeTop AS Uint32;
         DECLARE $uid AS Utf8;
-        SELECT point_id
-        FROM ${tableName}
-        WHERE uid = $uid AND embedding_quantized IS NOT NULL
-        ORDER BY ${bitFn}(embedding_quantized, $qbin_bit) ${bitOrder}
-        LIMIT $k;
+
+        $candidates = (
+          SELECT point_id
+          FROM ${tableName}
+          WHERE uid = $uid AND embedding_quantized IS NOT NULL
+          ORDER BY ${bitFn}(embedding_quantized, $qbin_bit) ${bitOrder}
+          LIMIT $candidateLimit
+        );
+
+        SELECT t.point_id, ${
+          withPayload ? "t.payload, " : ""
+        }${fn}(t.embedding, $qbinf) AS score
+        FROM ${tableName} AS t
+        JOIN $candidates AS c ON c.point_id = t.point_id
+        WHERE t.uid = $uid
+        ORDER BY score ${order}
+        LIMIT $safeTop;
       `;
+
+      params = {
+        $qbin_bit:
+          typeof TypedValues.bytes === "function"
+            ? TypedValues.bytes(binaries.bit)
+            : (binaries.bit as unknown as Ydb.ITypedValue),
+        $qbinf:
+          typeof TypedValues.bytes === "function"
+            ? TypedValues.bytes(binaries.float)
+            : (binaries.float as unknown as Ydb.ITypedValue),
+        $candidateLimit: TypedValues.uint32(candidateLimit),
+        $safeTop: TypedValues.uint32(safeTop),
+        $uid: TypedValues.utf8(uid),
+      };
 
       logger.debug(
         {
@@ -354,64 +384,54 @@ async function searchPointsOneTableApproximate(
           top,
           safeTop,
           candidateLimit,
-          mode: "one_table_approximate_phase1_client_side_serialization",
-          yql: phase1Query,
+          mode: "one_table_approximate_client_side_serialization",
+          yql,
           params: {
             uid,
-            top: candidateLimit,
+            safeTop,
+            candidateLimit,
             vectorLength: queryVector.length,
             vectorPreview: queryVector.slice(0, 3),
           },
         },
-        "one_table search (approximate, phase 1): executing YQL"
+        "one_table search (approximate): executing YQL with client-side serialization"
       );
+    } else {
+      const qf = buildVectorParam(queryVector);
 
-      const phase1Params: QueryParams = {
-        $qbin_bit:
-          typeof TypedValues.bytes === "function"
-            ? TypedValues.bytes(binaries.bit)
-            : (binaries.bit as unknown as Ydb.ITypedValue),
-        $k: TypedValues.uint32(candidateLimit),
+      yql = `
+        DECLARE $qf AS List<Float>;
+        DECLARE $candidateLimit AS Uint32;
+        DECLARE $safeTop AS Uint32;
+        DECLARE $uid AS Utf8;
+
+        $qbin_bit = Knn::ToBinaryStringBit($qf);
+        $qbinf = Knn::ToBinaryStringFloat($qf);
+
+        $candidates = (
+          SELECT point_id
+          FROM ${tableName}
+          WHERE uid = $uid AND embedding_quantized IS NOT NULL
+          ORDER BY ${bitFn}(embedding_quantized, $qbin_bit) ${bitOrder}
+          LIMIT $candidateLimit
+        );
+
+        SELECT t.point_id, ${
+          withPayload ? "t.payload, " : ""
+        }${fn}(t.embedding, $qbinf) AS score
+        FROM ${tableName} AS t
+        JOIN $candidates AS c ON c.point_id = t.point_id
+        WHERE t.uid = $uid
+        ORDER BY score ${order}
+        LIMIT $safeTop;
+      `;
+
+      params = {
+        $qf: qf,
+        $candidateLimit: TypedValues.uint32(candidateLimit),
+        $safeTop: TypedValues.uint32(safeTop),
         $uid: TypedValues.utf8(uid),
       };
-
-      const rs1 = await s.executeQuery(phase1Query, phase1Params);
-      const rowset1 = rs1.resultSets?.[0];
-      const rows1 = (rowset1?.rows ?? []) as Array<{
-        items?: Array<
-          | {
-              textValue?: string;
-            }
-          | undefined
-        >;
-      }>;
-
-      const candidateIds = rows1
-        .map((row) => row.items?.[0]?.textValue)
-        .filter((id): id is string => typeof id === "string");
-
-      if (candidateIds.length === 0) {
-        return [] as Array<{
-          id: string;
-          score: number;
-          payload?: Record<string, unknown>;
-        }>;
-      }
-
-      // Phase 2: exact re-ranking on full-precision embedding for candidates only
-      const phase2Query = `
-        DECLARE $qbinf AS String;
-        DECLARE $k AS Uint32;
-        DECLARE $uid AS Utf8;
-        DECLARE $ids AS List<Utf8>;
-        SELECT point_id, ${
-          withPayload ? "payload, " : ""
-        }${fn}(embedding, $qbinf) AS score
-        FROM ${tableName}
-        WHERE uid = $uid AND point_id IN $ids
-        ORDER BY score ${order}
-        LIMIT $k;
-      `;
 
       logger.debug(
         {
@@ -419,180 +439,24 @@ async function searchPointsOneTableApproximate(
           distance,
           top,
           safeTop,
-          candidateCount: candidateIds.length,
-          mode: "one_table_approximate_phase2_client_side_serialization",
-          yql: phase2Query,
+          candidateLimit,
+          mode: "one_table_approximate",
+          yql,
           params: {
             uid,
-            top: safeTop,
+            safeTop,
+            candidateLimit,
             vectorLength: queryVector.length,
             vectorPreview: queryVector.slice(0, 3),
-            ids: candidateIds,
           },
         },
-        "one_table search (approximate, phase 2): executing YQL"
+        "one_table search (approximate): executing YQL"
       );
-
-      const idsParam = TypedValues.list(Types.UTF8, candidateIds);
-
-      const phase2Params: QueryParams = {
-        $qbinf:
-          typeof TypedValues.bytes === "function"
-            ? TypedValues.bytes(binaries.float)
-            : (binaries.float as unknown as Ydb.ITypedValue),
-        $k: TypedValues.uint32(safeTop),
-        $uid: TypedValues.utf8(uid),
-        $ids: idsParam,
-      };
-
-      const rs2 = await s.executeQuery(phase2Query, phase2Params);
-      const rowset2 = rs2.resultSets?.[0];
-      const rows2 = (rowset2?.rows ?? []) as Array<{
-        items?: Array<
-          | {
-              textValue?: string;
-              floatValue?: number;
-            }
-          | undefined
-        >;
-      }>;
-
-      return rows2.map((row) => {
-        const id = row.items?.[0]?.textValue;
-        if (typeof id !== "string") {
-          throw new Error("point_id is missing in YDB search result");
-        }
-        let payload: Record<string, unknown> | undefined;
-        let scoreIdx = 1;
-        if (withPayload) {
-          const payloadText = row.items?.[1]?.textValue;
-          if (payloadText) {
-            try {
-              payload = JSON.parse(payloadText) as Record<string, unknown>;
-            } catch {
-              payload = undefined;
-            }
-          }
-          scoreIdx = 2;
-        }
-        const score = Number(
-          row.items?.[scoreIdx]?.floatValue ?? row.items?.[scoreIdx]?.textValue
-        );
-        return { id, score, ...(payload ? { payload } : {}) };
-      });
     }
 
-    const qf = buildVectorParam(queryVector);
-
-    // Phase 1: approximate candidate selection using embedding_quantized
-    const phase1Query = `
-      DECLARE $qf AS List<Float>;
-      DECLARE $k AS Uint32;
-      DECLARE $uid AS Utf8;
-      $qbin_bit = Knn::ToBinaryStringBit($qf);
-      SELECT point_id
-      FROM ${tableName}
-      WHERE uid = $uid AND embedding_quantized IS NOT NULL
-      ORDER BY ${bitFn}(embedding_quantized, $qbin_bit) ${bitOrder}
-      LIMIT $k;
-    `;
-
-    logger.debug(
-      {
-        tableName,
-        distance,
-        top,
-        safeTop,
-        candidateLimit,
-        mode: "one_table_approximate_phase1",
-        yql: phase1Query,
-        params: {
-          uid,
-          top: candidateLimit,
-          vectorLength: queryVector.length,
-          vectorPreview: queryVector.slice(0, 3),
-        },
-      },
-      "one_table search (approximate, phase 1): executing YQL"
-    );
-
-    const phase1Params: QueryParams = {
-      $qf: qf,
-      $k: TypedValues.uint32(candidateLimit),
-      $uid: TypedValues.utf8(uid),
-    };
-
-    const rs1 = await s.executeQuery(phase1Query, phase1Params);
-    const rowset1 = rs1.resultSets?.[0];
-    const rows1 = (rowset1?.rows ?? []) as Array<{
-      items?: Array<
-        | {
-            textValue?: string;
-          }
-        | undefined
-      >;
-    }>;
-
-    const candidateIds = rows1
-      .map((row) => row.items?.[0]?.textValue)
-      .filter((id): id is string => typeof id === "string");
-
-    if (candidateIds.length === 0) {
-      return [] as Array<{
-        id: string;
-        score: number;
-        payload?: Record<string, unknown>;
-      }>;
-    }
-
-    // Phase 2: exact re-ranking on full-precision embedding for candidates only
-    const phase2Query = `
-      DECLARE $qf AS List<Float>;
-      DECLARE $k AS Uint32;
-      DECLARE $uid AS Utf8;
-      DECLARE $ids AS List<Utf8>;
-      $qbinf = Knn::ToBinaryStringFloat($qf);
-      SELECT point_id, ${
-        withPayload ? "payload, " : ""
-      }${fn}(embedding, $qbinf) AS score
-      FROM ${tableName}
-      WHERE uid = $uid AND point_id IN $ids
-      ORDER BY score ${order}
-      LIMIT $k;
-    `;
-
-    logger.debug(
-      {
-        tableName,
-        distance,
-        top,
-        safeTop,
-        candidateCount: candidateIds.length,
-        mode: "one_table_approximate_phase2",
-        yql: phase2Query,
-        params: {
-          uid,
-          top: safeTop,
-          vectorLength: queryVector.length,
-          vectorPreview: queryVector.slice(0, 3),
-          ids: candidateIds,
-        },
-      },
-      "one_table search (approximate, phase 2): executing YQL"
-    );
-
-    const idsParam = TypedValues.list(Types.UTF8, candidateIds);
-
-    const phase2Params: QueryParams = {
-      $qf: qf,
-      $k: TypedValues.uint32(safeTop),
-      $uid: TypedValues.utf8(uid),
-      $ids: idsParam,
-    };
-
-    const rs2 = await s.executeQuery(phase2Query, phase2Params);
-    const rowset2 = rs2.resultSets?.[0];
-    const rows2 = (rowset2?.rows ?? []) as Array<{
+    const rs = await s.executeQuery(yql, params);
+    const rowset = rs.resultSets?.[0];
+    const rows = (rowset?.rows ?? []) as Array<{
       items?: Array<
         | {
             textValue?: string;
@@ -602,7 +466,7 @@ async function searchPointsOneTableApproximate(
       >;
     }>;
 
-    return rows2.map((row) => {
+    return rows.map((row) => {
       const id = row.items?.[0]?.textValue;
       if (typeof id !== "string") {
         throw new Error("point_id is missing in YDB search result");
