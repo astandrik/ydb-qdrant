@@ -34,10 +34,10 @@ Vector index auto-build (multi_table mode only):
 
 In `one_table` mode, vector indexes are not supported; searches use a two‑phase approximate+exact flow over `qdrant_all_points`:
 
-1. Bit‑quantized candidates via `embedding_quantized` using the corresponding distance function.
-2. Exact re‑ranking over `embedding`.
+1. Bit‑quantized candidates via `embedding_quantized` using `CosineSimilarity` DESC for Cosine, `EuclideanDistance`/`ManhattanDistance` ASC for Euclid/Manhattan.
+2. Exact re‑ranking over `embedding` with `CosineDistance` ASC for Cosine, `InnerProductSimilarity` DESC for Dot, distance ASC for Euclid/Manhattan.
 
-For Dot metric, phase 1 uses `CosineDistance` as a proxy since there is no direct distance equivalent for inner product on bit vectors.
+For Dot metric, phase 1 uses `CosineDistance` ASC as a proxy since there is no direct distance equivalent for inner product on bit vectors.
 
 ### Concurrency and Retries
 
@@ -47,8 +47,14 @@ Filters are not yet modeled; they can be added if needed.
 
 ### Scoring Semantics
 
-- Cosine/Dot: higher score is better; `score_threshold` filters with `>=`.
-- Euclid/Manhattan: lower score is better; `score_threshold` filters with `<=`.
+- Returned `score`:
+  - Cosine: **distance** (lower is better; `Knn::CosineDistance`).
+  - Dot: **similarity** (higher is better; `Knn::InnerProductSimilarity`).
+  - Euclid/Manhattan: **distance** (lower is better).
+- `score_threshold` behavior:
+  - Cosine: treated as **minimum similarity** in \[0, 1\] (UI/IDE-friendly); internally mapped to a distance cutoff (≈`1 - threshold`) and applied as `score <= cutoff`.
+  - Dot: treated as **minimum similarity**; applied as `score >= threshold`.
+  - Euclid/Manhattan: treated as **maximum distance**; applied as `score <= threshold`.
 
 ### Request Normalization (Qdrant-compatible)
 
