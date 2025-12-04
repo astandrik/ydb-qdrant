@@ -153,7 +153,7 @@ describe("pointsRepo one_table with client-side serialization", () => {
     expect(yql).not.toContain("Knn::ToBinaryStringBit");
     expect(yql).not.toContain("Knn::ToBinaryStringFloat");
     expect(yql).toContain("embedding_quantized IS NOT NULL");
-    expect(yql).toContain("ORDER BY Knn::CosineDistance");
+    expect(yql).toContain("ORDER BY Knn::CosineSimilarity");
 
     expect(buildVectorBinaryParamsMock).toHaveBeenCalledWith([0, 0, 0, 1]);
     expect(buildVectorParamMock).not.toHaveBeenCalled();

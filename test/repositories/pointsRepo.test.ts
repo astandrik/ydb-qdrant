@@ -379,7 +379,7 @@ describe("pointsRepo (with mocked YDB)", () => {
     const yql = sessionMock.executeQuery.mock.calls[0][0] as string;
     expect(yql).toContain("FROM qdrant_all_points");
     expect(yql).toContain("embedding_quantized");
-    expect(yql).toContain("ORDER BY Knn::CosineDistance");
+    expect(yql).toContain("ORDER BY Knn::CosineSimilarity");
     expect(yql).toContain("Knn::CosineDistance");
     expect(yql).toContain("ORDER BY score ASC");
   });
