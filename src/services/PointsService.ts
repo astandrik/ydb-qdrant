@@ -199,20 +199,25 @@ async function executeSearch(
   }
 
   const threshold = normalizedSearch.scoreThreshold;
+
+  // For Cosine, repository hits use distance scores; convert to a
+  // similarity-like score so API consumers and IDE thresholds see
+  // "higher is better". This keeps ranking identical (monotonic 1 - d).
+  const normalizedHits =
+    meta.distance === "Cosine"
+      ? hits.map((hit) => ({
+          ...hit,
+          score: 1 - hit.score,
+        }))
+      : hits;
+
   const filtered =
     threshold === undefined
-      ? hits
-      : hits.filter((hit) => {
-          if (meta.distance === "Dot") {
-            // Dot: higher similarity is better; threshold is minimum similarity.
+      ? normalizedHits
+      : normalizedHits.filter((hit) => {
+          if (meta.distance === "Dot" || meta.distance === "Cosine") {
+            // Similarity metrics: threshold is minimum similarity.
             return hit.score >= threshold;
-          }
-          if (meta.distance === "Cosine") {
-            // Cosine: internal score is a distance in [0, 2]; IDE provides
-            // a minimum similarity s in [0, 1]. Approximate distance cutoff:
-            //   d_max = 1 - s
-            const distanceThreshold = 1 - threshold;
-            return hit.score <= distanceThreshold;
           }
           // Euclid / Manhattan: pure distance metrics; threshold is max distance.
           return hit.score <= threshold;
