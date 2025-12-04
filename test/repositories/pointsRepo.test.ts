@@ -380,7 +380,8 @@ describe("pointsRepo (with mocked YDB)", () => {
     expect(yql).toContain("FROM qdrant_all_points");
     expect(yql).toContain("embedding_quantized");
     expect(yql).toContain("ORDER BY Knn::CosineDistance");
-    expect(yql).toContain("Knn::CosineSimilarity");
+    expect(yql).toContain("Knn::CosineDistance");
+    expect(yql).toContain("ORDER BY score ASC");
   });
 
   it("searches points with uid parameter for one_table mode (Euclid)", async () => {

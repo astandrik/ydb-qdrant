@@ -317,7 +317,7 @@ describe("QdrantService (with mocked YDB)", () => {
     vi.mocked(collectionsRepo.getCollectionMeta).mockResolvedValueOnce({
       table: "qdr_tenant_a__my_collection",
       dimension: 4,
-      distance: "Cosine",
+      distance: "Dot",
       vectorType: "float",
     });
     vi.mocked(pointsRepo.searchPoints).mockResolvedValueOnce([

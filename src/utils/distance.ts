@@ -6,7 +6,7 @@ export function mapDistanceToKnnFn(distance: DistanceKind): {
 } {
   switch (distance) {
     case "Cosine":
-      return { fn: "Knn::CosineSimilarity", order: "DESC" };
+      return { fn: "Knn::CosineDistance", order: "ASC" };
     case "Dot":
       return { fn: "Knn::InnerProductSimilarity", order: "DESC" };
     case "Euclid":
@@ -14,7 +14,7 @@ export function mapDistanceToKnnFn(distance: DistanceKind): {
     case "Manhattan":
       return { fn: "Knn::ManhattanDistance", order: "ASC" };
     default:
-      return { fn: "Knn::CosineSimilarity", order: "DESC" };
+      return { fn: "Knn::CosineDistance", order: "ASC" };
   }
 }
 

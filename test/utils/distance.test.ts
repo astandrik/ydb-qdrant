@@ -8,8 +8,8 @@ import type { DistanceKind } from "../../src/types.js";
 describe("utils/distance", () => {
   it("maps Cosine distance to correct KNN function and order", () => {
     expect(mapDistanceToKnnFn("Cosine")).toEqual({
-      fn: "Knn::CosineSimilarity",
-      order: "DESC",
+      fn: "Knn::CosineDistance",
+      order: "ASC",
     });
   });
 
@@ -37,8 +37,8 @@ describe("utils/distance", () => {
   it("falls back to Cosine mapping for unexpected distance in KNN function", () => {
     const distance = "Unexpected" as DistanceKind;
     expect(mapDistanceToKnnFn(distance)).toEqual({
-      fn: "Knn::CosineSimilarity",
-      order: "DESC",
+      fn: "Knn::CosineDistance",
+      order: "ASC",
     });
   });
 

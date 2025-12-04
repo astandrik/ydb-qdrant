@@ -203,8 +203,7 @@ async function executeSearch(
     threshold === undefined
       ? hits
       : hits.filter((hit) => {
-          const isSimilarity =
-            meta.distance === "Cosine" || meta.distance === "Dot";
+          const isSimilarity = meta.distance === "Dot";
           if (isSimilarity) {
             return hit.score >= threshold;
           }
