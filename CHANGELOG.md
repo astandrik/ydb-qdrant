@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## [4.8.0](https://github.com/astandrik/ydb-qdrant/compare/v4.7.2...v4.8.0) (2025-12-04)
+
+
+### Features
+
+* make approximate search in one query ([#126](https://github.com/astandrik/ydb-qdrant/issues/126)) ([bd6848e](https://github.com/astandrik/ydb-qdrant/commit/bd6848e184d9a3adfba47b9080b10b1b51e387f5))
+
+
+### Bug Fixes
+
+* normalize scores ([#128](https://github.com/astandrik/ydb-qdrant/issues/128)) ([0667fd7](https://github.com/astandrik/ydb-qdrant/commit/0667fd7fca8bbdee3fc750c3788a02f51ae4cd66))
+
 ## [4.7.2](https://github.com/astandrik/ydb-qdrant/compare/v4.7.1...v4.7.2) (2025-12-03)
 
 
