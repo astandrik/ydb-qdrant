@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764872829866,
+  "lastUpdate": 1764872832002,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (multi_table, 768D)": [
@@ -566,6 +566,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Soak: Upsert Latency p95",
             "value": 59,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Error Rate",
+            "value": 0,
+            "unit": "%"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bd6848e184d9a3adfba47b9080b10b1b51e387f5",
+          "message": "feat: make approximate search in one query (#126)\n\n* feat: make approximate search in one query\n\n* fix: join -> in\n\n* fix: use CosineDistance instead of CosineSimilarity\n\n* fix: use CosineSimilarity for bit\n\n* fix: distances",
+          "timestamp": "2025-12-04T21:23:25+03:00",
+          "tree_id": "fb00d374b78f566df5456f7b941f6216bb56fdfa",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/bd6848e184d9a3adfba47b9080b10b1b51e387f5"
+        },
+        "date": 1764872831089,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Soak: Search Latency p95",
+            "value": 117,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Search Latency p99",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Upsert Latency p95",
+            "value": 53,
             "unit": "ms"
           },
           {
