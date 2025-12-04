@@ -353,12 +353,12 @@ async function searchPointsOneTableApproximate(
           LIMIT $candidateLimit
         );
 
-        SELECT t.point_id, ${
-          withPayload ? "t.payload, " : ""
-        }${fn}(t.embedding, $qbinf) AS score
-        FROM ${tableName} AS t
-        JOIN $candidates AS c ON c.point_id = t.point_id
-        WHERE t.uid = $uid
+        SELECT point_id, ${
+          withPayload ? "payload, " : ""
+        }${fn}(embedding, $qbinf) AS score
+        FROM ${tableName}
+        WHERE uid = $uid
+          AND point_id IN $candidates
         ORDER BY score ${order}
         LIMIT $safeTop;
       `;
@@ -416,12 +416,12 @@ async function searchPointsOneTableApproximate(
           LIMIT $candidateLimit
         );
 
-        SELECT t.point_id, ${
-          withPayload ? "t.payload, " : ""
-        }${fn}(t.embedding, $qbinf) AS score
-        FROM ${tableName} AS t
-        JOIN $candidates AS c ON c.point_id = t.point_id
-        WHERE t.uid = $uid
+        SELECT point_id, ${
+          withPayload ? "payload, " : ""
+        }${fn}(embedding, $qbinf) AS score
+        FROM ${tableName}
+        WHERE uid = $uid
+          AND point_id IN $candidates
         ORDER BY score ${order}
         LIMIT $safeTop;
       `;
