@@ -126,11 +126,11 @@ Notes
 
 ## Scoring semantics
 - Returned `score`:
-  - Cosine: **distance** (lower is better; based on `Knn::CosineDistance`).
+  - Cosine: **similarity-like** (higher is better; derived approximately as `1 - Knn::CosineDistance` while preserving ranking).
   - Dot: **similarity** (higher is better; based on `Knn::InnerProductSimilarity`).
   - Euclid/Manhattan: **distance** (lower is better).
 - `score_threshold` behavior:
-  - Cosine: treated as **minimum similarity** in \[0, 1\] (as described by common IDEs/UI); internally converted to a distance cutoff (≈`1 - threshold`) and applied as `score <= cutoff`.
+  - Cosine: treated as **minimum similarity** in \[0, 1\] (as described by common IDEs/UI); applied directly as `score >= threshold`.
   - Dot: treated as **minimum similarity**; applied as `score >= threshold`.
   - Euclid/Manhattan: treated as **maximum distance**; applied as `score <= threshold`.
 
