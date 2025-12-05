@@ -7,6 +7,7 @@ vi.mock("../../src/ydb/client.js", () => {
       BYTES: "BYTES",
       JSON_DOCUMENT: "JSON_DOCUMENT",
       FLOAT: "FLOAT",
+      list: vi.fn((t: unknown) => ({ kind: "list", t })),
     },
     TypedValues: {
       utf8: vi.fn((v: string) => ({ type: "utf8", v })),
