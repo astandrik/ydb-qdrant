@@ -3,7 +3,7 @@ import type { DistanceKind, VectorType } from "../types";
 import { GLOBAL_POINTS_TABLE, ensureGlobalPointsTable } from "../ydb/schema.js";
 import { upsertCollectionMeta } from "./collectionsRepo.shared.js";
 
-const DELETE_COLLECTION_BATCH_SIZE = 1000;
+const DELETE_COLLECTION_BATCH_SIZE = 10000;
 
 function isOutOfBufferMemoryYdbError(error: unknown): boolean {
   const msg = error instanceof Error ? error.message : String(error);
@@ -51,7 +51,10 @@ async function deletePointsForUidInChunks(
   // Best‑effort loop: stop when there are no more rows for this uid.
   // Each iteration only touches a limited number of rows to avoid
   // hitting YDB's per‑operation buffer limits.
-  while (true) {
+  let iterations = 0;
+  const MAX_ITERATIONS = 1000;
+
+  while (iterations++ < MAX_ITERATIONS) {
     const rs = (await s.executeQuery(selectYql, {
       $uid: TypedValues.utf8(uid),
       $limit: TypedValues.uint32(DELETE_COLLECTION_BATCH_SIZE),
@@ -77,7 +80,7 @@ async function deletePointsForUidInChunks(
       break;
     }
 
-    const idsValue = TypedValues.list(Types.list(Types.UTF8), ids);
+    const idsValue = TypedValues.list(Types.UTF8, ids);
 
     await s.executeQuery(deleteBatchYql, {
       $uid: TypedValues.utf8(uid),

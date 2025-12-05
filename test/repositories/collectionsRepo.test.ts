@@ -274,4 +274,297 @@ describe("collectionsRepo (with mocked YDB)", () => {
     expect(calls[0][0]).toContain("DELETE FROM qdrant_all_points WHERE uid");
     expect(calls[1][0]).toContain("DELETE FROM qdr__collections");
   });
+
+  it("falls back to chunked deletion on out-of-buffer-memory error (Error.message)", async () => {
+    const sessionMock = {
+      describeTable: vi.fn().mockResolvedValue({
+        columns: [
+          { name: "uid" },
+          { name: "point_id" },
+          { name: "embedding" },
+          { name: "embedding_quantized" },
+          { name: "payload" },
+        ],
+      }),
+      createTable: vi.fn(),
+      dropTable: vi.fn(),
+      executeQuery: vi.fn(),
+    };
+
+    let bulkDeleteAttempts = 0;
+    let selectCalls = 0;
+    let deleteBatchCalls = 0;
+    let metaDeleteCalls = 0;
+
+    sessionMock.executeQuery.mockImplementation(
+      (yql: string, params: unknown) => {
+        if (
+          yql.includes("DELETE FROM qdrant_all_points WHERE uid") &&
+          !yql.includes("point_id IN")
+        ) {
+          bulkDeleteAttempts += 1;
+          throw new Error("Out of buffer memory while deleting rows");
+        }
+
+        if (yql.includes("SELECT point_id")) {
+          selectCalls += 1;
+          if (selectCalls === 1) {
+            return {
+              resultSets: [
+                {
+                  rows: [
+                    { items: [{ textValue: "p1" }] },
+                    { items: [{ textValue: "p2" }] },
+                  ],
+                },
+              ],
+            };
+          }
+          if (selectCalls === 2) {
+            return {
+              resultSets: [
+                {
+                  rows: [
+                    { items: [{ textValue: "p3" }] },
+                    // non-string id should be filtered out
+                    { items: [{ textValue: undefined as unknown as string }] },
+                  ],
+                },
+              ],
+            };
+          }
+          return {
+            resultSets: [
+              {
+                rows: [],
+              },
+            ],
+          };
+        }
+
+        if (
+          yql.includes("DELETE FROM qdrant_all_points") &&
+          yql.includes("point_id IN")
+        ) {
+          deleteBatchCalls += 1;
+          const typedParams = params as {
+            $ids: { list: string[] };
+          };
+          if (deleteBatchCalls === 1) {
+            expect(typedParams.$ids.list).toEqual(["p1", "p2"]);
+          }
+          if (deleteBatchCalls === 2) {
+            expect(typedParams.$ids.list).toEqual(["p3"]);
+          }
+          return {};
+        }
+
+        if (yql.includes("DELETE FROM qdr__collections")) {
+          metaDeleteCalls += 1;
+          return {};
+        }
+
+        throw new Error(`Unexpected YQL: ${yql}`);
+      }
+    );
+
+    withSessionMock
+      .mockResolvedValueOnce({
+        resultSets: [
+          {
+            rows: [
+              {
+                items: [
+                  { textValue: "qdrant_all_points" },
+                  { uint32Value: 128 },
+                  { textValue: "Cosine" },
+                  { textValue: "float" },
+                ],
+              },
+            ],
+          },
+        ],
+      } as unknown as never)
+      .mockImplementation(async (fn: (s: unknown) => unknown) => {
+        await fn(sessionMock);
+      });
+
+    await deleteCollection(
+      "tenant_a/my_collection",
+      "qdr_tenant_a__my_collection"
+    );
+
+    expect(bulkDeleteAttempts).toBe(1);
+    expect(selectCalls).toBe(3);
+    expect(deleteBatchCalls).toBe(2);
+    expect(metaDeleteCalls).toBe(1);
+  });
+
+  it("falls back to chunked deletion when error issues contain out-of-buffer-memory text", async () => {
+    const sessionMock = {
+      describeTable: vi.fn().mockResolvedValue({
+        columns: [
+          { name: "uid" },
+          { name: "point_id" },
+          { name: "embedding" },
+          { name: "embedding_quantized" },
+          { name: "payload" },
+        ],
+      }),
+      createTable: vi.fn(),
+      dropTable: vi.fn(),
+      executeQuery: vi.fn(),
+    };
+
+    let bulkDeleteAttempts = 0;
+    let selectCalls = 0;
+    let deleteBatchCalls = 0;
+    let metaDeleteCalls = 0;
+
+    sessionMock.executeQuery.mockImplementation((yql: string) => {
+      if (
+        yql.includes("DELETE FROM qdrant_all_points WHERE uid") &&
+        !yql.includes("point_id IN")
+      ) {
+        bulkDeleteAttempts += 1;
+        const err = new Error("YDB data query failure");
+        (err as { issues?: string }).issues =
+          "Out of buffer memory while executing data query";
+        throw err;
+      }
+
+      if (yql.includes("SELECT point_id")) {
+        selectCalls += 1;
+        return {
+          resultSets: [
+            {
+              rows: [],
+            },
+          ],
+        };
+      }
+
+      if (
+        yql.includes("DELETE FROM qdrant_all_points") &&
+        yql.includes("point_id IN")
+      ) {
+        deleteBatchCalls += 1;
+        return {};
+      }
+
+      if (yql.includes("DELETE FROM qdr__collections")) {
+        metaDeleteCalls += 1;
+        return {};
+      }
+
+      throw new Error(`Unexpected YQL: ${yql}`);
+    });
+
+    withSessionMock
+      .mockResolvedValueOnce({
+        resultSets: [
+          {
+            rows: [
+              {
+                items: [
+                  { textValue: "qdrant_all_points" },
+                  { uint32Value: 128 },
+                  { textValue: "Cosine" },
+                  { textValue: "float" },
+                ],
+              },
+            ],
+          },
+        ],
+      } as unknown as never)
+      .mockImplementation(async (fn: (s: unknown) => unknown) => {
+        await fn(sessionMock);
+      });
+
+    await deleteCollection(
+      "tenant_a/my_collection",
+      "qdr_tenant_a__my_collection"
+    );
+
+    expect(bulkDeleteAttempts).toBe(1);
+    expect(selectCalls).toBe(1);
+    expect(deleteBatchCalls).toBe(0);
+    expect(metaDeleteCalls).toBe(1);
+  });
+
+  it("rethrows errors that are not out-of-buffer-memory", async () => {
+    const sessionMock = {
+      describeTable: vi.fn().mockResolvedValue({
+        columns: [
+          { name: "uid" },
+          { name: "point_id" },
+          { name: "embedding" },
+          { name: "embedding_quantized" },
+          { name: "payload" },
+        ],
+      }),
+      createTable: vi.fn(),
+      dropTable: vi.fn(),
+      executeQuery: vi.fn(),
+    };
+
+    sessionMock.executeQuery.mockImplementation((yql: string) => {
+      if (
+        yql.includes("DELETE FROM qdrant_all_points WHERE uid") &&
+        !yql.includes("point_id IN")
+      ) {
+        throw new Error("Some other YDB error");
+      }
+
+      if (yql.includes("SELECT point_id")) {
+        return {
+          resultSets: [
+            {
+              rows: [],
+            },
+          ],
+        };
+      }
+
+      if (
+        yql.includes("DELETE FROM qdrant_all_points") &&
+        yql.includes("point_id IN")
+      ) {
+        return {};
+      }
+
+      if (yql.includes("DELETE FROM qdr__collections")) {
+        return {};
+      }
+
+      throw new Error(`Unexpected YQL: ${yql}`);
+    });
+
+    withSessionMock
+      .mockResolvedValueOnce({
+        resultSets: [
+          {
+            rows: [
+              {
+                items: [
+                  { textValue: "qdrant_all_points" },
+                  { uint32Value: 128 },
+                  { textValue: "Cosine" },
+                  { textValue: "float" },
+                ],
+              },
+            ],
+          },
+        ],
+      } as unknown as never)
+      .mockImplementation(async (fn: (s: unknown) => unknown) => {
+        await fn(sessionMock);
+      });
+
+    await expect(
+      deleteCollection("tenant_a/my_collection", "qdr_tenant_a__my_collection")
+    ).rejects.toThrow("Some other YDB error");
+
+    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
+  });
 });
