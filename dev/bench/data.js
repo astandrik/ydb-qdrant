@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764946206943,
+  "lastUpdate": 1764946208226,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (multi_table, 768D)": [
@@ -3626,6 +3626,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Soak: Throughput",
             "value": 52.39322996881211,
+            "unit": "ops/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "39d8d1c6231f133692e7b574de54f783f3778ecd",
+          "message": "fix: add transient checks, idempotent and cached flags (#131)",
+          "timestamp": "2025-12-05T17:46:23+03:00",
+          "tree_id": "8355561cf5ffc0ff22a1b43321d6fb0a6182cf66",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/39d8d1c6231f133692e7b574de54f783f3778ecd"
+        },
+        "date": 1764946207830,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Soak: Throughput",
+            "value": 70.87726282837201,
             "unit": "ops/s"
           }
         ]
