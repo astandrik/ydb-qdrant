@@ -1,4 +1,8 @@
-import type { Session, IAuthService } from "ydb-sdk";
+import type {
+  Session,
+  IAuthService,
+  ExecuteQuerySettings as YdbExecuteQuerySettings,
+} from "ydb-sdk";
 import { createRequire } from "module";
 import {
   YDB_DATABASE,
@@ -17,9 +21,25 @@ const {
   TypedValues,
   TableDescription,
   Column,
+  ExecuteQuerySettings,
 } = require("ydb-sdk") as typeof import("ydb-sdk");
 
-export { Types, TypedValues, TableDescription, Column };
+export { Types, TypedValues, TableDescription, Column, ExecuteQuerySettings };
+
+export function createExecuteQuerySettings(options?: {
+  keepInCache?: boolean;
+  idempotent?: boolean;
+}): YdbExecuteQuerySettings {
+  const { keepInCache = true, idempotent = true } = options ?? {};
+  const settings = new ExecuteQuerySettings();
+  if (keepInCache) {
+    settings.withKeepInCache(true);
+  }
+  if (idempotent) {
+    settings.withIdempotent(true);
+  }
+  return settings;
+}
 
 const DRIVER_READY_TIMEOUT_MS = 15000;
 const TABLE_SESSION_TIMEOUT_MS = 20000;

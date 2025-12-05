@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach, vi, type Mock } from "vitest";
 
 vi.mock("../../src/ydb/client.js", () => {
+  const createExecuteQuerySettings = vi.fn(() => ({
+    kind: "ExecuteQuerySettings",
+  }));
+
   return {
     Types: {
       UTF8: "UTF8",
@@ -40,6 +44,7 @@ vi.mock("../../src/ydb/client.js", () => {
         this.type = type;
       }
     },
+    createExecuteQuerySettings,
   };
 });
 

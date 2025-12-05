@@ -1,4 +1,9 @@
-import { TypedValues, Types, withSession } from "../ydb/client.js";
+import {
+  TypedValues,
+  Types,
+  withSession,
+  createExecuteQuerySettings,
+} from "../ydb/client.js";
 import type { Ydb } from "ydb-sdk";
 import { buildVectorParam, buildVectorBinaryParams } from "../ydb/helpers.js";
 import type { DistanceKind } from "../types";
@@ -53,6 +58,7 @@ export async function upsertPointsOneTable(
   let upserted = 0;
 
   await withSession(async (s) => {
+    const settings = createExecuteQuerySettings();
     for (let i = 0; i < points.length; i += UPSERT_BATCH_SIZE) {
       const batch = points.slice(i, i + UPSERT_BATCH_SIZE);
 
@@ -166,10 +172,13 @@ export async function upsertPointsOneTable(
         "one_table upsert: executing YQL"
       );
 
-      await withRetry(() => s.executeQuery(ddl, params), {
-        isTransient: isTransientYdbError,
-        context: { tableName, batchSize: batch.length },
-      });
+      await withRetry(
+        () => s.executeQuery(ddl, params, undefined, settings),
+        {
+          isTransient: isTransientYdbError,
+          context: { tableName, batchSize: batch.length },
+        }
+      );
       upserted += batch.length;
     }
   });
@@ -267,7 +276,8 @@ async function searchPointsOneTableExact(
       "one_table search (exact): executing YQL"
     );
 
-    const rs = await s.executeQuery(yql, params);
+    const settings = createExecuteQuerySettings();
+    const rs = await s.executeQuery(yql, params, undefined, settings);
     const rowset = rs.resultSets?.[0];
     const rows = (rowset?.rows ?? []) as Array<{
       items?: Array<
@@ -454,7 +464,8 @@ async function searchPointsOneTableApproximate(
       );
     }
 
-    const rs = await s.executeQuery(yql, params);
+    const settings = createExecuteQuerySettings();
+    const rs = await s.executeQuery(yql, params, undefined, settings);
     const rowset = rs.resultSets?.[0];
     const rows = (rowset?.rows ?? []) as Array<{
       items?: Array<
@@ -538,6 +549,7 @@ export async function deletePointsOneTable(
 ): Promise<number> {
   let deleted = 0;
   await withSession(async (s) => {
+    const settings = createExecuteQuerySettings();
     for (const id of ids) {
       const yql = `
         DECLARE $uid AS Utf8;
@@ -549,7 +561,7 @@ export async function deletePointsOneTable(
         $id: TypedValues.utf8(String(id)),
       };
 
-      await s.executeQuery(yql, params);
+      await s.executeQuery(yql, params, undefined, settings);
       deleted += 1;
     }
   });
