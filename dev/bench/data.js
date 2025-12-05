@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764946454082,
+  "lastUpdate": 1764946466717,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (multi_table, 768D)": [
@@ -4631,6 +4631,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "Stress: Upsert Latency p95",
             "value": 2136.7,
+            "unit": "ms"
+          },
+          {
+            "name": "Stress: Error Rate",
+            "value": 0,
+            "unit": "%"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "39d8d1c6231f133692e7b574de54f783f3778ecd",
+          "message": "fix: add transient checks, idempotent and cached flags (#131)",
+          "timestamp": "2025-12-05T17:46:23+03:00",
+          "tree_id": "8355561cf5ffc0ff22a1b43321d6fb0a6182cf66",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/39d8d1c6231f133692e7b574de54f783f3778ecd"
+        },
+        "date": 1764946466310,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Stress: Search Latency p95",
+            "value": 5936,
+            "unit": "ms"
+          },
+          {
+            "name": "Stress: Search Latency p99",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Stress: Search Latency max",
+            "value": 6208,
+            "unit": "ms"
+          },
+          {
+            "name": "Stress: Upsert Latency p95",
+            "value": 3846,
             "unit": "ms"
           },
           {
