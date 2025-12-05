@@ -4,6 +4,7 @@ import {
   withSession,
   TableDescription,
   Column,
+  createExecuteQuerySettings,
 } from "../ydb/client.js";
 import type { DistanceKind, VectorType } from "../types";
 import { upsertCollectionMeta } from "./collectionsRepo.shared.js";
@@ -41,6 +42,12 @@ export async function deleteCollectionMultiTable(
     DELETE FROM qdr__collections WHERE collection = $collection;
   `;
   await withSession(async (s) => {
-    await s.executeQuery(delMeta, { $collection: TypedValues.utf8(metaKey) });
+    const settings = createExecuteQuerySettings();
+    await s.executeQuery(
+      delMeta,
+      { $collection: TypedValues.utf8(metaKey) },
+      undefined,
+      settings
+    );
   });
 }

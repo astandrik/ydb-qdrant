@@ -1,4 +1,9 @@
-import { Types, TypedValues, withSession } from "../ydb/client.js";
+import {
+  Types,
+  TypedValues,
+  withSession,
+  createExecuteQuerySettings,
+} from "../ydb/client.js";
 import type { Ydb } from "ydb-sdk";
 import { buildVectorParam } from "../ydb/helpers.js";
 import type { DistanceKind } from "../types";
@@ -31,6 +36,7 @@ export async function upsertPointsMultiTable(
   let upserted = 0;
 
   await withSession(async (s) => {
+    const settings = createExecuteQuerySettings();
     for (let i = 0; i < points.length; i += UPSERT_BATCH_SIZE) {
       const batch = points.slice(i, i + UPSERT_BATCH_SIZE);
 
@@ -68,7 +74,7 @@ export async function upsertPointsMultiTable(
         $rows: rowsValue,
       };
 
-      await withRetry(() => s.executeQuery(ddl, params), {
+      await withRetry(() => s.executeQuery(ddl, params, undefined, settings), {
         isTransient: isTransientYdbError,
         context: { tableName, batchSize: batch.length },
       });
@@ -102,6 +108,8 @@ export async function searchPointsMultiTable(
     $k2: TypedValues.uint32(top),
   };
 
+  const settings = createExecuteQuerySettings();
+
   const buildQuery = (useIndex: boolean) => `
     DECLARE $qf AS List<Float>;
     DECLARE $k2 AS Uint32;
@@ -118,7 +126,12 @@ export async function searchPointsMultiTable(
   if (VECTOR_INDEX_BUILD_ENABLED) {
     try {
       rs = await withSession(async (s) => {
-        return await s.executeQuery(buildQuery(true), params);
+        return await s.executeQuery(
+          buildQuery(true),
+          params,
+          undefined,
+          settings
+        );
       });
       logger.info({ tableName }, "vector index found; using index for search");
     } catch (e: unknown) {
@@ -133,7 +146,12 @@ export async function searchPointsMultiTable(
           "vector index not available (missing or building); falling back to table scan"
         );
         rs = await withSession(async (s) => {
-          return await s.executeQuery(buildQuery(false), params);
+          return await s.executeQuery(
+            buildQuery(false),
+            params,
+            undefined,
+            settings
+          );
         });
       } else {
         throw e;
@@ -141,7 +159,7 @@ export async function searchPointsMultiTable(
     }
   } else {
     rs = await withSession(async (s) => {
-      return await s.executeQuery(buildQuery(false), params);
+      return await s.executeQuery(buildQuery(false), params, undefined, settings);
     });
   }
 
@@ -186,6 +204,7 @@ export async function deletePointsMultiTable(
 ): Promise<number> {
   let deleted = 0;
   await withSession(async (s) => {
+    const settings = createExecuteQuerySettings();
     for (const id of ids) {
       const yql = `
         DECLARE $id AS Utf8;
@@ -194,7 +213,7 @@ export async function deletePointsMultiTable(
       const params: QueryParams = {
         $id: TypedValues.utf8(String(id)),
       };
-      await s.executeQuery(yql, params);
+      await s.executeQuery(yql, params, undefined, settings);
       deleted += 1;
     }
   });

@@ -1,7 +1,13 @@
-import { TypedValues, Types, withSession } from "../ydb/client.js";
+import {
+  TypedValues,
+  Types,
+  withSession,
+  createExecuteQuerySettings,
+} from "../ydb/client.js";
 import type { DistanceKind, VectorType } from "../types";
 import { GLOBAL_POINTS_TABLE, ensureGlobalPointsTable } from "../ydb/schema.js";
 import { upsertCollectionMeta } from "./collectionsRepo.shared.js";
+import { withRetry, isTransientYdbError } from "../utils/retry.js";
 
 const DELETE_COLLECTION_BATCH_SIZE = 10000;
 
@@ -54,11 +60,18 @@ async function deletePointsForUidInChunks(
   let iterations = 0;
   const MAX_ITERATIONS = 1000;
 
+  const settings = createExecuteQuerySettings();
+
   while (iterations++ < MAX_ITERATIONS) {
-    const rs = (await s.executeQuery(selectYql, {
-      $uid: TypedValues.utf8(uid),
-      $limit: TypedValues.uint32(DELETE_COLLECTION_BATCH_SIZE),
-    })) as {
+    const rs = (await s.executeQuery(
+      selectYql,
+      {
+        $uid: TypedValues.utf8(uid),
+        $limit: TypedValues.uint32(DELETE_COLLECTION_BATCH_SIZE),
+      },
+      undefined,
+      settings
+    )) as {
       resultSets?: Array<{
         rows?: unknown[];
       }>;
@@ -82,10 +95,15 @@ async function deletePointsForUidInChunks(
 
     const idsValue = TypedValues.list(Types.UTF8, ids);
 
-    await s.executeQuery(deleteBatchYql, {
-      $uid: TypedValues.utf8(uid),
-      $ids: idsValue,
-    });
+    await s.executeQuery(
+      deleteBatchYql,
+      {
+        $uid: TypedValues.utf8(uid),
+        $ids: idsValue,
+      },
+      undefined,
+      settings
+    );
   }
 }
 
@@ -114,27 +132,51 @@ export async function deleteCollectionOneTable(
     DELETE FROM ${GLOBAL_POINTS_TABLE} WHERE uid = $uid;
   `;
 
-  await withSession(async (s) => {
-    try {
-      await s.executeQuery(deletePointsYql, {
-        $uid: TypedValues.utf8(uid),
-      });
-    } catch (err: unknown) {
-      if (!isOutOfBufferMemoryYdbError(err)) {
-        throw err;
-      }
+  await withRetry(
+    () =>
+      withSession(async (s) => {
+        const settings = createExecuteQuerySettings();
+        try {
+          await s.executeQuery(
+            deletePointsYql,
+            {
+              $uid: TypedValues.utf8(uid),
+            },
+            undefined,
+            settings
+          );
+        } catch (err: unknown) {
+          if (!isOutOfBufferMemoryYdbError(err)) {
+            throw err;
+          }
 
-      await deletePointsForUidInChunks(s, uid);
+          await deletePointsForUidInChunks(s, uid);
+        }
+      }),
+    {
+      isTransient: isTransientYdbError,
+      context: {
+        operation: "deleteCollectionOneTable",
+        tableName: GLOBAL_POINTS_TABLE,
+        metaKey,
+        uid,
+      },
     }
-  });
+  );
 
   const delMeta = `
     DECLARE $collection AS Utf8;
     DELETE FROM qdr__collections WHERE collection = $collection;
   `;
   await withSession(async (s) => {
-    await s.executeQuery(delMeta, {
-      $collection: TypedValues.utf8(metaKey),
-    });
+    const settings = createExecuteQuerySettings();
+    await s.executeQuery(
+      delMeta,
+      {
+        $collection: TypedValues.utf8(metaKey),
+      },
+      undefined,
+      settings
+    );
   });
 }

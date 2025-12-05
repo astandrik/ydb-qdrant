@@ -12,9 +12,30 @@ const DEFAULT_BASE_DELAY_MS = 250;
 
 export function isTransientYdbError(error: unknown): boolean {
   const msg = error instanceof Error ? error.message : String(error);
-  return /Aborted|schema version mismatch|Table metadata loading|Failed to load metadata/i.test(
-    msg
-  );
+  if (
+    /Aborted|schema version mismatch|Table metadata loading|Failed to load metadata|overloaded|is in process of split|wrong shard state|Rejecting data TxId/i.test(
+      msg
+    )
+  ) {
+    return true;
+  }
+
+  if (typeof error === "object" && error !== null) {
+    const issues = (error as { issues?: unknown }).issues;
+    if (issues !== undefined) {
+      const issuesText =
+        typeof issues === "string" ? issues : JSON.stringify(issues);
+      if (
+        /overloaded|is in process of split|wrong shard state|Rejecting data TxId/i.test(
+          issuesText
+        )
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 export async function withRetry<T>(

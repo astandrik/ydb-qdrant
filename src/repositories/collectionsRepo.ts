@@ -1,4 +1,8 @@
-import { TypedValues, withSession } from "../ydb/client.js";
+import {
+  TypedValues,
+  withSession,
+  createExecuteQuerySettings,
+} from "../ydb/client.js";
 import type { DistanceKind, VectorType } from "../types";
 import { mapDistanceToIndexParam } from "../utils/distance.js";
 import {
@@ -51,9 +55,15 @@ export async function getCollectionMeta(metaKey: string): Promise<{
     WHERE collection = $collection;
   `;
   const res = await withSession(async (s) => {
-    return await s.executeQuery(qry, {
-      $collection: TypedValues.utf8(metaKey),
-    });
+    const settings = createExecuteQuerySettings();
+    return await s.executeQuery(
+      qry,
+      {
+        $collection: TypedValues.utf8(metaKey),
+      },
+      undefined,
+      settings
+    );
   });
   const rowset = res.resultSets?.[0];
   if (!rowset || rowset.rows?.length !== 1) return null;
