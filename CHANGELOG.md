@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## [4.8.1](https://github.com/astandrik/ydb-qdrant/compare/v4.8.0...v4.8.1) (2025-12-05)
+
+
+### Bug Fixes
+
+* add transient checks, idempotent and cached flags ([#131](https://github.com/astandrik/ydb-qdrant/issues/131)) ([39d8d1c](https://github.com/astandrik/ydb-qdrant/commit/39d8d1c6231f133692e7b574de54f783f3778ecd))
+* large collections delete fix ([#129](https://github.com/astandrik/ydb-qdrant/issues/129)) ([fb0a208](https://github.com/astandrik/ydb-qdrant/commit/fb0a2088cb945fc34805a214d1e21a22a386aae8))
+
 ## [4.8.0](https://github.com/astandrik/ydb-qdrant/compare/v4.7.2...v4.8.0) (2025-12-04)
 
 
