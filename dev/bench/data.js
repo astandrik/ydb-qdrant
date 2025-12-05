@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1764942483052,
+  "lastUpdate": 1764942484050,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (multi_table, 768D)": [
@@ -7677,6 +7677,45 @@ window.BENCHMARK_DATA = {
           {
             "name": "Stress: Throughput",
             "value": 132.91139394714688,
+            "unit": "ops/s"
+          },
+          {
+            "name": "Stress: Max VUs",
+            "value": 600,
+            "unit": "VUs"
+          },
+          {
+            "name": "Stress: Breaking Point VUs",
+            "value": 600,
+            "unit": "VUs"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fb0a2088cb945fc34805a214d1e21a22a386aae8",
+          "message": "fix: large collections delete fix (#129)\n\n* fix: large collections delete fix\n\n* fix: review fixes",
+          "timestamp": "2025-12-05T16:40:00+03:00",
+          "tree_id": "c65bd9720b19892e7c7d2ebbd465332ba846e117",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/fb0a2088cb945fc34805a214d1e21a22a386aae8"
+        },
+        "date": 1764942483846,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Stress: Throughput",
+            "value": 136.67348234445524,
             "unit": "ops/s"
           },
           {
