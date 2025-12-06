@@ -78,7 +78,6 @@ jobs:
           YDB_ENDPOINT: grpc://localhost:2136
           YDB_DATABASE: /local
           YDB_ANONYMOUS_CREDENTIALS: "1"
-          YDB_QDRANT_COLLECTION_STORAGE_MODE: ${{ matrix.storage_mode }}
           YDB_QDRANT_SEARCH_MODE: ${{ matrix.search_mode }}
           PORT: 8080
           LOG_LEVEL: warn

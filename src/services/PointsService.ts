@@ -11,11 +11,9 @@ import {
   QdrantServiceError,
   isVectorDimensionMismatchError,
 } from "./errors.js";
-import {
-  normalizeCollectionContext,
-  resolvePointsTableAndUid,
-  type CollectionContextInput,
-} from "./CollectionService.js";
+import { type CollectionContextInput } from "./CollectionService.js";
+import { normalizeCollectionContextShared } from "./CollectionService.shared.js";
+import { resolvePointsTableAndUidOneTable } from "./CollectionService.one-table.js";
 import {
   normalizeSearchBodyForSearch,
   normalizeSearchBodyForQuery,
@@ -29,7 +27,12 @@ export async function upsertPoints(
   body: unknown
 ): Promise<{ upserted: number }> {
   await ensureMetaTable();
-  const normalized = normalizeCollectionContext(ctx);
+  const normalized = normalizeCollectionContextShared(
+    ctx.tenant,
+    ctx.collection,
+    ctx.apiKey,
+    ctx.userAgent
+  );
   const meta = await getCollectionMeta(normalized.metaKey);
   if (!meta) {
     throw new QdrantServiceError(404, {
@@ -46,7 +49,7 @@ export async function upsertPoints(
     });
   }
 
-  const { tableName, uid } = await resolvePointsTableAndUid(normalized, meta);
+  const { tableName, uid } = await resolvePointsTableAndUidOneTable(normalized);
   let upserted: number;
   try {
     upserted = await repoUpsertPoints(
@@ -89,7 +92,12 @@ async function executeSearch(
   }>;
 }> {
   await ensureMetaTable();
-  const normalized = normalizeCollectionContext(ctx);
+  const normalized = normalizeCollectionContextShared(
+    ctx.tenant,
+    ctx.collection,
+    ctx.apiKey,
+    ctx.userAgent
+  );
 
   logger.info(
     { tenant: normalized.tenant, collection: normalized.collection },
@@ -133,7 +141,7 @@ async function executeSearch(
     });
   }
 
-  const { tableName, uid } = await resolvePointsTableAndUid(normalized, meta);
+  const { tableName, uid } = await resolvePointsTableAndUidOneTable(normalized);
 
   logger.info(
     {
@@ -249,7 +257,12 @@ export async function deletePoints(
   body: unknown
 ): Promise<{ deleted: number }> {
   await ensureMetaTable();
-  const normalized = normalizeCollectionContext(ctx);
+  const normalized = normalizeCollectionContextShared(
+    ctx.tenant,
+    ctx.collection,
+    ctx.apiKey,
+    ctx.userAgent
+  );
   const meta = await getCollectionMeta(normalized.metaKey);
   if (!meta) {
     throw new QdrantServiceError(404, {
@@ -266,7 +279,7 @@ export async function deletePoints(
     });
   }
 
-  const { tableName, uid } = await resolvePointsTableAndUid(normalized, meta);
+  const { tableName, uid } = await resolvePointsTableAndUidOneTable(normalized);
   const deleted = await repoDeletePoints(tableName, parsed.data.points, uid);
   return { deleted };
 }

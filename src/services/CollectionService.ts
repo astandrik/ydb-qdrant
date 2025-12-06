@@ -1,17 +1,12 @@
 import { CreateCollectionReq, type DistanceKind } from "../types.js";
-import { ensureMetaTable, GLOBAL_POINTS_TABLE } from "../ydb/schema.js";
+import { ensureMetaTable } from "../ydb/schema.js";
 import {
   createCollection as repoCreateCollection,
   deleteCollection as repoDeleteCollection,
   getCollectionMeta,
 } from "../repositories/collectionsRepo.js";
 import { QdrantServiceError } from "./errors.js";
-import {
-  normalizeCollectionContextShared,
-  uidFor,
-  type NormalizedCollectionContextLike,
-} from "./CollectionService.shared.js";
-import { resolvePointsTableAndUidOneTable } from "./CollectionService.one-table.js";
+import { normalizeCollectionContextShared } from "./CollectionService.shared.js";
 
 export interface CollectionContextInput {
   tenant: string | undefined;
@@ -26,41 +21,16 @@ export interface NormalizedCollectionContext {
   metaKey: string;
 }
 
-export function normalizeCollectionContext(
-  input: CollectionContextInput
-): NormalizedCollectionContext {
-  return normalizeCollectionContextShared(
-    input.tenant,
-    input.collection,
-    input.apiKey,
-    input.userAgent
-  ) as NormalizedCollectionContext;
-}
-
-export async function resolvePointsTableAndUid(
-  ctx: NormalizedCollectionContext,
-  meta: { table: string }
-): Promise<{
-  tableName: string;
-  uid: string;
-}> {
-  if (meta?.table === GLOBAL_POINTS_TABLE) {
-    return await resolvePointsTableAndUidOneTable(
-      ctx as NormalizedCollectionContextLike
-    );
-  }
-
-  return {
-    tableName: meta.table,
-    uid: uidFor(ctx.tenant, ctx.collection),
-  };
-}
-
 export async function putCollectionIndex(
   ctx: CollectionContextInput
 ): Promise<{ acknowledged: boolean }> {
   await ensureMetaTable();
-  const normalized = normalizeCollectionContext(ctx);
+  const normalized = normalizeCollectionContextShared(
+    ctx.tenant,
+    ctx.collection,
+    ctx.apiKey,
+    ctx.userAgent
+  ) as NormalizedCollectionContext;
   const meta = await getCollectionMeta(normalized.metaKey);
   if (!meta) {
     throw new QdrantServiceError(404, {
@@ -76,7 +46,12 @@ export async function createCollection(
   body: unknown
 ): Promise<{ name: string; tenant: string }> {
   await ensureMetaTable();
-  const normalized = normalizeCollectionContext(ctx);
+  const normalized = normalizeCollectionContextShared(
+    ctx.tenant,
+    ctx.collection,
+    ctx.apiKey,
+    ctx.userAgent
+  ) as NormalizedCollectionContext;
   const parsed = CreateCollectionReq.safeParse(body);
   if (!parsed.success) {
     throw new QdrantServiceError(400, {
@@ -106,12 +81,7 @@ export async function createCollection(
     });
   }
 
-  await repoCreateCollection(
-    normalized.metaKey,
-    dim,
-    distance,
-    vectorType
-  );
+  await repoCreateCollection(normalized.metaKey, dim, distance, vectorType);
   return { name: normalized.collection, tenant: normalized.tenant };
 }
 
@@ -120,7 +90,12 @@ export async function getCollection(ctx: CollectionContextInput): Promise<{
   vectors: { size: number; distance: DistanceKind; data_type: string };
 }> {
   await ensureMetaTable();
-  const normalized = normalizeCollectionContext(ctx);
+  const normalized = normalizeCollectionContextShared(
+    ctx.tenant,
+    ctx.collection,
+    ctx.apiKey,
+    ctx.userAgent
+  ) as NormalizedCollectionContext;
   const meta = await getCollectionMeta(normalized.metaKey);
   if (!meta) {
     throw new QdrantServiceError(404, {
@@ -142,7 +117,12 @@ export async function deleteCollection(
   ctx: CollectionContextInput
 ): Promise<{ acknowledged: boolean }> {
   await ensureMetaTable();
-  const normalized = normalizeCollectionContext(ctx);
+  const normalized = normalizeCollectionContextShared(
+    ctx.tenant,
+    ctx.collection,
+    ctx.apiKey,
+    ctx.userAgent
+  ) as NormalizedCollectionContext;
   await repoDeleteCollection(normalized.metaKey);
   return { acknowledged: true };
 }
