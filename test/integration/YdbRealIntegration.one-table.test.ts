@@ -1,6 +1,5 @@
 import { beforeAll, describe, it, expect } from "vitest";
 import { createYdbQdrantClient } from "../../src/package/api.js";
-import { COLLECTION_STORAGE_MODE } from "../../src/config/env.js";
 import { GLOBAL_POINTS_TABLE } from "../../src/ydb/schema.js";
 import {
   withSession,
@@ -37,10 +36,6 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
 
   beforeAll(async () => {
     client = await createYdbQdrantClient({ defaultTenant: tenant });
-  });
-
-  it("guards: COLLECTION_STORAGE_MODE must be one_table for this test suite", () => {
-    expect(COLLECTION_STORAGE_MODE).toBe("one_table");
   });
 
   it(`achieves reasonable Recall@${RECALL_K} on ${DATASET_SIZE} random ${RECALL_DIM}D vectors (one_table)`, async () => {

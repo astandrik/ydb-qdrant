@@ -56,18 +56,12 @@ vi.mock("../../src/config/env.js", async () => {
   return {
     ...actual,
     LOG_LEVEL: "info",
-    COLLECTION_STORAGE_MODE: actual.CollectionStorageMode.MultiTable,
-    isOneTableMode: (mode: CollectionStorageMode) =>
-      mode === actual.CollectionStorageMode.OneTable,
   };
 });
-
-import { CollectionStorageMode } from "../../src/config/env.js";
 import {
   createCollection,
   getCollectionMeta,
   deleteCollection,
-  buildVectorIndex,
 } from "../../src/repositories/collectionsRepo.js";
 import * as ydbClient from "../../src/ydb/client.js";
 
@@ -88,18 +82,9 @@ describe("collectionsRepo (with mocked YDB)", () => {
       await fn(sessionMock);
     });
 
-    await createCollection(
-      "tenant_a/my_collection",
-      128,
-      "Cosine",
-      "float",
-      "qdr_tenant_a__my_collection"
-    );
+    await createCollection("tenant_a/my_collection", 128, "Cosine", "float");
 
-    expect(sessionMock.createTable).toHaveBeenCalledWith(
-      "qdr_tenant_a__my_collection",
-      expect.any(ydbClient.TableDescription)
-    );
+    expect(sessionMock.createTable).not.toHaveBeenCalled();
     expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
   });
 
@@ -141,73 +126,6 @@ describe("collectionsRepo (with mocked YDB)", () => {
     });
   });
 
-  it("deletes collection table and metadata when meta exists", async () => {
-    const sessionMock = {
-      dropTable: vi.fn(),
-      executeQuery: vi.fn(),
-    };
-
-    // First withSession call: getCollectionMeta query
-    withSessionMock
-      .mockResolvedValueOnce({
-        resultSets: [
-          {
-            rows: [
-              {
-                items: [
-                  { textValue: "qdr_tenant_a__my_collection" },
-                  { uint32Value: 128 },
-                  { textValue: "Cosine" },
-                  { textValue: "float" },
-                ],
-              },
-            ],
-          },
-        ],
-      } as unknown as never)
-      // Subsequent calls: dropTable and delete metadata
-      .mockImplementation(async (fn: (s: unknown) => unknown) => {
-        await fn(sessionMock);
-      });
-
-    await deleteCollection("tenant_a/my_collection");
-
-    expect(sessionMock.dropTable).toHaveBeenCalledWith(
-      "qdr_tenant_a__my_collection"
-    );
-    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
-  });
-
-  it("builds vector index and ignores missing index errors on drop", async () => {
-    const executeSchemeQuery = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("index emb_idx not found"))
-      .mockResolvedValueOnce(undefined);
-
-    const sessionMock = {
-      sessionId: "sess-1",
-      api: { executeSchemeQuery },
-    };
-
-    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
-      await fn(sessionMock);
-    });
-
-    await buildVectorIndex(
-      "qdr_tenant_a__my_collection",
-      128,
-      "Cosine",
-      "float"
-    );
-
-    expect(executeSchemeQuery).toHaveBeenCalledTimes(2);
-    const calls = executeSchemeQuery.mock.calls.map(
-      (c) => c[0] as { yqlText: string }
-    );
-    expect(calls[0]?.yqlText).toContain("DROP INDEX emb_idx");
-    expect(calls[1]?.yqlText).toContain("ADD INDEX emb_idx GLOBAL SYNC");
-  });
-
   it("skips table creation in one_table mode", async () => {
     const sessionMock = {
       createTable: vi.fn(),
@@ -218,14 +136,7 @@ describe("collectionsRepo (with mocked YDB)", () => {
       await fn(sessionMock);
     });
 
-    await createCollection(
-      "tenant_a/my_collection",
-      128,
-      "Cosine",
-      "float",
-      "qdr_tenant_a__my_collection",
-      CollectionStorageMode.OneTable
-    );
+    await createCollection("tenant_a/my_collection", 128, "Cosine", "float");
 
     expect(sessionMock.createTable).not.toHaveBeenCalled();
     expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);

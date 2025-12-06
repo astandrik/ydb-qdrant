@@ -1,10 +1,5 @@
 import type { DistanceKind } from "../types";
 import {
-  upsertPointsMultiTable,
-  searchPointsMultiTable,
-  deletePointsMultiTable,
-} from "./pointsRepo.multi-table.js";
-import {
   SEARCH_MODE,
   OVERFETCH_MULTIPLIER,
   type SearchMode,
@@ -23,12 +18,9 @@ export async function upsertPoints(
     payload?: Record<string, unknown>;
   }>,
   dimension: number,
-  uid?: string
+  uid: string
 ): Promise<number> {
-  if (uid) {
-    return await upsertPointsOneTable(tableName, points, dimension, uid);
-  }
-  return await upsertPointsMultiTable(tableName, points, dimension);
+  return await upsertPointsOneTable(tableName, points, dimension, uid);
 }
 
 export async function searchPoints(
@@ -38,41 +30,28 @@ export async function searchPoints(
   withPayload: boolean | undefined,
   distance: DistanceKind,
   dimension: number,
-  uid?: string
+  uid: string
 ): Promise<
   Array<{ id: string; score: number; payload?: Record<string, unknown> }>
 > {
   const mode: SearchMode | undefined = SEARCH_MODE;
-  if (uid) {
-    return await searchPointsOneTable(
-      tableName,
-      queryVector,
-      top,
-      withPayload,
-      distance,
-      dimension,
-      uid,
-      mode,
-      OVERFETCH_MULTIPLIER
-    );
-  }
-  return await searchPointsMultiTable(
+  return await searchPointsOneTable(
     tableName,
     queryVector,
     top,
     withPayload,
     distance,
-    dimension
+    dimension,
+    uid,
+    mode,
+    OVERFETCH_MULTIPLIER
   );
 }
 
 export async function deletePoints(
   tableName: string,
   ids: Array<string | number>,
-  uid?: string
+  uid: string
 ): Promise<number> {
-  if (uid) {
-    return await deletePointsOneTable(tableName, ids, uid);
-  }
-  return await deletePointsMultiTable(tableName, ids);
+  return await deletePointsOneTable(tableName, ids, uid);
 }

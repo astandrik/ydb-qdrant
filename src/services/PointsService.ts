@@ -6,9 +6,7 @@ import {
   searchPoints as repoSearchPoints,
   upsertPoints as repoUpsertPoints,
 } from "../repositories/pointsRepo.js";
-import { requestIndexBuild } from "../indexing/IndexScheduler.js";
 import { logger } from "../logging/logger.js";
-import { VECTOR_INDEX_BUILD_ENABLED } from "../config/env.js";
 import {
   QdrantServiceError,
   isVectorDimensionMismatchError,
@@ -25,8 +23,6 @@ import {
 } from "../utils/normalization.js";
 
 type PointsContextInput = CollectionContextInput;
-
-let loggedIndexBuildDisabled = false;
 
 export async function upsertPoints(
   ctx: PointsContextInput,
@@ -76,21 +72,6 @@ export async function upsertPoints(
       });
     }
     throw err;
-  }
-
-  if (VECTOR_INDEX_BUILD_ENABLED) {
-    requestIndexBuild(
-      tableName,
-      meta.dimension,
-      meta.distance,
-      meta.vectorType
-    );
-  } else if (!loggedIndexBuildDisabled) {
-    logger.info(
-      { table: tableName },
-      "vector index building disabled by env; skipping automatic emb_idx rebuilds"
-    );
-    loggedIndexBuildDisabled = true;
   }
 
   return { upserted };

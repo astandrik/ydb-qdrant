@@ -16,8 +16,8 @@
   "scripts": {
     "test": "vitest run --exclude \"test/integration/**\"",
     "test:coverage": "vitest run --coverage --exclude \"test/integration/**\"",
-    "test:integration": "VECTOR_INDEX_BUILD_ENABLED=false vitest run test/integration/YdbRealIntegration.index-disabled.test.ts && VECTOR_INDEX_BUILD_ENABLED=true vitest run test/integration/YdbRealIntegration.test.ts test/integration/YdbRecallIntegration.test.ts && YDB_QDRANT_COLLECTION_STORAGE_MODE=one_table YDB_QDRANT_SEARCH_MODE=approximate vitest run test/integration/YdbRealIntegration.one-table.test.ts && YDB_QDRANT_COLLECTION_STORAGE_MODE=one_table YDB_QDRANT_SEARCH_MODE=exact vitest run test/integration/YdbRealIntegration.one-table.test.ts",
-    "test:recall": "VECTOR_INDEX_BUILD_ENABLED=true vitest run test/integration/YdbRecallIntegration.test.ts && YDB_QDRANT_COLLECTION_STORAGE_MODE=one_table YDB_QDRANT_SEARCH_MODE=approximate vitest run test/integration/YdbRealIntegration.one-table.test.ts && YDB_QDRANT_COLLECTION_STORAGE_MODE=one_table YDB_QDRANT_SEARCH_MODE=exact vitest run test/integration/YdbRealIntegration.one-table.test.ts",
+    "test:integration": "vitest run test/integration/YdbRealIntegration.test.ts && YDB_QDRANT_SEARCH_MODE=approximate vitest run test/integration/YdbRealIntegration.one-table.test.ts && YDB_QDRANT_SEARCH_MODE=exact vitest run test/integration/YdbRealIntegration.one-table.test.ts",
+    "test:recall": "YDB_QDRANT_SEARCH_MODE=approximate vitest run test/integration/YdbRealIntegration.one-table.test.ts && YDB_QDRANT_SEARCH_MODE=exact vitest run test/integration/YdbRealIntegration.one-table.test.ts",
     "load:soak": "k6 run loadtest/soak-test.js",
     "load:stress": "k6 run loadtest/stress-test.js",
     "build": "tsc -p tsconfig.json",
@@ -49,7 +49,7 @@
   ],
   "author": "",
   "license": "Apache-2.0",
-  "description": "Qdrant-compatible Node.js/TypeScript API that stores/searches embeddings in YDB using single-phase top-k vector search with an automatic vector index and table-scan fallback.",
+  "description": "Qdrant-compatible Node.js/TypeScript API that stores/searches embeddings in YDB using a global one-table layout with exact and approximate KNN search over serialized vectors.",
   "type": "module",
   "publishConfig": {
     "access": "public"

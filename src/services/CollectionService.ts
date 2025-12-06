@@ -8,7 +8,6 @@ import {
 import { QdrantServiceError } from "./errors.js";
 import {
   normalizeCollectionContextShared,
-  tableNameFor,
   type NormalizedCollectionContextLike,
 } from "./CollectionService.shared.js";
 import { resolvePointsTableAndUidOneTable } from "./CollectionService.one-table.js";
@@ -106,13 +105,11 @@ export async function createCollection(
     });
   }
 
-  const tableName = tableNameFor(normalized.tenant, normalized.collection);
   await repoCreateCollection(
     normalized.metaKey,
     dim,
     distance,
-    vectorType,
-    tableName
+    vectorType
   );
   return { name: normalized.collection, tenant: normalized.tenant };
 }

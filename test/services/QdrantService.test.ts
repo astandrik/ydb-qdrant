@@ -15,19 +15,16 @@ vi.mock("../../src/logging/logger.js", () => ({
   },
 }));
 
-vi.mock("../../src/config/env.js", () => ({
-  VECTOR_INDEX_BUILD_ENABLED: true,
-  CollectionStorageMode: {
-    MultiTable: "multi_table",
-    OneTable: "one_table",
-  },
-  COLLECTION_STORAGE_MODE: "multi_table",
-  isOneTableMode: (mode: string) => mode === "one_table",
-}));
+vi.mock("../../src/config/env.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("../../src/config/env.js")
+  >("../../src/config/env.js");
 
-vi.mock("../../src/indexing/IndexScheduler.js", () => ({
-  requestIndexBuild: vi.fn(),
-}));
+  return {
+    ...actual,
+    LOG_LEVEL: "info",
+  };
+});
 
 vi.mock("../../src/repositories/collectionsRepo.js", () => ({
   getCollectionMeta: vi.fn(),
@@ -43,7 +40,6 @@ vi.mock("../../src/repositories/pointsRepo.js", () => ({
 
 import * as collectionsRepo from "../../src/repositories/collectionsRepo.js";
 import * as pointsRepo from "../../src/repositories/pointsRepo.js";
-import * as indexScheduler from "../../src/indexing/IndexScheduler.js";
 import { logger } from "../../src/logging/logger.js";
 import {
   createCollection,
@@ -90,7 +86,7 @@ describe("QdrantService (with mocked YDB)", () => {
 
   it("returns existing collection when config matches metadata", async () => {
     vi.mocked(collectionsRepo.getCollectionMeta).mockResolvedValueOnce({
-      table: "qdr_tenant_a__my_collection",
+      table: "qdrant_all_points",
       dimension: 128,
       distance: "Cosine",
       vectorType: "float",
@@ -113,7 +109,7 @@ describe("QdrantService (with mocked YDB)", () => {
 
   it("throws when creating collection with conflicting config", async () => {
     vi.mocked(collectionsRepo.getCollectionMeta).mockResolvedValueOnce({
-      table: "qdr_tenant_a__my_collection",
+      table: "qdrant_all_points",
       dimension: 256,
       distance: "Euclid",
       vectorType: "float",
@@ -142,7 +138,7 @@ describe("QdrantService (with mocked YDB)", () => {
 
   it("returns collection description when metadata exists", async () => {
     vi.mocked(collectionsRepo.getCollectionMeta).mockResolvedValueOnce({
-      table: "qdr_tenant_a__my_collection",
+      table: "qdrant_all_points",
       dimension: 128,
       distance: "Cosine",
       vectorType: "float",
@@ -184,7 +180,7 @@ describe("QdrantService (with mocked YDB)", () => {
 
   it("acknowledges putCollectionIndex when metadata exists", async () => {
     vi.mocked(collectionsRepo.getCollectionMeta).mockResolvedValueOnce({
-      table: "qdr_tenant_a__my_collection",
+      table: "qdrant_all_points",
       dimension: 128,
       distance: "Cosine",
       vectorType: "float",
@@ -204,9 +200,9 @@ describe("QdrantService (with mocked YDB)", () => {
     ).rejects.toHaveProperty("statusCode", 404);
   });
 
-  it("upserts points and schedules index build", async () => {
+  it("upserts points via repository", async () => {
     vi.mocked(collectionsRepo.getCollectionMeta).mockResolvedValueOnce({
-      table: "qdr_tenant_a__my_collection",
+      table: "qdrant_all_points",
       dimension: 4,
       distance: "Cosine",
       vectorType: "float",
@@ -225,12 +221,11 @@ describe("QdrantService (with mocked YDB)", () => {
 
     expect(result).toEqual({ upserted: 2 });
     expect(pointsRepo.upsertPoints).toHaveBeenCalledTimes(1);
-    expect(indexScheduler.requestIndexBuild).toHaveBeenCalledTimes(1);
   });
 
   it("maps vector dimension mismatch during upsert to QdrantServiceError 400", async () => {
     vi.mocked(collectionsRepo.getCollectionMeta).mockResolvedValueOnce({
-      table: "qdr_tenant_a__my_collection",
+      table: "qdrant_all_points",
       dimension: 4,
       distance: "Cosine",
       vectorType: "float",
@@ -270,7 +265,7 @@ describe("QdrantService (with mocked YDB)", () => {
 
   it("rejects invalid upsert points payload", async () => {
     vi.mocked(collectionsRepo.getCollectionMeta).mockResolvedValueOnce({
-      table: "qdr_tenant_a__my_collection",
+      table: "qdrant_all_points",
       dimension: 4,
       distance: "Cosine",
       vectorType: "float",
@@ -285,12 +280,11 @@ describe("QdrantService (with mocked YDB)", () => {
       )
     ).rejects.toHaveProperty("statusCode", 400);
     expect(pointsRepo.upsertPoints).not.toHaveBeenCalled();
-    expect(indexScheduler.requestIndexBuild).not.toHaveBeenCalled();
   });
 
   it("searches points via repository and applies no threshold by default", async () => {
     vi.mocked(collectionsRepo.getCollectionMeta).mockResolvedValueOnce({
-      table: "qdr_tenant_a__my_collection",
+      table: "qdrant_all_points",
       dimension: 4,
       distance: "Cosine",
       vectorType: "float",
@@ -315,7 +309,7 @@ describe("QdrantService (with mocked YDB)", () => {
 
   it("filters search results using score_threshold for similarity metrics", async () => {
     vi.mocked(collectionsRepo.getCollectionMeta).mockResolvedValueOnce({
-      table: "qdr_tenant_a__my_collection",
+      table: "qdrant_all_points",
       dimension: 4,
       distance: "Dot",
       vectorType: "float",
@@ -340,7 +334,7 @@ describe("QdrantService (with mocked YDB)", () => {
 
   it("filters search results using score_threshold for distance metrics", async () => {
     vi.mocked(collectionsRepo.getCollectionMeta).mockResolvedValueOnce({
-      table: "qdr_tenant_a__my_collection",
+      table: "qdrant_all_points",
       dimension: 4,
       distance: "Euclid",
       vectorType: "float",
@@ -365,7 +359,7 @@ describe("QdrantService (with mocked YDB)", () => {
 
   it("interprets score_threshold for Cosine as minimum similarity and returns similarity-like scores", async () => {
     vi.mocked(collectionsRepo.getCollectionMeta).mockResolvedValueOnce({
-      table: "qdr_tenant_a__my_collection",
+      table: "qdrant_all_points",
       dimension: 4,
       distance: "Cosine",
       vectorType: "float",
@@ -392,7 +386,7 @@ describe("QdrantService (with mocked YDB)", () => {
 
   it("maps vector dimension mismatch during search to QdrantServiceError 400", async () => {
     vi.mocked(collectionsRepo.getCollectionMeta).mockResolvedValueOnce({
-      table: "qdr_tenant_a__my_collection",
+      table: "qdrant_all_points",
       dimension: 3072,
       distance: "Cosine",
       vectorType: "float",
@@ -420,7 +414,7 @@ describe("QdrantService (with mocked YDB)", () => {
 
   it("uses loose query normalization in queryPoints", async () => {
     vi.mocked(collectionsRepo.getCollectionMeta).mockResolvedValueOnce({
-      table: "qdr_tenant_a__my_collection",
+      table: "qdrant_all_points",
       dimension: 4,
       distance: "Cosine",
       vectorType: "float",
@@ -441,19 +435,19 @@ describe("QdrantService (with mocked YDB)", () => {
     );
 
     expect(pointsRepo.searchPoints).toHaveBeenCalledWith(
-      "qdr_tenant_a__my_collection",
+      "qdrant_all_points",
       [0, 0, 0, 1],
       1,
       true,
       "Cosine",
       4,
-      undefined
+      expect.any(String)
     );
   });
 
   it("logs and throws when search payload is invalid", async () => {
     vi.mocked(collectionsRepo.getCollectionMeta).mockResolvedValueOnce({
-      table: "qdr_tenant_a__my_collection",
+      table: "qdrant_all_points",
       dimension: 4,
       distance: "Cosine",
       vectorType: "float",
@@ -492,7 +486,7 @@ describe("QdrantService (with mocked YDB)", () => {
 
   it("deletes points via repository", async () => {
     vi.mocked(collectionsRepo.getCollectionMeta).mockResolvedValueOnce({
-      table: "qdr_tenant_a__my_collection",
+      table: "qdrant_all_points",
       dimension: 4,
       distance: "Cosine",
       vectorType: "float",
@@ -524,7 +518,7 @@ describe("QdrantService (with mocked YDB)", () => {
 
   it("rejects invalid delete points payload", async () => {
     vi.mocked(collectionsRepo.getCollectionMeta).mockResolvedValueOnce({
-      table: "qdr_tenant_a__my_collection",
+      table: "qdrant_all_points",
       dimension: 4,
       distance: "Cosine",
       vectorType: "float",

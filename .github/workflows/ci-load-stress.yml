@@ -20,8 +20,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - storage_mode: multi_table
-            search_mode: approximate
           - storage_mode: one_table
             search_mode: approximate
           - storage_mode: one_table

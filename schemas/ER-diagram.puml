@@ -27,8 +27,6 @@ entity "qdr_<tenant>__<collection>" as collection_table <<Dynamic Per-Collection
   --
   embedding : String (binary)
   payload : JsonDocument
-  ..
-  INDEX: emb_idx (vector_kmeans_tree)
 }
 
 collections ||--|| collection_table : "references\nvia table_name"
@@ -53,18 +51,11 @@ note right of collection_table
   • qdr_default__my_vectors
   • qdr_user123__embeddings
   
-  **Vector Index (emb_idx):**
-  • Type: vector_kmeans_tree (GLOBAL SYNC)
-  • Auto-created after ≥100 points
-  • Defaults: levels=1, clusters=128
-  • Build trigger: 10s quiet window
-  
   **Embedding Storage:**
   Binary string via Knn::ToBinaryStringFloat
   
   **Search:**
-  • With index: SELECT ... VIEW emb_idx ORDER BY Knn::<Fn>
-  • Fallback: table scan without VIEW
+  • Application issues KNN queries over embedding column via YQL
 end note
 
 legend right

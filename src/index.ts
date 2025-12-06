@@ -1,10 +1,6 @@
 import "dotenv/config";
 import { buildServer } from "./server.js";
-import {
-  PORT,
-  COLLECTION_STORAGE_MODE,
-  isOneTableMode,
-} from "./config/env.js";
+import { PORT } from "./config/env.js";
 import { logger } from "./logging/logger.js";
 import { readyOrThrow } from "./ydb/client.js";
 import { ensureMetaTable, ensureGlobalPointsTable } from "./ydb/schema.js";
@@ -13,9 +9,7 @@ async function start(): Promise<void> {
   try {
     await readyOrThrow();
     await ensureMetaTable();
-    if (isOneTableMode(COLLECTION_STORAGE_MODE)) {
-      await ensureGlobalPointsTable();
-    }
+    await ensureGlobalPointsTable();
   } catch (err: unknown) {
     logger.error(
       { err },
