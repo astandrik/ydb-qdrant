@@ -6,9 +6,9 @@ LAYOUT_WITH_LEGEND()
 title Component Diagram: Repository Layer (Business Logic & Data Access)
 
 Container_Boundary(repo_layer, "Repository Layer") {
-    Component(collections_repo, "Collections Repository", "TypeScript Module", "Collection lifecycle management and vector index operations")
+    Component(collections_repo, "Collections Repository", "TypeScript Module", "Collection lifecycle management for one-table layout")
     
-    Component(points_repo, "Points Repository", "TypeScript Module", "Point CRUD operations and vector search with index fallback")
+    Component(points_repo, "Points Repository", "TypeScript Module", "Point CRUD operations and vector search over global table")
     
     Component(utils_tenant, "Tenant Utils", "TypeScript Module", "Tenant/collection name sanitization and key generation")
     
@@ -18,67 +18,46 @@ Container_Boundary(repo_layer, "Repository Layer") {
 }
 
 Container(ydb_client, "YDB Client", "ydb-sdk Driver", "Database session management")
-Container(index_scheduler, "Index Scheduler", "Node.js Worker", "Deferred index builds")
 
 Rel(collections_repo, ydb_client, "Uses", "withSession() for YQL queries")
 Rel(collections_repo, utils_tenant, "Uses", "tableNameFor(), metaKeyFor()")
 Rel(collections_repo, types_schemas, "Uses", "DistanceKind, VectorType")
 
 Rel(points_repo, ydb_client, "Uses", "withSession() for YQL queries")
-Rel(points_repo, index_scheduler, "Notifies", "notifyUpsert() after each point")
 Rel(points_repo, types_schemas, "Uses", "VectorType, DistanceKind")
 
 Rel(ydb_schema, ydb_client, "Uses", "withSession() to create table")
 
 note right of collections_repo
   **Key Functions:**
-  - createCollection(metaKey, dim, distance, vectorType, tableName)
+  - createCollection(metaKey, dim, distance, vectorType)
   - getCollectionMeta(metaKey) → {table, dimension, distance, vectorType}
   - deleteCollection(metaKey)
-  - buildVectorIndex(tableName, dim, distance, vectorType)
   
-  **Collection Creation Flow:**
-  1. Create YDB table with TableDescription
-     - Columns: point_id (PK), embedding, payload
-  2. UPSERT metadata into qdr__collections
-  
-  **Index Build Process:**
-  1. DROP INDEX emb_idx (ignore if not exists)
-  2. ADD INDEX emb_idx GLOBAL SYNC
-     - Type: vector_kmeans_tree
-     - Config: levels=1, clusters=128
-     - Distance mapping:
-       * Cosine → cosine
-       * Dot → inner_product
-       * Euclid → euclidean
-       * Manhattan → manhattan
+  **Collection Creation Flow (one-table):**
+  1. Ensure qdr__collections metadata table exists
+  2. UPSERT metadata row for collection
 end note
 
 note left of points_repo
   **Key Functions:**
-  - upsertPoints(table, points[], dim) → count
-  - searchPoints(table, queryVec, top, withPayload, distance, dim) → hits[]
-  - deletePoints(table, ids[]) → count
+  - upsertPoints(table, points[], dim, uid) → count
+  - searchPoints(table, queryVec, top, withPayload, distance, dim, uid, mode, overfetch) → hits[]
+  - deletePoints(table, ids[], uid) → count
   
-  **Upsert Flow:**
+  **Upsert Flow (one-table):**
   1. Validate vector dimension
-  2. For each point:
-     - Serialize vector to binary via Knn::ToBinaryStringFloat
-     - UPSERT with exponential backoff retry (max 6)
-       (handles transient schema errors during index rebuild)
-  3. Call notifyUpsert() for scheduler
+  2. Batch UPSERT into global qdrant_all_points with serialized vectors
   
-  **Search Strategy:**
-  1. Try: SELECT ... FROM table VIEW emb_idx (indexed)
-  2. If index missing/building:
-     - Fallback: SELECT ... FROM table (table scan)
-  3. Parse results with score extraction
+  **Search Strategy (one-table):**
+  1. Exact: single-phase KNN over embedding
+  2. Approximate: bit-quantized candidate selection over embedding_quantized + exact re-ranking
   
   **Distance Function Mapping:**
-  - Cosine → Knn::CosineSimilarity (DESC)
-  - Dot → Knn::InnerProductSimilarity (DESC)
-  - Euclid → Knn::EuclideanDistance (ASC)
-  - Manhattan → Knn::ManhattanDistance (ASC)
+  - Cosine → Knn::CosineSimilarity / Knn::CosineDistance
+  - Dot → Knn::InnerProductSimilarity
+  - Euclid → Knn::EuclideanDistance
+  - Manhattan → Knn::ManhattanDistance
 end note
 
 note bottom of utils_tenant

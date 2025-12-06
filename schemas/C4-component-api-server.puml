@@ -27,11 +27,9 @@ Container_Boundary(api_server, "REST API Server") {
 
 Container(collections_repo, "Collections Repository", "TypeScript Module", "Business logic for collection operations")
 Container(points_repo, "Points Repository", "TypeScript Module", "Business logic for point operations")
-Container(index_scheduler, "Index Scheduler", "Node.js Worker", "Deferred vector index building")
 
 Rel(collections_router, collections_repo, "Calls", "createCollection(), getCollectionMeta(), deleteCollection()")
 Rel(points_router, points_repo, "Calls", "upsertPoints(), searchPoints(), deletePoints()")
-Rel(points_router, index_scheduler, "Notifies", "requestIndexBuild() after upserts")
 
 note right of express_app
   **Startup Sequence:**

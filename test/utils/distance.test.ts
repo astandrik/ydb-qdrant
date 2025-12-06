@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   mapDistanceToKnnFn,
-  mapDistanceToIndexParam,
   mapDistanceToBitKnnFn,
 } from "../../src/utils/distance.js";
 import type { DistanceKind } from "../../src/types.js";
@@ -41,27 +40,6 @@ describe("utils/distance", () => {
       fn: "Knn::CosineDistance",
       order: "ASC",
     });
-  });
-
-  it("maps Cosine distance to correct index param", () => {
-    expect(mapDistanceToIndexParam("Cosine")).toBe("cosine");
-  });
-
-  it("maps Dot distance to correct index param", () => {
-    expect(mapDistanceToIndexParam("Dot")).toBe("inner_product");
-  });
-
-  it("maps Euclid distance to correct index param", () => {
-    expect(mapDistanceToIndexParam("Euclid")).toBe("euclidean");
-  });
-
-  it("maps Manhattan distance to correct index param", () => {
-    expect(mapDistanceToIndexParam("Manhattan")).toBe("manhattan");
-  });
-
-  it("falls back to cosine index param for unexpected distance", () => {
-    const distance = "Unexpected" as DistanceKind;
-    expect(mapDistanceToIndexParam(distance)).toBe("cosine");
   });
 
   describe("mapDistanceToBitKnnFn (one-table phase 1)", () => {

@@ -18,21 +18,6 @@ export function mapDistanceToKnnFn(distance: DistanceKind): {
   }
 }
 
-export function mapDistanceToIndexParam(distance: DistanceKind): string {
-  switch (distance) {
-    case "Cosine":
-      return "cosine";
-    case "Dot":
-      return "inner_product";
-    case "Euclid":
-      return "euclidean";
-    case "Manhattan":
-      return "manhattan";
-    default:
-      return "cosine";
-  }
-}
-
 /**
  * Maps a user-specified distance metric to a YDB Knn function
  * suitable for bit-quantized vectors (Phase 1 approximate candidate selection).

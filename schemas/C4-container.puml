@@ -10,9 +10,7 @@ System_Boundary(ydbQdrant, "YDB-Qdrant Service") {
     
     Container(routes, "HTTP Routes", "Express Router", "Handles collections and points endpoints with tenant isolation via X-Tenant-Id header")
     
-    Container(repos, "Repository Layer", "TypeScript", "Business logic for collections and points operations; builds YQL queries")
-    
-    Container(indexScheduler, "Index Scheduler", "Node.js Worker", "Deferred vector index builder with ≥100 points threshold and 10s quiet window")
+    Container(repos, "Repository Layer", "TypeScript", "Business logic for collections and points operations; builds YQL queries for one-table layout")
     
     Container(ydbClient, "YDB Client", "ydb-sdk (CJS)", "Database driver with session pooling and credential management")
 }
@@ -23,8 +21,6 @@ Rel(developer, webApp, "Makes API requests", "HTTPS/REST")
 Rel(webApp, routes, "Routes requests to", "Function calls")
 Rel(routes, repos, "Delegates operations to", "Function calls")
 Rel(repos, ydbClient, "Executes queries via", "YQL/SDK")
-Rel(repos, indexScheduler, "Triggers index builds", "Function calls")
-Rel(indexScheduler, repos, "Calls buildVectorIndex()", "Async function")
 Rel(ydbClient, ydb, "Manages connections and sessions", "gRPC/YDB Protocol")
 
 note right of webApp
@@ -55,32 +51,19 @@ end note
 
 note right of repos
   **Collections Repository:**
-  • createCollection() - table + metadata
+  • createCollection() - metadata only (one-table layout)
   • getCollectionMeta() - read metadata
-  • deleteCollection() - drop table
-  • buildVectorIndex() - DROP/ADD INDEX
+  • deleteCollection() - delete from global table + metadata
   
   **Points Repository:**
-  • upsertPoints() - with dimension check
-  • searchPoints() - VIEW emb_idx or scan
-  • deletePoints() - by point IDs
+  • upsertPoints() - with dimension check and batched UPSERT into qdrant_all_points
+  • searchPoints() - exact or approximate KNN over serialized vectors in qdrant_all_points
+  • deletePoints() - by point IDs within tenant/collection uid
   
   **Vector serialization:**
-  Knn::ToBinaryStringFloat
+  Knn::ToBinaryStringFloat / Knn::ToBinaryStringBit
 end note
 
-note right of indexScheduler
-  **Build policy:**
-  • Tracks upsert counts per table
-  • Threshold: ≥100 points
-  • Quiet window: 10 seconds
-  • Auto-triggers after bulk upserts
-  
-  **Index spec:**
-  • Type: vector_kmeans_tree
-  • Levels: 1, Clusters: 128
-  • Mode: GLOBAL SYNC
-end note
 
 note right of ydbClient
   **Session management:**
@@ -98,13 +81,12 @@ note right of ydb
   **Tables:**
   • qdr__collections (metadata)
     PK: collection (tenant/name)
-  • qdr_<tenant>__<collection> (data)
-    PK: point_id, embedding, payload
-    INDEX: emb_idx (vector_kmeans_tree)
+  • qdrant_all_points (global points table)
+    PK: (uid, point_id), columns: embedding, embedding_quantized, payload
   
-  **Search modes:**
-  • With index: VIEW emb_idx
-  • Fallback: full table scan
+  **Search modes (application-side KNN):**
+  • Exact: single-phase KNN over embedding
+  • Approximate: two-phase bit-quantized candidate selection over embedding_quantized + exact re-ranking over embedding
   
   **Distance metrics:**
   Cosine, Euclid, Dot, Manhattan

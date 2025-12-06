@@ -6,18 +6,14 @@ import {
   searchPoints as repoSearchPoints,
   upsertPoints as repoUpsertPoints,
 } from "../repositories/pointsRepo.js";
-import { requestIndexBuild } from "../indexing/IndexScheduler.js";
 import { logger } from "../logging/logger.js";
-import { VECTOR_INDEX_BUILD_ENABLED } from "../config/env.js";
 import {
   QdrantServiceError,
   isVectorDimensionMismatchError,
 } from "./errors.js";
-import {
-  normalizeCollectionContext,
-  resolvePointsTableAndUid,
-  type CollectionContextInput,
-} from "./CollectionService.js";
+import { type CollectionContextInput } from "./CollectionService.js";
+import { normalizeCollectionContextShared } from "./CollectionService.shared.js";
+import { resolvePointsTableAndUidOneTable } from "./CollectionService.one-table.js";
 import {
   normalizeSearchBodyForSearch,
   normalizeSearchBodyForQuery,
@@ -26,14 +22,17 @@ import {
 
 type PointsContextInput = CollectionContextInput;
 
-let loggedIndexBuildDisabled = false;
-
 export async function upsertPoints(
   ctx: PointsContextInput,
   body: unknown
 ): Promise<{ upserted: number }> {
   await ensureMetaTable();
-  const normalized = normalizeCollectionContext(ctx);
+  const normalized = normalizeCollectionContextShared(
+    ctx.tenant,
+    ctx.collection,
+    ctx.apiKey,
+    ctx.userAgent
+  );
   const meta = await getCollectionMeta(normalized.metaKey);
   if (!meta) {
     throw new QdrantServiceError(404, {
@@ -50,7 +49,7 @@ export async function upsertPoints(
     });
   }
 
-  const { tableName, uid } = await resolvePointsTableAndUid(normalized, meta);
+  const { tableName, uid } = await resolvePointsTableAndUidOneTable(normalized);
   let upserted: number;
   try {
     upserted = await repoUpsertPoints(
@@ -78,21 +77,6 @@ export async function upsertPoints(
     throw err;
   }
 
-  if (VECTOR_INDEX_BUILD_ENABLED) {
-    requestIndexBuild(
-      tableName,
-      meta.dimension,
-      meta.distance,
-      meta.vectorType
-    );
-  } else if (!loggedIndexBuildDisabled) {
-    logger.info(
-      { table: tableName },
-      "vector index building disabled by env; skipping automatic emb_idx rebuilds"
-    );
-    loggedIndexBuildDisabled = true;
-  }
-
   return { upserted };
 }
 
@@ -108,7 +92,12 @@ async function executeSearch(
   }>;
 }> {
   await ensureMetaTable();
-  const normalized = normalizeCollectionContext(ctx);
+  const normalized = normalizeCollectionContextShared(
+    ctx.tenant,
+    ctx.collection,
+    ctx.apiKey,
+    ctx.userAgent
+  );
 
   logger.info(
     { tenant: normalized.tenant, collection: normalized.collection },
@@ -152,7 +141,7 @@ async function executeSearch(
     });
   }
 
-  const { tableName, uid } = await resolvePointsTableAndUid(normalized, meta);
+  const { tableName, uid } = await resolvePointsTableAndUidOneTable(normalized);
 
   logger.info(
     {
@@ -268,7 +257,12 @@ export async function deletePoints(
   body: unknown
 ): Promise<{ deleted: number }> {
   await ensureMetaTable();
-  const normalized = normalizeCollectionContext(ctx);
+  const normalized = normalizeCollectionContextShared(
+    ctx.tenant,
+    ctx.collection,
+    ctx.apiKey,
+    ctx.userAgent
+  );
   const meta = await getCollectionMeta(normalized.metaKey);
   if (!meta) {
     throw new QdrantServiceError(404, {
@@ -285,7 +279,7 @@ export async function deletePoints(
     });
   }
 
-  const { tableName, uid } = await resolvePointsTableAndUid(normalized, meta);
+  const { tableName, uid } = await resolvePointsTableAndUidOneTable(normalized);
   const deleted = await repoDeletePoints(tableName, parsed.data.points, uid);
   return { deleted };
 }

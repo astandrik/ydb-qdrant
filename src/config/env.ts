@@ -47,47 +47,17 @@ function parseBooleanEnv(
   return true;
 }
 
-export enum CollectionStorageMode {
-  MultiTable = "multi_table",
-  OneTable = "one_table",
-}
-
-function resolveCollectionStorageModeEnv(): CollectionStorageMode {
-  const explicit =
-    process.env.YDB_QDRANT_COLLECTION_STORAGE_MODE ??
-    process.env.YDB_QDRANT_TABLE_LAYOUT;
-  if (explicit?.trim().toLowerCase() === CollectionStorageMode.OneTable) {
-    return CollectionStorageMode.OneTable;
-  }
-  return CollectionStorageMode.MultiTable;
-}
-
-export const COLLECTION_STORAGE_MODE: CollectionStorageMode =
-  resolveCollectionStorageModeEnv();
-
 export const GLOBAL_POINTS_AUTOMIGRATE_ENABLED = parseBooleanEnv(
   process.env.YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE,
   false
 );
-
-export const VECTOR_INDEX_BUILD_ENABLED = parseBooleanEnv(
-  process.env.VECTOR_INDEX_BUILD_ENABLED,
-  COLLECTION_STORAGE_MODE === CollectionStorageMode.MultiTable
-);
-
-export function isOneTableMode(
-  mode: CollectionStorageMode
-): mode is CollectionStorageMode.OneTable {
-  return mode === CollectionStorageMode.OneTable;
-}
 
 export enum SearchMode {
   Exact = "exact",
   Approximate = "approximate",
 }
 
-function resolveSearchModeEnv(mode: CollectionStorageMode): SearchMode {
-  const raw = process.env.YDB_QDRANT_SEARCH_MODE;
+export function resolveSearchMode(raw: string | undefined): SearchMode {
   const normalized = raw?.trim().toLowerCase();
 
   if (normalized === SearchMode.Exact) {
@@ -97,18 +67,15 @@ function resolveSearchModeEnv(mode: CollectionStorageMode): SearchMode {
     return SearchMode.Approximate;
   }
 
-  // Default: keep current behavior for one-table (approximate two-phase search).
-  if (isOneTableMode(mode)) {
-    return SearchMode.Approximate;
-  }
-
-  // For multi-table, this value is currently unused but defaults to approximate.
-  return SearchMode.Approximate;
+  // Default: exact search (single-phase over full-precision embedding) for the one-table layout.
+  return SearchMode.Exact;
 }
 
-export const SEARCH_MODE: SearchMode = resolveSearchModeEnv(
-  COLLECTION_STORAGE_MODE
-);
+function resolveSearchModeEnv(): SearchMode {
+  return resolveSearchMode(process.env.YDB_QDRANT_SEARCH_MODE);
+}
+
+export const SEARCH_MODE: SearchMode = resolveSearchModeEnv();
 
 export const OVERFETCH_MULTIPLIER = parseIntegerEnv(
   process.env.YDB_QDRANT_OVERFETCH_MULTIPLIER,

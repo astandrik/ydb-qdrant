@@ -7,9 +7,7 @@
 [![k6 Stress Load Test](https://img.shields.io/github/actions/workflow/status/astandrik/ydb-qdrant/ci-load-stress.yml?branch=main&label=k6%20stress%20load%20test)](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-load-stress.yml)
 [![Coverage](https://coveralls.io/repos/github/astandrik/ydb-qdrant/badge.svg?branch=main)](https://coveralls.io/github/astandrik/ydb-qdrant?branch=main)
 
-[![Recall (multi_table)](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astandrik/ydb-qdrant/recall-badges/recall-multi-table.json)](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-recall.yml)
 [![Recall (one_table)](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astandrik/ydb-qdrant/recall-badges/recall-one-table.json)](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-recall.yml)
-[![F1 (multi_table)](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astandrik/ydb-qdrant/recall-badges/f1-multi-table.json)](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-recall.yml)
 [![F1 (one_table)](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astandrik/ydb-qdrant/recall-badges/f1-one-table.json)](https://github.com/astandrik/ydb-qdrant/actions/workflows/ci-recall.yml)
 
 [![npm version](https://img.shields.io/npm/v/ydb-qdrant.svg)](https://www.npmjs.com/package/ydb-qdrant)
@@ -18,7 +16,7 @@
 
 # YDB Qdrant-compatible Service
 
-Qdrant-compatible Node.js/TypeScript **service and npm library** that stores and searches vectors in YDB using single‑phase top‑k with an automatic YDB vector index (`vector_kmeans_tree`) and table‑scan fallback. Topics: ydb, vector-search, qdrant-compatible, nodejs, typescript, express, yql, ann, semantic-search, rag.
+Qdrant-compatible Node.js/TypeScript **service and npm library** that stores and searches vectors in YDB using a global one-table layout (`qdrant_all_points`) with exact KNN search (single-phase over `embedding`) by default and an optional approximate mode (two‑phase bit-quantized over `embedding_quantized` + `embedding`). Topics: ydb, vector-search, qdrant-compatible, nodejs, typescript, express, yql, ann, semantic-search, rag.
 
 Modes:
 - **HTTP server**: Qdrant-compatible REST API (`/collections`, `/points/*`) on top of YDB.
@@ -35,7 +33,7 @@ Architecture diagrams: [docs page](http://ydb-qdrant.tech/docs/)
 
 - **Vector dimensions and embedding models**: [docs/vector-dimensions.md](docs/vector-dimensions.md)
 - **Deployment and Docker options**: [docs/deployment-and-docker.md](docs/deployment-and-docker.md)
-- **Architecture, storage layout, and vector indexing**: [docs/architecture-and-storage.md](docs/architecture-and-storage.md)
+- **Architecture, storage layout, and search modes**: [docs/architecture-and-storage.md](docs/architecture-and-storage.md)
 - **Evaluation, CI, and release process**: [docs/evaluation-and-ci.md](docs/evaluation-and-ci.md)
 
 ## Requirements
@@ -90,10 +88,8 @@ Optional env:
 # Server
 export PORT=8080
 export LOG_LEVEL=info
-# Collection storage mode (optional; default is multi_table)
-export YDB_QDRANT_COLLECTION_STORAGE_MODE=multi_table   # or one_table
-# One-table search tuning (one_table mode only)
-export YDB_QDRANT_SEARCH_MODE=approximate               # or exact
+# One-table search tuning (default is 'exact' when unset)
+export YDB_QDRANT_SEARCH_MODE=approximate               # approximate or exact (default: exact)
 export YDB_QDRANT_OVERFETCH_MULTIPLIER=10               # candidate multiplier in approximate mode
 ```
 
@@ -334,7 +330,7 @@ curl -X POST http://localhost:8080/collections/mycol/points/delete \
 
 ## Architecture and Storage
 
-For details on the YDB storage layout (multi_table vs one_table), vector serialization, vector index auto-build behavior, request normalization, and Qdrant compatibility semantics, see [docs/architecture-and-storage.md](docs/architecture-and-storage.md).
+For details on the YDB one-table storage layout, vector serialization (full-precision and bit‑quantized), approximate vs exact search modes, request normalization, and Qdrant compatibility semantics, see [docs/architecture-and-storage.md](docs/architecture-and-storage.md).
 
 ## Evaluation, CI, and Release
 

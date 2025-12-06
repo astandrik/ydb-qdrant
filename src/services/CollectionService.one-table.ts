@@ -8,7 +8,7 @@ export async function resolvePointsTableAndUidOneTable(
   ctx: NormalizedCollectionContextLike
 ): Promise<{
   tableName: string;
-  uid: string | undefined;
+  uid: string;
 }> {
   await ensureGlobalPointsTable();
   return {

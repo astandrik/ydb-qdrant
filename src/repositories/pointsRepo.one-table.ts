@@ -7,7 +7,6 @@ import {
 import type { Ydb } from "ydb-sdk";
 import { buildVectorParam, buildVectorBinaryParams } from "../ydb/helpers.js";
 import type { DistanceKind } from "../types";
-import { notifyUpsert } from "../indexing/IndexScheduler.js";
 import {
   mapDistanceToKnnFn,
   mapDistanceToBitKnnFn,
@@ -182,7 +181,6 @@ export async function upsertPointsOneTable(
       upserted += batch.length;
     }
   });
-  notifyUpsert(tableName, upserted);
   return upserted;
 }
 
