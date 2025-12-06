@@ -8,6 +8,7 @@ import {
 import { QdrantServiceError } from "./errors.js";
 import {
   normalizeCollectionContextShared,
+  uidFor,
   type NormalizedCollectionContextLike,
 } from "./CollectionService.shared.js";
 import { resolvePointsTableAndUidOneTable } from "./CollectionService.one-table.js";
@@ -41,7 +42,7 @@ export async function resolvePointsTableAndUid(
   meta: { table: string }
 ): Promise<{
   tableName: string;
-  uid: string | undefined;
+  uid: string;
 }> {
   if (meta?.table === GLOBAL_POINTS_TABLE) {
     return await resolvePointsTableAndUidOneTable(
@@ -51,7 +52,7 @@ export async function resolvePointsTableAndUid(
 
   return {
     tableName: meta.table,
-    uid: undefined,
+    uid: uidFor(ctx.tenant, ctx.collection),
   };
 }
 
