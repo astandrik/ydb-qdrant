@@ -88,8 +88,8 @@ Optional env:
 # Server
 export PORT=8080
 export LOG_LEVEL=info
-# One-table search tuning
-export YDB_QDRANT_SEARCH_MODE=approximate               # or exact
+# One-table search tuning (default is 'exact' when unset)
+export YDB_QDRANT_SEARCH_MODE=approximate               # approximate or exact (default: exact)
 export YDB_QDRANT_OVERFETCH_MULTIPLIER=10               # candidate multiplier in approximate mode
 ```
 

@@ -36,9 +36,9 @@ Notes
   - `YDB_ACCESS_TOKEN_CREDENTIALS=<token>` (short‑lived)
   - `YDB_ANONYMOUS_CREDENTIALS=1` (dev only)
 - Optional:
-  - `PORT` (default 8080)
-  - `LOG_LEVEL`
-  - `YDB_QDRANT_SEARCH_MODE` — `"approximate"` (default) or `"exact"`; in approximate mode searches use a two-phase flow over `embedding_quantized` + `embedding`, in exact mode they scan `embedding` only.
+- `PORT` (default 8080)
+- `LOG_LEVEL`
+- `YDB_QDRANT_SEARCH_MODE` — `"exact"` (default) or `"approximate"`; in approximate mode searches use a two-phase flow over `embedding_quantized` + `embedding`, in exact mode they scan `embedding` only.
   - `YDB_SESSION_POOL_MIN_SIZE` — minimum number of sessions in the pool (default `5`, range 1–500).
   - `YDB_SESSION_POOL_MAX_SIZE` — maximum number of sessions in the pool (default `100`, range 1–500).
   - `YDB_SESSION_KEEPALIVE_PERIOD_MS` — interval in milliseconds for session health checks (default `5000`, range 1000–60000). Dead sessions are automatically removed from the pool.
@@ -70,8 +70,8 @@ Notes
 
 ## YDB vector specifics (YQL)
 - Search (one-table layout):
-  - Exact mode (`YDB_QDRANT_SEARCH_MODE=exact`): single-phase top‑k over `embedding` using `Knn::<Fn>(embedding, $qbinf)` with the appropriate distance/similarity (`CosineDistance`, `InnerProductSimilarity`, `EuclideanDistance`, `ManhattanDistance`).
-  - Approximate mode (`YDB_QDRANT_SEARCH_MODE=approximate` – default): two‑phase flow — phase 1 selects candidates using bit‑quantized `embedding_quantized` (`CosineSimilarity` DESC for Cosine, distance ASC for Euclid/Manhattan, `CosineDistance` ASC as proxy for Dot); phase 2 re‑ranks candidates over `embedding` with the exact metric.
+  - Exact mode (`YDB_QDRANT_SEARCH_MODE=exact`, default): single-phase top‑k over `embedding` using `Knn::<Fn>(embedding, $qbinf)` with the appropriate distance/similarity (`CosineDistance`, `InnerProductSimilarity`, `EuclideanDistance`, `ManhattanDistance`).
+  - Approximate mode (`YDB_QDRANT_SEARCH_MODE=approximate`): two‑phase flow — phase 1 selects candidates using bit‑quantized `embedding_quantized` (`CosineSimilarity` DESC for Cosine, distance ASC for Euclid/Manhattan, `CosineDistance` ASC as proxy for Dot); phase 2 re‑ranks candidates over `embedding` with the exact metric.
 - Serialization:
   - `embedding` via `Untag(Knn::ToBinaryStringFloat($vec), "FloatVector")`
   - `embedding_quantized` via `Untag(Knn::ToBinaryStringBit($vec), "BitVector")`
