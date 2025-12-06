@@ -16,7 +16,7 @@
 
 # YDB Qdrant-compatible Service
 
-Qdrant-compatible Node.js/TypeScript **service and npm library** that stores and searches vectors in YDB using a global one-table layout (`qdrant_all_points`) with bit‑quantized approximate search (two‑phase over `embedding_quantized` + `embedding`) and an optional exact search mode. Topics: ydb, vector-search, qdrant-compatible, nodejs, typescript, express, yql, ann, semantic-search, rag.
+Qdrant-compatible Node.js/TypeScript **service and npm library** that stores and searches vectors in YDB using a global one-table layout (`qdrant_all_points`) with exact KNN search (single-phase over `embedding`) by default and an optional approximate mode (two‑phase bit-quantized over `embedding_quantized` + `embedding`). Topics: ydb, vector-search, qdrant-compatible, nodejs, typescript, express, yql, ann, semantic-search, rag.
 
 Modes:
 - **HTTP server**: Qdrant-compatible REST API (`/collections`, `/points/*`) on top of YDB.
