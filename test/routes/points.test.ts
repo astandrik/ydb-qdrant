@@ -342,6 +342,7 @@ describe("pointsRouter (HTTP, mocked service)", () => {
       status: "error",
       error: "compilation timeout",
     });
+    expect(loggerErrorMock).toHaveBeenCalled();
     expect(scheduleExitMock).toHaveBeenCalledWith(1);
   });
 
@@ -406,6 +407,7 @@ describe("pointsRouter (HTTP, mocked service)", () => {
       status: "error",
       error: "compilation timeout",
     });
+    expect(loggerErrorMock).toHaveBeenCalled();
     expect(scheduleExitMock).toHaveBeenCalledWith(1);
   });
 });

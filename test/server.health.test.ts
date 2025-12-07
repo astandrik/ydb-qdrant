@@ -51,6 +51,9 @@ describe("GET /health", () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).toMatchObject({ status: "ok" });
     expect(scheduleExitMock).not.toHaveBeenCalled();
+    expect(verifyCollectionsQueryCompilationForStartupMock).toHaveBeenCalledTimes(
+      1
+    );
   });
 
   it("returns 503 with error payload and schedules exit when YDB is unavailable", async () => {
