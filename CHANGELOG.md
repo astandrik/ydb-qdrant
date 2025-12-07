@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## [5.0.0](https://github.com/astandrik/ydb-qdrant/compare/v4.8.1...v5.0.0) (2025-12-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* leave only one-table mode ([#135](https://github.com/astandrik/ydb-qdrant/issues/135))
+
+### Features
+
+* leave only one-table mode ([#135](https://github.com/astandrik/ydb-qdrant/issues/135)) ([d7bcd03](https://github.com/astandrik/ydb-qdrant/commit/d7bcd03f6bc0782f61cc06b49950584325793116))
+
 ## [4.8.1](https://github.com/astandrik/ydb-qdrant/compare/v4.8.0...v4.8.1) (2025-12-05)
 
 
