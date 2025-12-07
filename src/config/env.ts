@@ -121,6 +121,12 @@ export const SESSION_KEEPALIVE_PERIOD_MS = parseIntegerEnv(
   { min: 1000, max: 60000 }
 );
 
+export const STARTUP_PROBE_SESSION_TIMEOUT_MS = parseIntegerEnv(
+  process.env.YDB_QDRANT_STARTUP_PROBE_SESSION_TIMEOUT_MS,
+  5000,
+  { min: 1000 }
+);
+
 export const UPSERT_OPERATION_TIMEOUT_MS = parseIntegerEnv(
   process.env.YDB_QDRANT_UPSERT_TIMEOUT_MS,
   5000,

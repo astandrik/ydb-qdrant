@@ -15,6 +15,7 @@ describe("env.ts configuration", () => {
     delete process.env.YDB_SESSION_KEEPALIVE_PERIOD_MS;
     delete process.env.YDB_QDRANT_UPSERT_TIMEOUT_MS;
     delete process.env.YDB_QDRANT_SEARCH_TIMEOUT_MS;
+    delete process.env.YDB_QDRANT_STARTUP_PROBE_SESSION_TIMEOUT_MS;
   });
 
   afterEach(() => {
@@ -147,42 +148,49 @@ describe("env.ts configuration", () => {
     });
   });
 
-  describe("operation timeouts", () => {
+  describe("operation and startup probe timeouts", () => {
     it("uses defaults when timeout env vars are not set", async () => {
       const env = await import("../../src/config/env.js");
 
       expect(env.UPSERT_OPERATION_TIMEOUT_MS).toBe(5000);
       expect(env.SEARCH_OPERATION_TIMEOUT_MS).toBe(10000);
+      expect(env.STARTUP_PROBE_SESSION_TIMEOUT_MS).toBe(5000);
     });
 
     it("parses valid timeout values from env", async () => {
       process.env.YDB_QDRANT_UPSERT_TIMEOUT_MS = "7500";
       process.env.YDB_QDRANT_SEARCH_TIMEOUT_MS = "20000";
+      process.env.YDB_QDRANT_STARTUP_PROBE_SESSION_TIMEOUT_MS = "4000";
 
       const env = await import("../../src/config/env.js");
 
       expect(env.UPSERT_OPERATION_TIMEOUT_MS).toBe(7500);
       expect(env.SEARCH_OPERATION_TIMEOUT_MS).toBe(20000);
+      expect(env.STARTUP_PROBE_SESSION_TIMEOUT_MS).toBe(4000);
     });
 
-    it("clamps operation timeouts to minimum 1000ms", async () => {
+    it("clamps timeouts to minimum 1000ms", async () => {
       process.env.YDB_QDRANT_UPSERT_TIMEOUT_MS = "10";
       process.env.YDB_QDRANT_SEARCH_TIMEOUT_MS = "0";
+      process.env.YDB_QDRANT_STARTUP_PROBE_SESSION_TIMEOUT_MS = "5";
 
       const env = await import("../../src/config/env.js");
 
       expect(env.UPSERT_OPERATION_TIMEOUT_MS).toBe(1000);
       expect(env.SEARCH_OPERATION_TIMEOUT_MS).toBe(1000);
+      expect(env.STARTUP_PROBE_SESSION_TIMEOUT_MS).toBe(1000);
     });
 
     it("falls back to defaults for invalid numeric input", async () => {
       process.env.YDB_QDRANT_UPSERT_TIMEOUT_MS = "NaN";
       process.env.YDB_QDRANT_SEARCH_TIMEOUT_MS = "oops";
+      process.env.YDB_QDRANT_STARTUP_PROBE_SESSION_TIMEOUT_MS = "bad";
 
       const env = await import("../../src/config/env.js");
 
       expect(env.UPSERT_OPERATION_TIMEOUT_MS).toBe(5000);
       expect(env.SEARCH_OPERATION_TIMEOUT_MS).toBe(10000);
+      expect(env.STARTUP_PROBE_SESSION_TIMEOUT_MS).toBe(5000);
     });
   });
 });
