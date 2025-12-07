@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765112426063,
+  "lastUpdate": 1765140953979,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (multi_table, 768D)": [
@@ -3409,6 +3409,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Soak: Upsert Latency p95",
             "value": 27,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Error Rate",
+            "value": 0,
+            "unit": "%"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "14aa13b6d916ed9650cc197c3d565623c8f68f6e",
+          "message": "fix: add startup to env (#141)",
+          "timestamp": "2025-12-07T23:52:08+03:00",
+          "tree_id": "64eedec3165b66f0150503b6230253192c445b87",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/14aa13b6d916ed9650cc197c3d565623c8f68f6e"
+        },
+        "date": 1765140953585,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Soak: Search Latency p95",
+            "value": 43,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Search Latency p99",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Upsert Latency p95",
+            "value": 23,
             "unit": "ms"
           },
           {
