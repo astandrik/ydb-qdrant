@@ -8,6 +8,7 @@ YDB Qdrant-compatible service is a Node.js/TypeScript service and npm library th
   - Metadata table `qdr__collections` stores per‑collection configuration (`table_name`, `vector_dimension`, `distance`, `vector_type`, `created_at`).
   - A single global points table `qdrant_all_points` with `(uid, point_id)` PK, where `uid` encodes tenant+collection.
     - Columns: `uid Utf8`, `point_id Utf8`, `embedding String` (binary float), `embedding_quantized String` (bit‑quantized), `payload JsonDocument`.
+    - Table is created with YDB auto-partitioning enabled (by load and by size) using the SDK table profile, with a target partition size of ~100 MB to allow the storage layer to split/merge partitions as load and size change.
 
 ### One-table Mode Migrations
 

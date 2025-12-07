@@ -1,6 +1,7 @@
 ## Deployment and Docker
 
 This document covers both the **standalone** `ydb-qdrant` image (connects to an external YDB) and the **all-in-one** `ydb-qdrant-local` image (includes a local YDB inside the container).
+The service creates the global points table with YDB auto-partitioning enabled (by load and by size) and a ~100 MB target partition size; no manual DDL is required from operators.
 
 ### Standalone HTTP Server (Published Image)
 

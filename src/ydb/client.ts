@@ -23,9 +23,17 @@ const {
   Column,
   ExecuteQuerySettings,
   OperationParams,
+  Ydb,
 } = require("ydb-sdk") as typeof import("ydb-sdk");
 
-export { Types, TypedValues, TableDescription, Column, ExecuteQuerySettings };
+export {
+  Types,
+  TypedValues,
+  TableDescription,
+  Column,
+  ExecuteQuerySettings,
+  Ydb,
+};
 
 export function createExecuteQuerySettings(options?: {
   keepInCache?: boolean;

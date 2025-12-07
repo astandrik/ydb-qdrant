@@ -67,6 +67,7 @@ Notes
   - `uid Utf8`, `point_id Utf8`, `embedding String` (binary float), `embedding_quantized String` (bit‑quantized), `payload JsonDocument`
   - Primary key: `(uid, point_id)` where `uid` is derived from tenant+collection (uses the same naming as the historical per‑collection tables).
   - Vector indexes are not used; searches are executed directly over `embedding` / `embedding_quantized`.
+  - Created via YDB SDK table profile with auto-partitioning enabled (by load and size) and a target partition size of 100 MB.
 
 ## YDB vector specifics (YQL)
 - Search (one-table layout):
