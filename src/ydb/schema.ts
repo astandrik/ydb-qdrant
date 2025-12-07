@@ -1,7 +1,6 @@
-import { withSession, TableDescription, Column, Types } from "./client.js";
+import { withSession, TableDescription, Column, Types, Ydb } from "./client.js";
 import { logger } from "../logging/logger.js";
 import { GLOBAL_POINTS_AUTOMIGRATE_ENABLED } from "../config/env.js";
-import type { Ydb } from "ydb-sdk";
 
 export const GLOBAL_POINTS_TABLE = "qdrant_all_points";
 // Shared YDB-related constants for repositories.
@@ -48,11 +47,13 @@ export async function ensureGlobalPointsTable(): Promise<void> {
   }
 
   await withSession(async (s) => {
-    let tableDescription: Ydb.Table.DescribeTableResult | null = null;
+    let tableDescription: Awaited<ReturnType<typeof s.describeTable>> | null =
+      null;
     try {
       tableDescription = await s.describeTable(GLOBAL_POINTS_TABLE);
     } catch {
-      // Table doesn't exist, create it with all columns using the new schema.
+      // Table doesn't exist, create it with all columns using the new schema and
+      // auto-partitioning enabled.
       const desc = new TableDescription()
         .withColumns(
           new Column("uid", Types.UTF8),
@@ -62,6 +63,13 @@ export async function ensureGlobalPointsTable(): Promise<void> {
           new Column("payload", Types.JSON_DOCUMENT)
         )
         .withPrimaryKeys("uid", "point_id");
+
+      desc.withPartitioningSettings({
+        partitioningByLoad: Ydb.FeatureFlag.Status.ENABLED,
+        partitioningBySize: Ydb.FeatureFlag.Status.ENABLED,
+        partitionSizeMb: 100,
+      });
+
       await s.createTable(GLOBAL_POINTS_TABLE, desc);
       globalPointsTableReady = true;
       logger.info(`created global points table ${GLOBAL_POINTS_TABLE}`);

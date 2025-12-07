@@ -20,6 +20,11 @@ vi.mock("../../src/ydb/client.js", () => {
     withPrimaryKeys(..._keys: string[]) {
       return this;
     }
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    withPartitioningSettings(..._settings: unknown[]) {
+      return this;
+    }
   }
 
   class FakeColumn {
@@ -34,6 +39,15 @@ vi.mock("../../src/ydb/client.js", () => {
       UTF8: "UTF8",
       BYTES: "BYTES",
       JSON_DOCUMENT: "JSON_DOCUMENT",
+      UINT32: "UINT32",
+      TIMESTAMP: "TIMESTAMP",
+    },
+    Ydb: {
+      FeatureFlag: {
+        Status: {
+          ENABLED: 1,
+        },
+      },
     },
     withSession: vi.fn(),
   };
