@@ -66,6 +66,8 @@ Key env vars (all optional; the image provides sensible defaults, override only 
   - `LOG_LEVEL` (default `info`).
   - `YDB_QDRANT_SEARCH_MODE` (`approximate` or `exact`) and `YDB_QDRANT_OVERFETCH_MULTIPLIER` (candidate multiplier in approximate mode).
   - `YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE`.
+  - `YDB_QDRANT_UPSERT_TIMEOUT_MS` (default `5000`): per‑query YDB operation timeout in milliseconds for batched upserts; long‑running UPSERT statements are cancelled when this bound is exceeded.
+  - `YDB_QDRANT_SEARCH_TIMEOUT_MS` (default `10000`): per‑query YDB operation timeout in milliseconds for search operations; long‑running search statements are cancelled when this bound is exceeded.
   - `YDB_QDRANT_LOCAL_MAX_YDB_FAILURES` (default `5`): number of consecutive embedded YDB TCP health check failures in the local monitor before exiting with a non-zero status (used to trigger container restart under a restart policy).
   - `YDB_QDRANT_LOCAL_YDB_CHECK_INTERVAL` (default `10`): interval in seconds between embedded YDB TCP health checks performed by the local monitor.
 
@@ -73,7 +75,15 @@ Key env vars (all optional; the image provides sensible defaults, override only 
 
 #### Health checks and self-healing (`ydb-qdrant-local`)
 
-The local image exposes `/health` on port `8080`. This endpoint reports `status: "ok"` only when both the HTTP server and the embedded YDB instance are reachable. If YDB is down, `/health` returns HTTP 503 so Docker health checks can detect the failure.
+The local image exposes `/health` on port `8080`. This endpoint reports `status: "ok"` only when both the HTTP server and the embedded YDB instance are reachable and a lightweight compilation probe succeeds. If YDB is down or the probe fails, `/health` returns HTTP 503 with an error payload and the process exits shortly after sending the response so Docker health checks and restart policies can move traffic to a fresh container.
+
+Restart behavior depends on how you run the container:
+
+- **Plain `docker run` without a restart policy**: when the process exits (for example after repeated YDB failures or a fatal health probe), the container stops and stays stopped until you manually restart it.
+- **`docker run` with a restart policy (e.g. `--restart=on-failure` or `--restart=unless-stopped`)**: a non‑zero exit code from the process causes Docker to automatically restart the container according to that policy.
+- **Docker Compose**: use `restart: unless-stopped` (or similar) on the service to get the same behavior; a failed health probe or internal `process.exit(1)` will stop the container and Compose will start a fresh one.
+
+In Kubernetes or other orchestrators, the same pattern applies: the container’s non‑zero exit status is treated as a failed pod/container and the controller recreates it based on the workload’s restart policy.
 
 When running with a restart policy, Docker or your orchestrator can automatically restart the container if the process exits or the container is marked unhealthy. A typical local run with a restart policy:
 

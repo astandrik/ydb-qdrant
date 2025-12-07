@@ -11,6 +11,7 @@ import {
   createCollectionOneTable,
   deleteCollectionOneTable,
 } from "./collectionsRepo.one-table.js";
+import { withRetry, isTransientYdbError } from "../utils/retry.js";
 
 export async function createCollection(
   metaKey: string,
@@ -73,21 +74,31 @@ export async function verifyCollectionsQueryCompilationForStartup(): Promise<voi
     FROM qdr__collections
     WHERE collection = $collection;
   `;
-  await withStartupProbeSession(async (s) => {
-    const settings = createExecuteQuerySettingsWithTimeout({
-      keepInCache: true,
-      idempotent: true,
-      timeoutMs: 3000,
-    });
-    await s.executeQuery(
-      qry,
-      {
-        $collection: TypedValues.utf8(probeKey),
-      },
-      undefined,
-      settings
-    );
-  });
+  await withRetry(
+    async () => {
+      await withStartupProbeSession(async (s) => {
+        const settings = createExecuteQuerySettingsWithTimeout({
+          keepInCache: true,
+          idempotent: true,
+          timeoutMs: 3000,
+        });
+        await s.executeQuery(
+          qry,
+          {
+            $collection: TypedValues.utf8(probeKey),
+          },
+          undefined,
+          settings
+        );
+      });
+    },
+    {
+      isTransient: isTransientYdbError,
+      maxRetries: 2,
+      baseDelayMs: 200,
+      context: { probe: "collections_startup_compilation" },
+    }
+  );
 }
 
 export async function deleteCollection(

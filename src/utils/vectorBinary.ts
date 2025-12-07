@@ -42,3 +42,5 @@ export function vectorToBitBinary(vector: number[]): Buffer {
 
   return buffer;
 }
+
+

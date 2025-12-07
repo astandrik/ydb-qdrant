@@ -5,6 +5,13 @@ vi.mock("../../src/ydb/client.js", () => {
     kind: "ExecuteQuerySettings",
   }));
 
+  const createExecuteQuerySettingsWithTimeout = vi.fn(
+    (options?: { timeoutMs: number }) => ({
+      kind: "ExecuteQuerySettingsWithTimeout",
+      timeoutMs: options?.timeoutMs,
+    })
+  );
+
   return {
     Types: {
       UTF8: "UTF8",
@@ -25,6 +32,7 @@ vi.mock("../../src/ydb/client.js", () => {
     },
     withSession: vi.fn(),
     createExecuteQuerySettings,
+    createExecuteQuerySettingsWithTimeout,
   };
 });
 

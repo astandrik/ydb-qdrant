@@ -3,6 +3,7 @@ import {
   Types,
   withSession,
   createExecuteQuerySettings,
+  createExecuteQuerySettingsWithTimeout,
 } from "../ydb/client.js";
 import type { Ydb } from "ydb-sdk";
 import { buildVectorParam, buildVectorBinaryParams } from "../ydb/helpers.js";
@@ -16,6 +17,8 @@ import { UPSERT_BATCH_SIZE } from "../ydb/schema.js";
 import {
   CLIENT_SIDE_SERIALIZATION_ENABLED,
   SearchMode,
+  UPSERT_OPERATION_TIMEOUT_MS,
+  SEARCH_OPERATION_TIMEOUT_MS,
 } from "../config/env.js";
 import { logger } from "../logging/logger.js";
 
@@ -57,7 +60,11 @@ export async function upsertPointsOneTable(
   let upserted = 0;
 
   await withSession(async (s) => {
-    const settings = createExecuteQuerySettings();
+    const settings = createExecuteQuerySettingsWithTimeout({
+      keepInCache: true,
+      idempotent: true,
+      timeoutMs: UPSERT_OPERATION_TIMEOUT_MS,
+    });
     for (let i = 0; i < points.length; i += UPSERT_BATCH_SIZE) {
       const batch = points.slice(i, i + UPSERT_BATCH_SIZE);
 
@@ -171,13 +178,10 @@ export async function upsertPointsOneTable(
         "one_table upsert: executing YQL"
       );
 
-      await withRetry(
-        () => s.executeQuery(ddl, params, undefined, settings),
-        {
-          isTransient: isTransientYdbError,
-          context: { tableName, batchSize: batch.length },
-        }
-      );
+      await withRetry(() => s.executeQuery(ddl, params, undefined, settings), {
+        isTransient: isTransientYdbError,
+        context: { tableName, batchSize: batch.length },
+      });
       upserted += batch.length;
     }
   });
@@ -274,7 +278,11 @@ async function searchPointsOneTableExact(
       "one_table search (exact): executing YQL"
     );
 
-    const settings = createExecuteQuerySettings();
+    const settings = createExecuteQuerySettingsWithTimeout({
+      keepInCache: true,
+      idempotent: true,
+      timeoutMs: SEARCH_OPERATION_TIMEOUT_MS,
+    });
     const rs = await s.executeQuery(yql, params, undefined, settings);
     const rowset = rs.resultSets?.[0];
     const rows = (rowset?.rows ?? []) as Array<{
@@ -462,7 +470,11 @@ async function searchPointsOneTableApproximate(
       );
     }
 
-    const settings = createExecuteQuerySettings();
+    const settings = createExecuteQuerySettingsWithTimeout({
+      keepInCache: true,
+      idempotent: true,
+      timeoutMs: SEARCH_OPERATION_TIMEOUT_MS,
+    });
     const rs = await s.executeQuery(yql, params, undefined, settings);
     const rowset = rs.resultSets?.[0];
     const rows = (rowset?.rows ?? []) as Array<{
