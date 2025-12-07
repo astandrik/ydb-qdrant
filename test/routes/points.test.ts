@@ -1,12 +1,31 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+const loggerErrorMock = vi.fn();
+
 vi.mock("../../src/logging/logger.js", () => ({
   logger: {
     info: vi.fn(),
     warn: vi.fn(),
-    error: vi.fn(),
+    error: (...args: unknown[]) => {
+      loggerErrorMock(...args);
+    },
     debug: vi.fn(),
   },
+}));
+
+const isCompilationTimeoutErrorMock = vi.fn<(err: unknown) => boolean>();
+const scheduleExitMock = vi.fn<(code: number) => void>();
+
+vi.mock("../../src/ydb/client.js", () => ({
+  isCompilationTimeoutError: (...args: unknown[]) =>
+    isCompilationTimeoutErrorMock(...(args as [unknown])),
+}));
+
+vi.mock("../../src/utils/exit.js", () => ({
+  scheduleExit: (...args: unknown[]) => {
+    scheduleExitMock(...(args as [number]));
+  },
+  __setExitFnForTests: vi.fn(),
 }));
 
 vi.mock("../../src/services/errors.js", () => {
@@ -40,7 +59,6 @@ vi.mock("../../src/services/PointsService.js", () => ({
 import { pointsRouter } from "../../src/routes/points.js";
 import * as pointsService from "../../src/services/PointsService.js";
 import { QdrantServiceError } from "../../src/services/errors.js";
-import { logger } from "../../src/logging/logger.js";
 import {
   findHandler,
   createMockRes,
@@ -49,6 +67,7 @@ import {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  isCompilationTimeoutErrorMock.mockReturnValue(false);
 });
 
 describe("pointsRouter (HTTP, mocked service)", () => {
@@ -224,8 +243,7 @@ describe("pointsRouter (HTTP, mocked service)", () => {
       400,
       {
         status: "error",
-        error:
-          "Vector dimension mismatch for id=p1: got 4096, expected 3072",
+        error: "Vector dimension mismatch for id=p1: got 4096, expected 3072",
       },
       "Vector dimension mismatch for id=p1: got 4096, expected 3072"
     );
@@ -237,8 +255,7 @@ describe("pointsRouter (HTTP, mocked service)", () => {
     expect(res.statusCode).toBe(400);
     expect(res.body).toEqual({
       status: "error",
-      error:
-        "Vector dimension mismatch for id=p1: got 4096, expected 3072",
+      error: "Vector dimension mismatch for id=p1: got 4096, expected 3072",
     });
   });
 
@@ -256,15 +273,139 @@ describe("pointsRouter (HTTP, mocked service)", () => {
     });
     const res = createMockRes();
 
-    vi.mocked(pointsService.deletePoints).mockRejectedValueOnce(new Error("boom"));
+    vi.mocked(pointsService.deletePoints).mockRejectedValueOnce(
+      new Error("boom")
+    );
 
     await deleteHandler(req, res);
 
-    expect(logger.error).toHaveBeenCalled();
+    expect(loggerErrorMock).toHaveBeenCalled();
     expect(res.statusCode).toBe(500);
     expect(res.body).toEqual({
       status: "error",
       error: "boom",
     });
+  });
+
+  it("returns 500 and schedules exit on compilation error during upsert (PUT)", async () => {
+    const putHandler = findHandler(pointsRouter, "put", "/:collection/points");
+    const req = createRequest({
+      method: "PUT",
+      collection: "col",
+      body: {
+        points: [{ id: "p1", vector: [0, 0, 0, 1] }],
+      },
+      tenantHeader: "tenant",
+    });
+    const res = createMockRes();
+
+    isCompilationTimeoutErrorMock.mockReturnValueOnce(true);
+    vi.mocked(pointsService.upsertPoints).mockRejectedValueOnce(
+      new Error("compilation timeout")
+    );
+
+    await putHandler(req, res);
+
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toEqual({
+      status: "error",
+      error: "compilation timeout",
+    });
+    expect(scheduleExitMock).toHaveBeenCalledWith(1);
+  });
+
+  it("returns 500 and schedules exit on compilation error during upsert (POST)", async () => {
+    const postUpsertHandler = findHandler(
+      pointsRouter,
+      "post",
+      "/:collection/points/upsert"
+    );
+    const req = createRequest({
+      method: "POST",
+      collection: "col",
+      body: {
+        points: [{ id: "p1", vector: [0, 0, 0, 1] }],
+      },
+      tenantHeader: "tenant",
+    });
+    const res = createMockRes();
+
+    isCompilationTimeoutErrorMock.mockReturnValueOnce(true);
+    vi.mocked(pointsService.upsertPoints).mockRejectedValueOnce(
+      new Error("compilation timeout")
+    );
+
+    await postUpsertHandler(req, res);
+
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toEqual({
+      status: "error",
+      error: "compilation timeout",
+    });
+    expect(scheduleExitMock).toHaveBeenCalledWith(1);
+  });
+
+  it("returns 500 and schedules exit on compilation error during search", async () => {
+    const searchHandler = findHandler(
+      pointsRouter,
+      "post",
+      "/:collection/points/search"
+    );
+    const req = createRequest({
+      method: "POST",
+      collection: "col",
+      body: {
+        vector: [0, 0, 0, 1],
+        top: 1,
+      },
+      tenantHeader: "tenant",
+    });
+    const res = createMockRes();
+
+    isCompilationTimeoutErrorMock.mockReturnValueOnce(true);
+    vi.mocked(pointsService.searchPoints).mockRejectedValueOnce(
+      new Error("compilation timeout")
+    );
+
+    await searchHandler(req, res);
+
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toEqual({
+      status: "error",
+      error: "compilation timeout",
+    });
+    expect(scheduleExitMock).toHaveBeenCalledWith(1);
+  });
+
+  it("returns 500 and schedules exit on compilation error during query", async () => {
+    const queryHandler = findHandler(
+      pointsRouter,
+      "post",
+      "/:collection/points/query"
+    );
+    const req = createRequest({
+      method: "POST",
+      collection: "col",
+      body: {
+        query: { vector: [0, 0, 0, 1] },
+        limit: 2,
+      },
+      tenantHeader: "tenant",
+    });
+    const res = createMockRes();
+
+    isCompilationTimeoutErrorMock.mockReturnValueOnce(true);
+    vi.mocked(pointsService.queryPoints).mockRejectedValueOnce(
+      new Error("compilation timeout")
+    );
+
+    await queryHandler(req, res);
+
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toEqual({
+      status: "error",
+      error: "compilation timeout",
+    });
+    expect(scheduleExitMock).toHaveBeenCalledWith(1);
   });
 });

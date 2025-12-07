@@ -7,6 +7,8 @@ import {
 } from "../services/PointsService.js";
 import { QdrantServiceError } from "../services/errors.js";
 import { logger } from "../logging/logger.js";
+import { isCompilationTimeoutError } from "../ydb/client.js";
+import { scheduleExit } from "../utils/exit.js";
 
 export const pointsRouter = Router();
 
@@ -27,8 +29,17 @@ pointsRouter.put("/:collection/points", async (req: Request, res: Response) => {
     if (err instanceof QdrantServiceError) {
       return res.status(err.statusCode).json(err.payload);
     }
-    logger.error({ err }, "upsert points (PUT) failed");
     const errorMessage = err instanceof Error ? err.message : String(err);
+    if (isCompilationTimeoutError(err)) {
+      logger.error(
+        { err },
+        "YDB compilation error during upsert points (PUT); scheduling process exit"
+      );
+      res.status(500).json({ status: "error", error: errorMessage });
+      scheduleExit(1);
+      return;
+    }
+    logger.error({ err }, "upsert points (PUT) failed");
     res.status(500).json({ status: "error", error: errorMessage });
   }
 });
@@ -51,8 +62,17 @@ pointsRouter.post(
       if (err instanceof QdrantServiceError) {
         return res.status(err.statusCode).json(err.payload);
       }
-      logger.error({ err }, "upsert points failed");
       const errorMessage = err instanceof Error ? err.message : String(err);
+      if (isCompilationTimeoutError(err)) {
+        logger.error(
+          { err },
+          "YDB compilation error during upsert points; scheduling process exit"
+        );
+        res.status(500).json({ status: "error", error: errorMessage });
+        scheduleExit(1);
+        return;
+      }
+      logger.error({ err }, "upsert points failed");
       res.status(500).json({ status: "error", error: errorMessage });
     }
   }
@@ -76,8 +96,17 @@ pointsRouter.post(
       if (err instanceof QdrantServiceError) {
         return res.status(err.statusCode).json(err.payload);
       }
-      logger.error({ err }, "search points failed");
       const errorMessage = err instanceof Error ? err.message : String(err);
+      if (isCompilationTimeoutError(err)) {
+        logger.error(
+          { err },
+          "YDB compilation error during search points; scheduling process exit"
+        );
+        res.status(500).json({ status: "error", error: errorMessage });
+        scheduleExit(1);
+        return;
+      }
+      logger.error({ err }, "search points failed");
       res.status(500).json({ status: "error", error: errorMessage });
     }
   }
@@ -102,8 +131,17 @@ pointsRouter.post(
       if (err instanceof QdrantServiceError) {
         return res.status(err.statusCode).json(err.payload);
       }
-      logger.error({ err }, "search points (query) failed");
       const errorMessage = err instanceof Error ? err.message : String(err);
+      if (isCompilationTimeoutError(err)) {
+        logger.error(
+          { err },
+          "YDB compilation error during search points (query); scheduling process exit"
+        );
+        res.status(500).json({ status: "error", error: errorMessage });
+        scheduleExit(1);
+        return;
+      }
+      logger.error({ err }, "search points (query) failed");
       res.status(500).json({ status: "error", error: errorMessage });
     }
   }

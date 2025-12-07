@@ -42,12 +42,14 @@ Notes
   - `YDB_SESSION_POOL_MIN_SIZE` — minimum number of sessions in the pool (default `5`, range 1–500).
   - `YDB_SESSION_POOL_MAX_SIZE` — maximum number of sessions in the pool (default `100`, range 1–500).
   - `YDB_SESSION_KEEPALIVE_PERIOD_MS` — interval in milliseconds for session health checks (default `5000`, range 1000–60000). Dead sessions are automatically removed from the pool.
+  - `YDB_QDRANT_UPSERT_TIMEOUT_MS` — per‑query YDB operation timeout in milliseconds for upsert batches (default `5000`); individual UPSERT statements are cancelled if they exceed this bound.
+  - `YDB_QDRANT_SEARCH_TIMEOUT_MS` — per‑query YDB operation timeout in milliseconds for search operations (default `10000`); search YQL statements are cancelled if they exceed this bound.
 
 ## Run
 - Dev: `npm run dev`  (tsx + watch)
 - Build: `npm run build`
 - Prod: `npm start`
-- Health: `GET /health` → `{ status: "ok" }`
+- Health: `GET /health` returns JSON health status. It responds with `{ "status": "ok" }` only when the HTTP server is up, the YDB driver is ready, and a lightweight compilation probe over `qdr__collections` succeeds; if YDB is unavailable or the probe fails it returns HTTP 503 with an error payload and then terminates the process after sending the response so a supervisor/orchestrator can restart the service.
 
 ## Docker images & compose
 - Published image: `ghcr.io/astandrik/ydb-qdrant:latest` (public, pull-only), package page: https://github.com/users/astandrik/packages/container/package/ydb-qdrant.
@@ -58,6 +60,12 @@ Notes
 - Updating to a newer image when using compose (no rebuild):
   - `docker-compose pull ydb-qdrant && docker-compose up -d ydb-qdrant`.
 - For agents that need a Qdrant base URL, point them at `http://localhost:8080` when this container/compose stack is running.
+
+### Restart behavior and fatal errors
+
+- When running under Docker or an orchestrator, the Node.js process exiting with a non‑zero status (for example because `/health` detected that YDB is unavailable or a compilation probe failed, or because a YDB compilation error occurred during upsert/search) is treated as a signal that the instance is unhealthy.
+- Without a restart policy, the container simply stops and remains down until restarted manually.
+- With a restart policy (`--restart=on-failure` / `--restart=unless-stopped` in `docker run`, or `restart: unless-stopped` in Compose / a typical Kubernetes `Deployment`), a non‑zero exit causes the platform to tear down the failed container/pod and start a fresh one, so subsequent requests and IDE retries are routed to a healthy instance.
 
 ## Data model
 - Metadata table: `qdr__collections`
