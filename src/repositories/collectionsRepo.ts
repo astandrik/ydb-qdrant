@@ -2,6 +2,8 @@ import {
   TypedValues,
   withSession,
   createExecuteQuerySettings,
+  withStartupProbeSession,
+  createExecuteQuerySettingsWithTimeout,
 } from "../ydb/client.js";
 import type { DistanceKind, VectorType } from "../types";
 import { uidFor } from "../utils/tenant.js";
@@ -61,6 +63,31 @@ export async function getCollectionMeta(metaKey: string): Promise<{
     (row.items?.[2]?.textValue as DistanceKind) ?? ("Cosine" as DistanceKind);
   const vectorType = (row.items?.[3]?.textValue as VectorType) ?? "float";
   return { table, dimension, distance, vectorType };
+}
+
+export async function verifyCollectionsQueryCompilationForStartup(): Promise<void> {
+  const probeKey = "__startup_probe__/__startup_probe__";
+  const qry = `
+    DECLARE $collection AS Utf8;
+    SELECT table_name, vector_dimension, distance, vector_type
+    FROM qdr__collections
+    WHERE collection = $collection;
+  `;
+  await withStartupProbeSession(async (s) => {
+    const settings = createExecuteQuerySettingsWithTimeout({
+      keepInCache: true,
+      idempotent: true,
+      timeoutMs: 3000,
+    });
+    await s.executeQuery(
+      qry,
+      {
+        $collection: TypedValues.utf8(probeKey),
+      },
+      undefined,
+      settings
+    );
+  });
 }
 
 export async function deleteCollection(
