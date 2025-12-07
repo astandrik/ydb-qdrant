@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765140955601,
+  "lastUpdate": 1765140956464,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (multi_table, 768D)": [
@@ -4867,6 +4867,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Soak: Throughput",
             "value": 71.34376318463995,
+            "unit": "ops/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "14aa13b6d916ed9650cc197c3d565623c8f68f6e",
+          "message": "fix: add startup to env (#141)",
+          "timestamp": "2025-12-07T23:52:08+03:00",
+          "tree_id": "64eedec3165b66f0150503b6230253192c445b87",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/14aa13b6d916ed9650cc197c3d565623c8f68f6e"
+        },
+        "date": 1765140955523,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Soak: Throughput",
+            "value": 65.93824937078776,
             "unit": "ops/s"
           }
         ]
