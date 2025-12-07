@@ -5,6 +5,7 @@ import {
   withStartupProbeSession,
   createExecuteQuerySettingsWithTimeout,
 } from "../ydb/client.js";
+import { STARTUP_PROBE_SESSION_TIMEOUT_MS } from "../config/env.js";
 import type { DistanceKind, VectorType } from "../types";
 import { uidFor } from "../utils/tenant.js";
 import {
@@ -80,7 +81,7 @@ export async function verifyCollectionsQueryCompilationForStartup(): Promise<voi
         const settings = createExecuteQuerySettingsWithTimeout({
           keepInCache: true,
           idempotent: true,
-          timeoutMs: 3000,
+          timeoutMs: STARTUP_PROBE_SESSION_TIMEOUT_MS,
         });
         await s.executeQuery(
           qry,

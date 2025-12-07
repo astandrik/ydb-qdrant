@@ -10,6 +10,7 @@ import {
   SESSION_POOL_MIN_SIZE,
   SESSION_POOL_MAX_SIZE,
   SESSION_KEEPALIVE_PERIOD_MS,
+  STARTUP_PROBE_SESSION_TIMEOUT_MS,
 } from "../config/env.js";
 import { logger } from "../logging/logger.js";
 
@@ -70,7 +71,6 @@ const DRIVER_READY_TIMEOUT_MS = 15000;
 const TABLE_SESSION_TIMEOUT_MS = 20000;
 const YDB_HEALTHCHECK_READY_TIMEOUT_MS = 5000;
 const DRIVER_REFRESH_COOLDOWN_MS = 30000;
-const STARTUP_PROBE_SESSION_TIMEOUT_MS = 3000;
 
 type DriverConfig = {
   endpoint?: string;
