@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## [5.1.0](https://github.com/astandrik/ydb-qdrant/compare/v5.0.0...v5.1.0) (2025-12-07)
+
+
+### Features
+
+* autopartition table ([#137](https://github.com/astandrik/ydb-qdrant/issues/137)) ([a568d7f](https://github.com/astandrik/ydb-qdrant/commit/a568d7fc57f3e749715e5e115947a16ba659f5c8))
+* health check make probe ([#140](https://github.com/astandrik/ydb-qdrant/issues/140)) ([db66fcb](https://github.com/astandrik/ydb-qdrant/commit/db66fcbb495bcc91ccc75cc2f7e526b282a5a6ed))
+
 ## [5.0.0](https://github.com/astandrik/ydb-qdrant/compare/v4.8.1...v5.0.0) (2025-12-07)
 
 
