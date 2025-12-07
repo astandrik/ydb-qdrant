@@ -22,6 +22,7 @@ const {
   TableDescription,
   Column,
   ExecuteQuerySettings,
+  OperationParams,
 } = require("ydb-sdk") as typeof import("ydb-sdk");
 
 export { Types, TypedValues, TableDescription, Column, ExecuteQuerySettings };
@@ -41,10 +42,27 @@ export function createExecuteQuerySettings(options?: {
   return settings;
 }
 
+export function createExecuteQuerySettingsWithTimeout(options: {
+  keepInCache?: boolean;
+  idempotent?: boolean;
+  timeoutMs: number;
+}): YdbExecuteQuerySettings {
+  const settings = createExecuteQuerySettings(options);
+  const op = new OperationParams();
+  const seconds = Math.max(1, Math.ceil(options.timeoutMs / 1000));
+  // Limit both overall operation processing time and cancellation time on the
+  // server side so the probe fails fast instead of hanging for the default.
+  op.withOperationTimeoutSeconds(seconds);
+  op.withCancelAfterSeconds(seconds);
+  settings.withOperationParams(op);
+  return settings;
+}
+
 const DRIVER_READY_TIMEOUT_MS = 15000;
 const TABLE_SESSION_TIMEOUT_MS = 20000;
 const YDB_HEALTHCHECK_READY_TIMEOUT_MS = 5000;
 const DRIVER_REFRESH_COOLDOWN_MS = 30000;
+const STARTUP_PROBE_SESSION_TIMEOUT_MS = 3000;
 
 type DriverConfig = {
   endpoint?: string;
@@ -63,6 +81,29 @@ let driverFactoryOverride:
   | ((config: unknown) => InstanceType<typeof Driver>)
   | undefined;
 
+export function isCompilationTimeoutError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const msg = error.message ?? "";
+  if (
+    /Timeout \(code 400090\)/i.test(msg) ||
+    /Query compilation timed out/i.test(msg)
+  ) {
+    return true;
+  }
+  // Startup probe uses explicit cancel-after; YDB returns Cancelled with
+  // issues like "Cancelling after 3000ms during compilation". Treat this as
+  // a compilation-time failure for fatal startup handling.
+  if (
+    /Cancelled \(code 400160\)/i.test(msg) &&
+    /during compilation/i.test(msg)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function shouldTriggerDriverRefresh(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false;
@@ -75,6 +116,12 @@ function shouldTriggerDriverRefresh(error: unknown): boolean {
     return true;
   }
   if (/SessionExpired|SESSION_EXPIRED|session.*expired/i.test(msg)) {
+    return true;
+  }
+  // YDB query compilation timeout (TIMEOUT code 400090) – treat as a signal
+  // to refresh the driver/session pool so that subsequent attempts use a
+  // fresh connection state.
+  if (isCompilationTimeoutError(error)) {
     return true;
   }
   return false;
@@ -101,8 +148,10 @@ async function maybeRefreshDriverOnSessionError(error: unknown): Promise<void> {
   }
 
   lastDriverRefreshAt = now;
+  const errorMessage =
+    error instanceof Error ? error.message ?? "" : String(error);
   logger.warn(
-    { err: error },
+    { err: error, errorMessage, lastDriverRefreshAt },
     "YDB session-related error detected; refreshing driver"
   );
   try {
@@ -199,6 +248,21 @@ export async function withSession<T>(
   const d = getOrCreateDriver();
   try {
     return await d.tableClient.withSession(fn, TABLE_SESSION_TIMEOUT_MS);
+  } catch (err) {
+    void maybeRefreshDriverOnSessionError(err);
+    throw err;
+  }
+}
+
+export async function withStartupProbeSession<T>(
+  fn: (s: Session) => Promise<T>
+): Promise<T> {
+  const d = getOrCreateDriver();
+  try {
+    return await d.tableClient.withSession(
+      fn,
+      STARTUP_PROBE_SESSION_TIMEOUT_MS
+    );
   } catch (err) {
     void maybeRefreshDriverOnSessionError(err);
     throw err;

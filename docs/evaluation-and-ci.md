@@ -9,14 +9,14 @@ GitHub Actions workflows cover:
 - Build and typecheck.
 - Unit and integration tests.
 - Integration tests against YDB using the integration suite.
-- Recall and F1 evaluation for different storage layouts.
+- Recall and F1 evaluation for the one-table global layout (approximate and exact search modes).
 
 Badges in the root README link to:
 
 - Build: `ci-build.yml`
 - Tests: `ci-tests.yml`
 - Integration tests: `ci-integration.yml`
-- Recall/F1: `ci-recall.yml` with badges for multi_table and one_table layouts.
+- Recall/F1: `ci-recall.yml` with badges for the one_table layout.
 
 ### Recall and F1 Evaluation
 
@@ -62,8 +62,6 @@ High-level IR evaluation background follows:
 
 Tests output metrics for Shields.io badges:
 ```
-RECALL_MEAN_MULTI_TABLE <value>
-F1_MEAN_MULTI_TABLE <value>
 RECALL_MEAN_ONE_TABLE <value>
 F1_MEAN_ONE_TABLE <value>
 ```

@@ -45,10 +45,6 @@ vi.mock("../../src/ydb/helpers.js", () => {
   };
 });
 
-vi.mock("../../src/indexing/IndexScheduler.js", () => ({
-  notifyUpsert: vi.fn(),
-}));
-
 vi.mock("../../src/config/env.js", async () => {
   const actual = await vi.importActual<
     typeof import("../../src/config/env.js")
@@ -57,8 +53,6 @@ vi.mock("../../src/config/env.js", async () => {
   return {
     ...actual,
     LOG_LEVEL: "info",
-    VECTOR_INDEX_BUILD_ENABLED: true,
-    COLLECTION_STORAGE_MODE: actual.CollectionStorageMode.MultiTable,
     SEARCH_MODE: actual.SearchMode.Approximate,
     CLIENT_SIDE_SERIALIZATION_ENABLED: false,
   };
@@ -70,7 +64,6 @@ import {
   deletePoints,
 } from "../../src/repositories/pointsRepo.js";
 import * as ydbClient from "../../src/ydb/client.js";
-import { notifyUpsert } from "../../src/indexing/IndexScheduler.js";
 import { UPSERT_BATCH_SIZE } from "../../src/ydb/schema.js";
 
 const withSessionMock = ydbClient.withSession as unknown as Mock;
@@ -80,7 +73,7 @@ describe("pointsRepo (with mocked YDB)", () => {
     vi.clearAllMocks();
   });
 
-  it("upserts points and notifies scheduler", async () => {
+  it("upserts points and notifies scheduler (one_table)", async () => {
     const sessionMock = {
       executeQuery: vi.fn(),
     };
@@ -90,45 +83,17 @@ describe("pointsRepo (with mocked YDB)", () => {
     });
 
     const result = await upsertPoints(
-      "qdr_tenant_a__my_collection",
+      "qdrant_all_points",
       [
         { id: "p1", vector: [0, 0, 0, 1], payload: { a: 1 } },
         { id: 2, vector: [0, 0, 1, 0] },
       ],
-      4
+      4,
+      "qdr_tenant_a__my_collection"
     );
 
     expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
     expect(result).toBe(2);
-    expect(notifyUpsert).toHaveBeenCalledWith("qdr_tenant_a__my_collection", 2);
-  });
-
-  it("upserts more than UPSERT_BATCH_SIZE points in multiple batches (multi_table)", async () => {
-    const sessionMock = {
-      executeQuery: vi.fn(),
-    };
-
-    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
-      await fn(sessionMock);
-    });
-
-    const total = UPSERT_BATCH_SIZE + 50;
-    const points = Array.from({ length: total }, (_, i) => ({
-      id: `p${i}`,
-      vector: [0, 0, 0, 1],
-      payload: { i },
-    }));
-
-    const result = await upsertPoints("qdr_tenant_a__my_collection", points, 4);
-
-    expect(result).toBe(total);
-    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(
-      Math.ceil(total / UPSERT_BATCH_SIZE)
-    );
-    expect(notifyUpsert).toHaveBeenCalledWith(
-      "qdr_tenant_a__my_collection",
-      total
-    );
   });
 
   it("throws on vector dimension mismatch in upsertPoints", async () => {
@@ -142,67 +107,13 @@ describe("pointsRepo (with mocked YDB)", () => {
 
     await expect(
       upsertPoints(
-        "qdr_tenant_a__my_collection",
+        "qdrant_all_points",
         [{ id: "p1", vector: [0, 1], payload: {} }],
-        4
+        4,
+        "qdr_tenant_a__my_collection"
       )
     ).rejects.toThrow(/Vector dimension mismatch/);
     expect(sessionMock.executeQuery).not.toHaveBeenCalled();
-  });
-
-  it("searches points using index and falls back on missing index", async () => {
-    const firstSession = {
-      executeQuery: vi
-        .fn()
-        .mockResolvedValueOnce({
-          resultSets: [
-            {
-              rows: [
-                {
-                  items: [{ textValue: "p1" }, { floatValue: 0.9 }],
-                },
-              ],
-            },
-          ],
-        })
-        .mockRejectedValueOnce(new Error("no such index")),
-    };
-
-    const secondSession = {
-      executeQuery: vi.fn().mockResolvedValueOnce({
-        resultSets: [
-          {
-            rows: [
-              {
-                items: [{ textValue: "p2" }, { floatValue: 0.8 }],
-              },
-            ],
-          },
-        ],
-      }),
-    };
-
-    let callCount = 0;
-    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
-      callCount += 1;
-      if (callCount === 1) {
-        return await fn(firstSession);
-      }
-      return await fn(secondSession);
-    });
-
-    const result = await searchPoints(
-      "qdr_tenant_a__my_collection",
-      [0, 0, 0, 1],
-      5,
-      false,
-      "Cosine",
-      4
-    );
-
-    // First attempt should succeed with index, second attempt would be fallback
-    expect(result).toEqual([{ id: "p1", score: 0.9 }]);
-    expect(firstSession.executeQuery).toHaveBeenCalled();
   });
 
   it("parses payload and score from search results", async () => {
@@ -229,12 +140,13 @@ describe("pointsRepo (with mocked YDB)", () => {
     });
 
     const result = await searchPoints(
-      "qdr_tenant_a__my_collection",
+      "qdrant_all_points",
       [0, 0, 0, 1],
       1,
       true,
       "Cosine",
-      4
+      4,
+      "qdr_tenant_a__my_collection"
     );
 
     expect(result[0]).toEqual({
@@ -265,32 +177,15 @@ describe("pointsRepo (with mocked YDB)", () => {
 
     await expect(
       searchPoints(
-        "qdr_tenant_a__my_collection",
+        "qdrant_all_points",
         [0, 0, 0, 1],
         1,
         false,
         "Cosine",
-        4
+        4,
+        "qdr_tenant_a__my_collection"
       )
     ).rejects.toThrow("point_id is missing in YDB search result");
-  });
-
-  it("deletes points one by one and returns deleted count", async () => {
-    const sessionMock = {
-      executeQuery: vi.fn(),
-    };
-
-    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
-      await fn(sessionMock);
-    });
-
-    const deleted = await deletePoints("qdr_tenant_a__my_collection", [
-      "p1",
-      2,
-    ]);
-
-    expect(deleted).toBe(2);
-    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(2);
   });
 
   it("upserts points with uid parameter for one_table mode", async () => {
@@ -347,7 +242,6 @@ describe("pointsRepo (with mocked YDB)", () => {
     expect(sessionMock.executeQuery).toHaveBeenCalledTimes(
       Math.ceil(total / UPSERT_BATCH_SIZE)
     );
-    expect(notifyUpsert).toHaveBeenCalledWith("qdrant_all_points", total);
   });
 
   it("searches points with uid parameter for one_table mode (Cosine)", async () => {

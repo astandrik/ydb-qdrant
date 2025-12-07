@@ -41,10 +41,6 @@ vi.mock("../../src/ydb/helpers.js", () => {
   };
 });
 
-vi.mock("../../src/indexing/IndexScheduler.js", () => ({
-  notifyUpsert: vi.fn(),
-}));
-
 vi.mock("../../src/config/env.js", async () => {
   const actual = await vi.importActual<
     typeof import("../../src/config/env.js")
@@ -53,8 +49,6 @@ vi.mock("../../src/config/env.js", async () => {
   return {
     ...actual,
     LOG_LEVEL: "info",
-    VECTOR_INDEX_BUILD_ENABLED: true,
-    COLLECTION_STORAGE_MODE: actual.CollectionStorageMode.OneTable,
     SEARCH_MODE: actual.SearchMode.Approximate,
     CLIENT_SIDE_SERIALIZATION_ENABLED: true,
   };

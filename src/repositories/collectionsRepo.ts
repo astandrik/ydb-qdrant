@@ -2,20 +2,11 @@ import {
   TypedValues,
   withSession,
   createExecuteQuerySettings,
+  withStartupProbeSession,
+  createExecuteQuerySettingsWithTimeout,
 } from "../ydb/client.js";
 import type { DistanceKind, VectorType } from "../types";
-import { mapDistanceToIndexParam } from "../utils/distance.js";
-import {
-  COLLECTION_STORAGE_MODE,
-  isOneTableMode,
-  type CollectionStorageMode,
-} from "../config/env.js";
-import { GLOBAL_POINTS_TABLE } from "../ydb/schema.js";
 import { uidFor } from "../utils/tenant.js";
-import {
-  createCollectionMultiTable,
-  deleteCollectionMultiTable,
-} from "./collectionsRepo.multi-table.js";
 import {
   createCollectionOneTable,
   deleteCollectionOneTable,
@@ -25,21 +16,9 @@ export async function createCollection(
   metaKey: string,
   dim: number,
   distance: DistanceKind,
-  vectorType: VectorType,
-  tableName: string,
-  layout: CollectionStorageMode = COLLECTION_STORAGE_MODE
+  vectorType: VectorType
 ): Promise<void> {
-  if (isOneTableMode(layout)) {
-    await createCollectionOneTable(metaKey, dim, distance, vectorType);
-    return;
-  }
-  await createCollectionMultiTable(
-    metaKey,
-    dim,
-    distance,
-    vectorType,
-    tableName
-  );
+  await createCollectionOneTable(metaKey, dim, distance, vectorType);
 }
 
 export async function getCollectionMeta(metaKey: string): Promise<{
@@ -86,6 +65,31 @@ export async function getCollectionMeta(metaKey: string): Promise<{
   return { table, dimension, distance, vectorType };
 }
 
+export async function verifyCollectionsQueryCompilationForStartup(): Promise<void> {
+  const probeKey = "__startup_probe__/__startup_probe__";
+  const qry = `
+    DECLARE $collection AS Utf8;
+    SELECT table_name, vector_dimension, distance, vector_type
+    FROM qdr__collections
+    WHERE collection = $collection;
+  `;
+  await withStartupProbeSession(async (s) => {
+    const settings = createExecuteQuerySettingsWithTimeout({
+      keepInCache: true,
+      idempotent: true,
+      timeoutMs: 3000,
+    });
+    await s.executeQuery(
+      qry,
+      {
+        $collection: TypedValues.utf8(probeKey),
+      },
+      undefined,
+      settings
+    );
+  });
+}
+
 export async function deleteCollection(
   metaKey: string,
   uid?: string
@@ -93,77 +97,15 @@ export async function deleteCollection(
   const meta = await getCollectionMeta(metaKey);
   if (!meta) return;
 
-  if (meta.table === GLOBAL_POINTS_TABLE) {
-    const effectiveUid =
-      uid ??
-      (() => {
-        const [tenant, collection] = metaKey.split("/", 2);
-        if (!tenant || !collection) {
-          throw new Error(
-            `deleteCollection: cannot derive uid from malformed metaKey=${metaKey}`
-          );
-        }
-        return uidFor(tenant, collection);
-      })();
-    await deleteCollectionOneTable(metaKey, effectiveUid);
-    return;
-  }
-
-  await deleteCollectionMultiTable(metaKey, meta.table);
-}
-
-export async function buildVectorIndex(
-  tableName: string,
-  dimension: number,
-  distance: DistanceKind,
-  vectorType: VectorType
-): Promise<void> {
-  const distParam = mapDistanceToIndexParam(distance);
-  // defaults for <100k vectors
-  const levels = 1;
-  const clusters = 128;
-
-  await withSession(async (s) => {
-    // Drop existing index if present
-    const dropDdl = `ALTER TABLE ${tableName} DROP INDEX emb_idx;`;
-    const rawSession = s as unknown as {
-      sessionId: string;
-      api: {
-        executeSchemeQuery: (req: {
-          sessionId: string;
-          yqlText: string;
-        }) => Promise<unknown>;
-      };
-    };
-    try {
-      const dropReq = { sessionId: rawSession.sessionId, yqlText: dropDdl };
-      await rawSession.api.executeSchemeQuery(dropReq);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      // ignore if index doesn't exist
-      if (!/not found|does not exist|no such index/i.test(msg)) {
-        throw e;
-      }
-    }
-
-    // Create new index
-    const createDdl = `
-      ALTER TABLE ${tableName}
-      ADD INDEX emb_idx GLOBAL SYNC USING vector_kmeans_tree
-      ON (embedding)
-      WITH (
-        ${
-          distParam === "inner_product"
-            ? `similarity="inner_product"`
-            : `distance="${distParam}"`
-        },
-        vector_type="${vectorType}",
-        vector_dimension=${dimension},
-        clusters=${clusters},
-        levels=${levels}
+  let effectiveUid = uid;
+  if (!effectiveUid) {
+    const [tenant, collection] = metaKey.split("/", 2);
+    if (!tenant || !collection) {
+      throw new Error(
+        `deleteCollection: cannot derive uid from malformed metaKey=${metaKey}`
       );
-    `;
-    const createReq = { sessionId: rawSession.sessionId, yqlText: createDdl };
-    await rawSession.api.executeSchemeQuery(createReq);
-  });
+    }
+    effectiveUid = uidFor(tenant, collection);
+  }
+  await deleteCollectionOneTable(metaKey, effectiveUid);
 }

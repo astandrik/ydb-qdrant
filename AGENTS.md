@@ -7,10 +7,9 @@ A small Node.js service and npm library that exposes a minimal Qdrant‑compatib
 - **Base URLs**:
   - Public demo: `http://ydb-qdrant.tech:8080` (no setup, free to use)
   - Self-hosted: `http://localhost:8080` (default)
-- **Tenancy**: per‑client isolation via header `X-Tenant-Id`; each tenant+collection maps to its own YDB table.
-- **Search**: single-phase top-k over `embedding` with automatic YDB vector index (`emb_idx`) if ≥100 points upserted. Falls back to table scan if index missing.
-- **Vector index**: `vector_kmeans_tree` with levels=1, clusters=128 (optimized for <100k vectors). Built automatically after 5s quiet window following bulk upserts (≥100 points threshold).
-- **Vectors**: stored as binary strings using Knn::ToBinaryStringFloat.
+- **Tenancy**: per‑client isolation via header `X-Tenant-Id`; each tenant+collection is stored under a unique `uid` partition in the global points table.
+- **Search**: one-table global search over `qdrant_all_points` using either approximate two-phase KNN (bit‑quantized `embedding_quantized` + exact re‑ranking over `embedding`) or exact table scan, controlled by `YDB_QDRANT_SEARCH_MODE` (`approximate` or `exact`).
+- **Vectors**: stored as binary strings using `Knn::ToBinaryStringFloat` (full-precision `embedding`) and `Knn::ToBinaryStringBit` (bit‑quantized `embedding_quantized`).
 
 ## API (Qdrant‑compatible subset)
 - PUT `/collections/{collection}`
@@ -37,10 +36,9 @@ Notes
   - `YDB_ACCESS_TOKEN_CREDENTIALS=<token>` (short‑lived)
   - `YDB_ANONYMOUS_CREDENTIALS=1` (dev only)
 - Optional:
-  - `PORT` (default 8080)
-  - `LOG_LEVEL`
-  - `VECTOR_INDEX_BUILD_ENABLED` — `"true"`/`"false"` toggle for automatic vector index builds and search behavior (default `"true"` in `multi_table` mode, `"false"` in `one_table` mode). When `"true"`, upserts schedule automatic builds and search first uses the vector index `emb_idx`, falling back to a table scan if the index is missing. When `"false"`, no automatic builds are scheduled and search never uses the vector index (all queries are executed as table scans over `embedding`).
-  - `YDB_QDRANT_COLLECTION_STORAGE_MODE` — `"multi_table"` or `"one_table"` (default `"multi_table"`). Controls whether points are stored in per‑collection tables or a single global table. Backed by the `CollectionStorageMode` enum in `config/env.ts`. The legacy `YDB_QDRANT_TABLE_LAYOUT` env is still accepted as an alias.
+- `PORT` (default 8080)
+- `LOG_LEVEL`
+- `YDB_QDRANT_SEARCH_MODE` — `"exact"` (default) or `"approximate"`; in approximate mode searches use a two-phase flow over `embedding_quantized` + `embedding`, in exact mode they scan `embedding` only.
   - `YDB_SESSION_POOL_MIN_SIZE` — minimum number of sessions in the pool (default `5`, range 1–500).
   - `YDB_SESSION_POOL_MAX_SIZE` — maximum number of sessions in the pool (default `100`, range 1–500).
   - `YDB_SESSION_KEEPALIVE_PERIOD_MS` — interval in milliseconds for session health checks (default `5000`, range 1000–60000). Dead sessions are automatically removed from the pool.
@@ -65,64 +63,50 @@ Notes
 - Metadata table: `qdr__collections`
   - Row key `collection`: tenant/collection string in form `<tenant>/<collection>`
   - Fields: `table_name`, `vector_dimension`, `distance`, `vector_type`, `created_at`
-- Default (multi‑table) layout:
-  - Per‑collection table: `qdr_<tenant>__<collection>`
-    - `point_id Utf8` (PK), `embedding String` (binary), `payload JsonDocument`
-    - Vector index: `emb_idx` (auto-created after ≥100 points upserted; type `vector_kmeans_tree`)
-- One‑table layout:
-  - Global points table: `qdrant_all_points`
-    - `uid Utf8`, `point_id Utf8`, `embedding String` (binary float), `embedding_quantized String` (bit‑quantized), `payload JsonDocument`
-    - Primary key: `(uid, point_id)` where `uid` is derived from tenant+collection (uses the same naming as per‑collection tables).
-    - **Note**: Vector indexes are not supported in one‑table mode. Searches use a two‑phase flow: (1) approximate candidate selection over `embedding_quantized` using the corresponding function (Cosine→CosineSimilarity DESC, Euclid→EuclideanDistance ASC, Manhattan→ManhattanDistance ASC, Dot→CosineDistance ASC as proxy), then (2) exact re‑ranking over `embedding` with the configured distance metric (CosineDistance ASC for Cosine, InnerProductSimilarity DESC for Dot, distance ASC for Euclid/Manhattan).
+- Global points table (one-table layout only): `qdrant_all_points`
+  - `uid Utf8`, `point_id Utf8`, `embedding String` (binary float), `embedding_quantized String` (bit‑quantized), `payload JsonDocument`
+  - Primary key: `(uid, point_id)` where `uid` is derived from tenant+collection (uses the same naming as the historical per‑collection tables).
+  - Vector indexes are not used; searches are executed directly over `embedding` / `embedding_quantized`.
 
 ## YDB vector specifics (YQL)
-- Search: single-phase top-k using vector index when available
-  - With index: `SELECT ... FROM <table> VIEW emb_idx ORDER BY Knn::<Fn>(embedding, $qbin) LIMIT k`
-  - Fallback: `SELECT ... FROM <table> ORDER BY Knn::<Fn>(embedding, $qbin) LIMIT k` (table scan)
-  - Multi-table and exact search: `CosineDistance` ASC for Cosine; `InnerProductSimilarity` DESC for Dot; `EuclideanDistance`/`ManhattanDistance` ASC for Euclid/Manhattan.
-  - One-table phase 1 (bit-quantized candidates): `CosineSimilarity` DESC for Cosine; `CosineDistance` ASC as proxy for Dot; distance ASC for Euclid/Manhattan.
+- Search (one-table layout):
+  - Exact mode (`YDB_QDRANT_SEARCH_MODE=exact`, default): single-phase top‑k over `embedding` using `Knn::<Fn>(embedding, $qbinf)` with the appropriate distance/similarity (`CosineDistance`, `InnerProductSimilarity`, `EuclideanDistance`, `ManhattanDistance`).
+  - Approximate mode (`YDB_QDRANT_SEARCH_MODE=approximate`): two‑phase flow — phase 1 selects candidates using bit‑quantized `embedding_quantized` (`CosineSimilarity` DESC for Cosine, distance ASC for Euclid/Manhattan, `CosineDistance` ASC as proxy for Dot); phase 2 re‑ranks candidates over `embedding` with the exact metric.
 - Serialization:
   - `embedding` via `Untag(Knn::ToBinaryStringFloat($vec), "FloatVector")`
-- Vector index (`emb_idx`):
-  - Type: `vector_kmeans_tree` (GLOBAL SYNC)
-  - Defaults: levels=1, clusters=128 (tuned for <100k vectors)
-  - Build trigger: ≥100 points upserted + 5s quiet window
-  - Rebuild: DROP INDEX → ADD INDEX on each scheduled build
-  - Search automatically uses VIEW emb_idx; falls back to table scan if missing
+  - `embedding_quantized` via `Untag(Knn::ToBinaryStringBit($vec), "BitVector")`
 
 ## Project structure (src/)
-- `config/env.ts` — loads env (`dotenv/config`), exports `YDB_ENDPOINT`, `YDB_DATABASE`, `PORT`, `LOG_LEVEL`, `CollectionStorageMode` enum and `COLLECTION_STORAGE_MODE` helpers.
+- `config/env.ts` — loads env (`dotenv/config`), exports `YDB_ENDPOINT`, `YDB_DATABASE`, `PORT`, `LOG_LEVEL`, search mode/config (`SearchMode`, `SEARCH_MODE`, `OVERFETCH_MULTIPLIER`), client-side serialization flag, and YDB session pool settings.
 - `logging/logger.ts` — pino logger (level from env).
-- `utils/tenant.ts` — `sanitizeTenantId`, `sanitizeCollectionName`, `metaKeyFor`, `tableNameFor`.
+- `utils/tenant.ts` — `sanitizeTenantId`, `sanitizeCollectionName`, `metaKeyFor`, `tableNameFor`, `uidFor`, API key and User-Agent hashing for collection names.
 - `utils/normalization.ts` — vector extraction (`extractVectorLoose`, `isNumberArray`) and search body normalization (`normalizeSearchBodyForSearch`, `normalizeSearchBodyForQuery`).
-- `utils/distance.ts` — distance mapping functions (`mapDistanceToKnnFn` for exact/multi-table search, `mapDistanceToBitKnnFn` for one-table phase 1, `mapDistanceToIndexParam` for index DDL).
+- `utils/distance.ts` — distance mapping functions (`mapDistanceToKnnFn` for exact search, `mapDistanceToBitKnnFn` for one-table phase 1 approximate search).
 - `utils/retry.ts` — generic retry wrapper (`withRetry`) with exponential backoff for transient YDB errors.
 - `types.ts` — shared types and Zod schemas (CreateCollectionReq, UpsertPointsReq, SearchReq, DeletePointsReq).
 - `ydb/client.ts` — ydb-sdk Driver init (CJS interop), `readyOrThrow`, `withSession`, `destroyDriver`, `refreshDriver`, and re‑exports `Types`, `TypedValues`. Session pool size and keepalive period are configurable via environment variables.
-- `ydb/schema.ts` — `ensureMetaTable()` (creates `qdr__collections` if missing).
-- `repositories/collectionsRepo.ts` — facade for collection metadata/table operations; delegates to layout‑specific strategy modules (`collectionsRepo.multi-table.ts`, `collectionsRepo.one-table.ts`); `buildVectorIndex()`.
-- `repositories/pointsRepo.ts` — facade for point upsert/search/delete; delegates to layout‑specific strategy modules (`pointsRepo.multi-table.ts`, `pointsRepo.one-table.ts`); multi‑table search tries VIEW `emb_idx` first; uses `withRetry` for transient errors.
-- `indexing/IndexScheduler.ts` — deferred vector index build scheduler with threshold (≥100 points) and quiet window (5s); delegates to layout‑specific implementations in `IndexScheduler.multi-table.ts` / `IndexScheduler.one-table.ts`.
+- `ydb/schema.ts` — `ensureMetaTable()` (creates `qdr__collections` if missing) and `ensureGlobalPointsTable()` (creates/migrates `qdrant_all_points` with `embedding_quantized`).
+- `repositories/collectionsRepo.ts` — facade for collection metadata operations and delete‑collection logic over the global points table.
+- `repositories/pointsRepo.ts` — facade for point upsert/search/delete; routes calls to the one-table strategy (`pointsRepo.one-table.ts`) and uses `withRetry` for transient errors.
 - `routes/collections.ts` — Express router for collection endpoints; uses `X-Tenant-Id`.
-- `routes/points.ts` — Express router for points endpoints; calls `requestIndexBuild()` after upserts.
+- `routes/points.ts` — Express router for points endpoints; delegates to `PointsService` for upsert/search/delete.
 - `server.ts` — builds Express app, mounts routes, health endpoint.
-- `index.ts` — bootstrap: ready check, ensure metadata table, start server.
+- `index.ts` — bootstrap: ready check, ensure metadata/global tables, start server.
 - `services/errors.ts` — `QdrantServiceError` class and `QdrantServiceErrorPayload` interface.
-- `services/CollectionService.ts` — collection operations (`createCollection`, `getCollection`, `deleteCollection`, `putCollectionIndex`); context normalization.
-- `services/PointsService.ts` — points operations (`upsertPoints`, `searchPoints`, `queryPoints`, `deletePoints`); uses normalization utilities.
+- `services/CollectionService.ts` — collection operations (`createCollection`, `getCollection`, `deleteCollection`, `putCollectionIndex`); context normalization and one-table UID resolution.
+- `services/PointsService.ts` — points operations (`upsertPoints`, `searchPoints`, `queryPoints`, `deletePoints`); uses normalization utilities and collection metadata.
 - `package/api.ts` — public programmatic API (`createYdbQdrantClient`, `buildTenantClient` factory) exposing Qdrant‑like operations directly to Node.js callers.
 - `SmokeTest.ts` — minimal example/smoke test using the programmatic API to create a collection, upsert points, and run a search.
 - `test/api/Api.test.ts` — Vitest unit tests for the programmatic API client (`createYdbQdrantClient`, `forTenant`, driver/schema wiring; YDB and service mocked).
 - `test/services/QdrantService.test.ts` — service‑layer tests for collections and points (create/get/delete, upsert/search/delete, query alias, thresholds, error paths; repositories/YDB mocked).
 - `test/routes/collections.test.ts`, `test/routes/points.test.ts` — HTTP route tests for Express routers (status codes, payload shapes, `QdrantServiceError` handling; service and logger mocked).
-- `test/repositories/collectionsRepo.test.ts`, `test/repositories/pointsRepo.test.ts` — repository tests for YDB integration (`withSession`, YQL, vector index DDL, upsert/delete loops, index fallback).
+- `test/repositories/collectionsRepo.test.ts`, `test/repositories/pointsRepo.test.ts` — repository tests for YDB integration (`withSession`, YQL, delete/migration flows, one-table upsert/search/delete).
 - `test/ydb/helpers.test.ts` — tests for YDB helper utilities (`buildVectorParam`, `buildJsonOrEmpty`).
 
 ## Conventions & constraints
-- Tenancy via `X-Tenant-Id`; table names: `qdr_<tenant>__<collection>`.
+- Tenancy via `X-Tenant-Id`; logical collection keys use `uid = qdr_<tenant>__<collection>` in the global table.
 - Sanitization keeps only `[a-z0-9_]`, lowercases.
 - Vector type `float`. Dimension enforced per collection.
-- Vector index auto-build: threshold ≥100 points, quiet window 5s, defaults levels=1/clusters=128.
 
 ## Scoring semantics
 - Returned `score`:
@@ -141,7 +125,7 @@ Notes
 ## Compatibility routes
 - PUT `/collections/{collection}/points` → upsert alias
 - POST `/collections/{collection}/points/query` → search alias
-- PUT `/collections/{collection}/index` → no‑op (Qdrant payload index compatibility; YDB vector index builds automatically)
+- PUT `/collections/{collection}/index` → no‑op (Qdrant payload index compatibility only; has no effect on vector search)
 
 ## Plugin integration (Roo Code, Cline)
 **Public demo (no setup required)**:
@@ -166,14 +150,13 @@ Collection created automatically on first use.
 - YDB config (env, all optional):
   - `YDB_LOCAL_GRPC_PORT` (default `2136`), `YDB_LOCAL_MON_PORT` (default `8765`), `YDB_DATABASE` (default `/local`), `YDB_ANONYMOUS_CREDENTIALS` (default `1`), `YDB_USE_IN_MEMORY_PDISKS`, `YDB_LOCAL_SURVIVE_RESTART`, `YDB_DEFAULT_LOG_LEVEL`, `YDB_FEATURE_FLAGS`, `YDB_ENABLE_COLUMN_TABLES`, `YDB_KAFKA_PROXY_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`.
 - ydb-qdrant config (env, same semantics as standalone image):
-  - `PORT` (default `8080`), `LOG_LEVEL`, `VECTOR_INDEX_BUILD_ENABLED`, `YDB_QDRANT_COLLECTION_STORAGE_MODE` / `YDB_QDRANT_TABLE_LAYOUT`, `YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE`.
+  - `PORT` (default `8080`), `LOG_LEVEL`, `YDB_QDRANT_SEARCH_MODE`, `YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE`.
 - Note: `YDB_ENDPOINT` is unconditionally set to `grpc://localhost:<YDB_LOCAL_GRPC_PORT>` by the entrypoint — any user-provided value is ignored. Use the standalone `ydb-qdrant` image to connect to an external YDB.
 
 ## Logging & diagnostics
 - JSON logs via pino middleware (method, url, tenant, status, ms).
-- Search logs: vector len, dimension, metric/type, hits, validation issues, index usage ("vector index found" or "falling back to table scan").
-- Index scheduler logs: "index build (scheduled) starting/completed", "index build skipped (below threshold)" with point counts.
-- Upserts: transient `Aborted`/schema metadata errors during index rebuild are retried with bounded backoff.
+- Search logs: vector len, dimension, metric/type, hits, validation issues, search mode ("exact" or "approximate").
+- Upserts: transient `Aborted`/schema metadata errors are retried with bounded backoff.
 
 ## Implementation notes for agents
 - ydb-sdk is consumed via CJS interop (`createRequire`) even in ESM TS to avoid ESM default export issues.
@@ -222,17 +205,13 @@ Integration tests include realistic recall benchmarks following [ANN-benchmarks]
   - References: [ANN-benchmarks](https://ann-benchmarks.com/), [Aumüller et al., SISAP 2017](https://itu.dk/~maau/additional/sisap2017-preprint.pdf)
 
 - **Test files**:
-  - `test/integration/YdbRecallIntegration.test.ts` — multi_table layout recall benchmark
-  - `test/integration/YdbRealIntegration.one-table.test.ts` — one_table layout recall benchmark
+  - `test/integration/YdbRealIntegration.one-table.test.ts` — one_table layout recall benchmark and end-to-end checks.
 
 - **CI execution** via `npm run test:integration`:
-  - multi_table + index disabled (table-scan only)
-  - multi_table + index enabled (with vector index)
-  - one_table (global table with bit-quantized embeddings)
+  - Runs `YdbRealIntegration.test.ts` (basic end-to-end programmatic API flow).
+  - Runs `YdbRealIntegration.one-table.test.ts` twice with `YDB_QDRANT_SEARCH_MODE=approximate` and `=exact` to exercise both search modes.
 
 - **CI output** (for Shields.io badges):
-  - `RECALL_MEAN_MULTI_TABLE <value>`
-  - `F1_MEAN_MULTI_TABLE <value>`
   - `RECALL_MEAN_ONE_TABLE <value>`
   - `F1_MEAN_ONE_TABLE <value>`
 

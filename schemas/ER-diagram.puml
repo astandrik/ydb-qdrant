@@ -13,25 +13,25 @@ skinparam class {
 title Entity Relationship Diagram for YDB-Qdrant Service\n(Physical Data Model - YDB Tables)
 
 entity "qdr__collections" as collections <<Metadata Table>> {
-  * collection : Utf8 <<PK>>
+  * collection : Utf8 <<PK>>  // "<tenant>/<collection>"
   --
-  table_name : Utf8
+  table_name : Utf8          // always "qdrant_all_points" in one-table layout
   vector_dimension : Uint32
   distance : Utf8 {Cosine|Euclid|Dot|Manhattan}
   vector_type : Utf8 {float}
   created_at : Timestamp
 }
 
-entity "qdr_<tenant>__<collection>" as collection_table <<Dynamic Per-Collection Table>> {
+entity "qdrant_all_points" as global_points <<Global Points Table>> {
+  * uid : Utf8 <<PK>>        // derived from tenant + collection (uidFor)
   * point_id : Utf8 <<PK>>
   --
-  embedding : String (binary)
+  embedding : String (binary, full-precision)
+  embedding_quantized : String (binary, bit-quantized)
   payload : JsonDocument
-  ..
-  INDEX: emb_idx (vector_kmeans_tree)
 }
 
-collections ||--|| collection_table : "references\nvia table_name"
+collections ||--o{ global_points : "groups points via uid (tenant/collection)"
 
 note right of collections
   **Primary Key Format:**
@@ -45,33 +45,22 @@ note right of collections
   sanitized to [a-z0-9_]
 end note
 
-note right of collection_table
-  **Naming Convention:**
-  Table name: qdr_<tenant>__<collection>
-  
-  **Examples:**
-  • qdr_default__my_vectors
-  • qdr_user123__embeddings
-  
-  **Vector Index (emb_idx):**
-  • Type: vector_kmeans_tree (GLOBAL SYNC)
-  • Auto-created after ≥100 points
-  • Defaults: levels=1, clusters=128
-  • Build trigger: 10s quiet window
+note right of global_points
+  **uid Convention:**
+  uid = uidFor(tenant, collection)
   
   **Embedding Storage:**
-  Binary string via Knn::ToBinaryStringFloat
+  • embedding: Binary string via Knn::ToBinaryStringFloat
+  • embedding_quantized: Binary string via Knn::ToBinaryStringBit
   
   **Search:**
-  • With index: SELECT ... VIEW emb_idx ORDER BY Knn::<Fn>
-  • Fallback: table scan without VIEW
+  • Exact: KNN over embedding
+  • Approximate: candidates from embedding_quantized + re‑ranking over embedding
 end note
 
 legend right
   **Cardinality:**
-  • One qdr__collections row → One collection table
-  • Dynamic tables created on collection creation
-  • Deleted when collection is deleted
+  • One qdr__collections row ↔ many rows in qdrant_all_points sharing the same uid
   
   **Data Types:**
   • Utf8 = String
