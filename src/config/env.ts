@@ -52,6 +52,11 @@ export const GLOBAL_POINTS_AUTOMIGRATE_ENABLED = parseBooleanEnv(
   false
 );
 
+export const USE_BATCH_DELETE_FOR_COLLECTIONS = parseBooleanEnv(
+  process.env.YDB_QDRANT_USE_BATCH_DELETE,
+  true
+);
+
 export enum SearchMode {
   Exact = "exact",
   Approximate = "approximate",
