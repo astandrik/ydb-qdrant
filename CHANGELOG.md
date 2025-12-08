@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## [5.2.0](https://github.com/astandrik/ydb-qdrant/compare/v5.1.0...v5.2.0) (2025-12-08)
+
+
+### Features
+
+* add repo link ([#143](https://github.com/astandrik/ydb-qdrant/issues/143)) ([b9b4ec7](https://github.com/astandrik/ydb-qdrant/commit/b9b4ec743e7ac86d0cde25304212ca3f726ad6bc))
+* introduce batch delete ([#145](https://github.com/astandrik/ydb-qdrant/issues/145)) ([2ddf3e5](https://github.com/astandrik/ydb-qdrant/commit/2ddf3e55f3805d077b62bfd642d8e1e4cc181fd5))
+* log transient errors ([#149](https://github.com/astandrik/ydb-qdrant/issues/149)) ([e79aefe](https://github.com/astandrik/ydb-qdrant/commit/e79aefe87adca0a5ce125a18e0e5747d36cfd73d))
+
+
+### Bug Fixes
+
+* add startup to env ([#141](https://github.com/astandrik/ydb-qdrant/issues/141)) ([14aa13b](https://github.com/astandrik/ydb-qdrant/commit/14aa13b6d916ed9650cc197c3d565623c8f68f6e))
+
 ## [5.1.0](https://github.com/astandrik/ydb-qdrant/compare/v5.0.0...v5.1.0) (2025-12-07)
 
 
