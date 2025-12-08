@@ -50,6 +50,14 @@
   "author": "",
   "license": "Apache-2.0",
   "description": "Qdrant-compatible Node.js/TypeScript API that stores/searches embeddings in YDB using a global one-table layout with exact and approximate KNN search over serialized vectors.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/astandrik/ydb-qdrant.git"
+  },
+  "homepage": "https://github.com/astandrik/ydb-qdrant#readme",
+  "bugs": {
+    "url": "https://github.com/astandrik/ydb-qdrant/issues"
+  },
   "type": "module",
   "publishConfig": {
     "access": "public"
