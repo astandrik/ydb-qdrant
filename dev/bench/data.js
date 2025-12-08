@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765228593820,
+  "lastUpdate": 1765228595100,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (multi_table, 768D)": [
@@ -3717,6 +3717,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Soak: Upsert Latency p95",
             "value": 24,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Error Rate",
+            "value": 0,
+            "unit": "%"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "00acf8478bc64065b0cf24e2f4db0be5eed271d9",
+          "message": "chore: add copilot custom instructions (#148)",
+          "timestamp": "2025-12-09T00:12:46+03:00",
+          "tree_id": "ef809555e52fd4c287be6619deda3172b12fbce5",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/00acf8478bc64065b0cf24e2f4db0be5eed271d9"
+        },
+        "date": 1765228593937,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Soak: Search Latency p95",
+            "value": 44,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Search Latency p99",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Upsert Latency p95",
+            "value": 26,
             "unit": "ms"
           },
           {
