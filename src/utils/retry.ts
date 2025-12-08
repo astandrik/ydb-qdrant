@@ -59,7 +59,15 @@ export async function withRetry<T>(
         baseDelayMs * Math.pow(2, attempt) + Math.random() * 100
       );
       logger.warn(
-        { ...context, attempt, backoffMs },
+        {
+          ...context,
+          attempt,
+          backoffMs,
+          err:
+            e instanceof Error
+              ? e
+              : new Error(typeof e === "string" ? e : JSON.stringify(e)),
+        },
         "operation aborted due to transient error; retrying"
       );
       await new Promise((r) => setTimeout(r, backoffMs));
