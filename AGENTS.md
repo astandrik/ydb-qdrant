@@ -39,12 +39,12 @@ Notes
 - `PORT` (default 8080)
 - `LOG_LEVEL`
 - `YDB_QDRANT_SEARCH_MODE` — `"exact"` (default) or `"approximate"`; in approximate mode searches use a two-phase flow over `embedding_quantized` + `embedding`, in exact mode they scan `embedding` only.
- - `YDB_QDRANT_USE_BATCH_DELETE` — controls collection delete strategy; by default (truthy/omitted) uses `BATCH DELETE FROM qdrant_all_points WHERE uid = <uid>` (YDB v25.2+), and when set to a falsy value (`0`, `false`, `no`, `off`) falls back to a single `DELETE` with a chunked per-uid cleanup loop for compatibility.
-  - `YDB_SESSION_POOL_MIN_SIZE` — minimum number of sessions in the pool (default `5`, range 1–500).
-  - `YDB_SESSION_POOL_MAX_SIZE` — maximum number of sessions in the pool (default `100`, range 1–500).
-  - `YDB_SESSION_KEEPALIVE_PERIOD_MS` — interval in milliseconds for session health checks (default `5000`, range 1000–60000). Dead sessions are automatically removed from the pool.
-  - `YDB_QDRANT_UPSERT_TIMEOUT_MS` — per‑query YDB operation timeout in milliseconds for upsert batches (default `5000`); individual UPSERT statements are cancelled if they exceed this bound.
-  - `YDB_QDRANT_SEARCH_TIMEOUT_MS` — per‑query YDB operation timeout in milliseconds for search operations (default `10000`); search YQL statements are cancelled if they exceed this bound.
+- `YDB_QDRANT_USE_BATCH_DELETE` — controls collection delete strategy; by default (truthy/omitted) uses `BATCH DELETE FROM qdrant_all_points WHERE uid = <uid>` (YDB v25.2+), and when set to a falsy value (`0`, `false`, `no`, `off`) falls back to a single `DELETE` with a chunked per-uid cleanup loop for compatibility.
+- `YDB_SESSION_POOL_MIN_SIZE` — minimum number of sessions in the pool (default `5`, range 1–500).
+- `YDB_SESSION_POOL_MAX_SIZE` — maximum number of sessions in the pool (default `100`, range 1–500).
+- `YDB_SESSION_KEEPALIVE_PERIOD_MS` — interval in milliseconds for session health checks (default `5000`, range 1000–60000). Dead sessions are automatically removed from the pool.
+- `YDB_QDRANT_UPSERT_TIMEOUT_MS` — per‑query YDB operation timeout in milliseconds for upsert batches (default `5000`); individual UPSERT statements are cancelled if they exceed this bound.
+- `YDB_QDRANT_SEARCH_TIMEOUT_MS` — per‑query YDB operation timeout in milliseconds for search operations (default `10000`); search YQL statements are cancelled if they exceed this bound.
 
 ## Run
 - Dev: `npm run dev`  (tsx + watch)

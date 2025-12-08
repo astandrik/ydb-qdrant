@@ -139,14 +139,25 @@ export async function deleteCollectionOneTable(
       () =>
         withSession(async (s) => {
           const settings = createExecuteQuerySettings();
-          await s.executeQuery(
-            batchDeletePointsYql,
-            {
-              $uid: TypedValues.utf8(uid),
-            },
-            undefined,
-            settings
-          );
+          try {
+            await s.executeQuery(
+              batchDeletePointsYql,
+              {
+                $uid: TypedValues.utf8(uid),
+              },
+              undefined,
+              settings
+            );
+          } catch (err: unknown) {
+            if (!isOutOfBufferMemoryYdbError(err)) {
+              throw err;
+            }
+
+            // BATCH DELETE already deletes in chunks per partition, but if YDB
+            // still reports an out-of-buffer-memory condition, fall back to
+            // the same per-uid chunked deletion strategy as the legacy path.
+            await deletePointsForUidInChunks(s, uid);
+          }
         }),
       {
         isTransient: isTransientYdbError,
