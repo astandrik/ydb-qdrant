@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765273619358,
+  "lastUpdate": 1765273620957,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (multi_table, 768D)": [
@@ -5816,6 +5816,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Soak: Throughput",
             "value": 65.57291862472452,
+            "unit": "ops/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f90277993843efc4120e095d2f506bf82556dd0b",
+          "message": "chore(main): release 5.2.1 (#151)",
+          "timestamp": "2025-12-09T12:43:17+03:00",
+          "tree_id": "97f06a1e853635dc22a8b847163c1db31643f23a",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/f90277993843efc4120e095d2f506bf82556dd0b"
+        },
+        "date": 1765273620711,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Soak: Throughput",
+            "value": 62.49783244449215,
             "unit": "ops/s"
           }
         ]
