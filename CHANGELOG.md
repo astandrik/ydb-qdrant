@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## [5.2.1](https://github.com/astandrik/ydb-qdrant/compare/v5.2.0...v5.2.1) (2025-12-09)
+
+
+### Bug Fixes
+
+* batch delete to false tmp ([#150](https://github.com/astandrik/ydb-qdrant/issues/150)) ([898833e](https://github.com/astandrik/ydb-qdrant/commit/898833e46c2082ed4408f2d63381c45ebd726ebd))
+
 ## [5.2.0](https://github.com/astandrik/ydb-qdrant/compare/v5.1.0...v5.2.0) (2025-12-08)
 
 
