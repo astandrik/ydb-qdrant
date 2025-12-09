@@ -16,6 +16,7 @@ describe("env.ts configuration", () => {
     delete process.env.YDB_QDRANT_UPSERT_TIMEOUT_MS;
     delete process.env.YDB_QDRANT_SEARCH_TIMEOUT_MS;
     delete process.env.YDB_QDRANT_STARTUP_PROBE_SESSION_TIMEOUT_MS;
+    delete process.env.YDB_QDRANT_USE_BATCH_DELETE;
   });
 
   afterEach(() => {
@@ -191,6 +192,19 @@ describe("env.ts configuration", () => {
       expect(env.UPSERT_OPERATION_TIMEOUT_MS).toBe(5000);
       expect(env.SEARCH_OPERATION_TIMEOUT_MS).toBe(10000);
       expect(env.STARTUP_PROBE_SESSION_TIMEOUT_MS).toBe(5000);
+    });
+  });
+
+  describe("USE_BATCH_DELETE_FOR_COLLECTIONS", () => {
+    it("defaults to false when YDB_QDRANT_USE_BATCH_DELETE is not set", async () => {
+      const env = await import("../../src/config/env.js");
+      expect(env.USE_BATCH_DELETE_FOR_COLLECTIONS).toBe(false);
+    });
+
+    it("is true when YDB_QDRANT_USE_BATCH_DELETE is truthy", async () => {
+      process.env.YDB_QDRANT_USE_BATCH_DELETE = "true";
+      const env = await import("../../src/config/env.js");
+      expect(env.USE_BATCH_DELETE_FOR_COLLECTIONS).toBe(true);
     });
   });
 });
