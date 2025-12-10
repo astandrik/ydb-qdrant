@@ -18,7 +18,37 @@ export async function ensureMetaTable(): Promise<void> {
     await withSession(async (s) => {
       // If table exists, describeTable will succeed
       try {
-        await s.describeTable("qdr__collections");
+        const tableDescription = await s.describeTable("qdr__collections");
+        const columns = tableDescription.columns ?? [];
+        const hasLastAccessedAt = columns.some(
+          (col) => col.name === "last_accessed_at"
+        );
+
+        if (!hasLastAccessedAt) {
+          const alterDdl = `
+            ALTER TABLE qdr__collections
+            ADD COLUMN last_accessed_at Timestamp;
+          `;
+
+          const rawSession = s as unknown as {
+            sessionId: string;
+            api: {
+              executeSchemeQuery: (req: {
+                sessionId: string;
+                yqlText: string;
+              }) => Promise<unknown>;
+            };
+          };
+
+          await rawSession.api.executeSchemeQuery({
+            sessionId: rawSession.sessionId,
+            yqlText: alterDdl,
+          });
+
+          logger.info(
+            "added last_accessed_at column to metadata table qdr__collections"
+          );
+        }
         return;
       } catch {
         // create via schema API
@@ -29,7 +59,8 @@ export async function ensureMetaTable(): Promise<void> {
             new Column("vector_dimension", Types.UINT32),
             new Column("distance", Types.UTF8),
             new Column("vector_type", Types.UTF8),
-            new Column("created_at", Types.TIMESTAMP)
+            new Column("created_at", Types.TIMESTAMP),
+            new Column("last_accessed_at", Types.TIMESTAMP)
           )
           .withPrimaryKey("collection");
         await s.createTable("qdr__collections", desc);

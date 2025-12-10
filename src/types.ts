@@ -3,6 +3,14 @@ import { z } from "zod";
 export type DistanceKind = "Cosine" | "Euclid" | "Dot" | "Manhattan";
 export type VectorType = "float";
 
+export interface CollectionMeta {
+  table: string;
+  dimension: number;
+  distance: DistanceKind;
+  vectorType: VectorType;
+  lastAccessedAt?: Date | null;
+}
+
 export const CreateCollectionReq = z.object({
   vectors: z.object({
     size: z.number().int().positive(),

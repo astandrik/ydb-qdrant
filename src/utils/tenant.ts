@@ -24,7 +24,12 @@ export function normalizeUserAgent(
     lowered = lowered.slice(0, MAX_LEN).replace(/_+$/g, "");
   }
 
-  return lowered.length > 0 ? lowered : undefined;
+  if (lowered.length === 0) return undefined;
+
+  const hash = createHash("sha256").update(userAgent).digest("hex");
+  const shortHash = hash.slice(0, 8);
+
+  return `${lowered}_${shortHash}`;
 }
 
 export function sanitizeCollectionName(

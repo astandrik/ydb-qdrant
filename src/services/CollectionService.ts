@@ -4,6 +4,7 @@ import {
   createCollection as repoCreateCollection,
   deleteCollection as repoDeleteCollection,
   getCollectionMeta,
+  touchCollectionLastAccess,
 } from "../repositories/collectionsRepo.js";
 import { QdrantServiceError } from "./errors.js";
 import { normalizeCollectionContextShared } from "./CollectionService.shared.js";
@@ -38,6 +39,7 @@ export async function putCollectionIndex(
       error: "collection not found",
     });
   }
+  await touchCollectionLastAccess(normalized.metaKey);
   return { acknowledged: true };
 }
 
@@ -71,6 +73,7 @@ export async function createCollection(
       existing.distance === distance &&
       existing.vectorType === vectorType
     ) {
+      await touchCollectionLastAccess(normalized.metaKey);
       return { name: normalized.collection, tenant: normalized.tenant };
     }
 
@@ -82,6 +85,7 @@ export async function createCollection(
   }
 
   await repoCreateCollection(normalized.metaKey, dim, distance, vectorType);
+  await touchCollectionLastAccess(normalized.metaKey);
   return { name: normalized.collection, tenant: normalized.tenant };
 }
 
@@ -103,6 +107,7 @@ export async function getCollection(ctx: CollectionContextInput): Promise<{
       error: "collection not found",
     });
   }
+  await touchCollectionLastAccess(normalized.metaKey);
   return {
     name: normalized.collection,
     vectors: {

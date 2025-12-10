@@ -8,6 +8,7 @@ export async function upsertCollectionMeta(
   vectorType: VectorType,
   tableName: string
 ): Promise<void> {
+  const now = new Date();
   const upsertMeta = `
     DECLARE $collection AS Utf8;
     DECLARE $table AS Utf8;
@@ -15,8 +16,9 @@ export async function upsertCollectionMeta(
     DECLARE $distance AS Utf8;
     DECLARE $vtype AS Utf8;
     DECLARE $created AS Timestamp;
-    UPSERT INTO qdr__collections (collection, table_name, vector_dimension, distance, vector_type, created_at)
-    VALUES ($collection, $table, $dim, $distance, $vtype, $created);
+    DECLARE $last_accessed AS Timestamp;
+    UPSERT INTO qdr__collections (collection, table_name, vector_dimension, distance, vector_type, created_at, last_accessed_at)
+    VALUES ($collection, $table, $dim, $distance, $vtype, $created, $last_accessed);
   `;
   await withSession(async (s) => {
     await s.executeQuery(upsertMeta, {
@@ -25,7 +27,8 @@ export async function upsertCollectionMeta(
       $dim: TypedValues.uint32(dim),
       $distance: TypedValues.utf8(distance),
       $vtype: TypedValues.utf8(vectorType),
-      $created: TypedValues.timestamp(new Date()),
+      $created: TypedValues.timestamp(now),
+      $last_accessed: TypedValues.timestamp(now),
     });
   });
 }

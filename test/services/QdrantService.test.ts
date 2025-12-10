@@ -30,6 +30,7 @@ vi.mock("../../src/repositories/collectionsRepo.js", () => ({
   getCollectionMeta: vi.fn(),
   createCollection: vi.fn(),
   deleteCollection: vi.fn(),
+  touchCollectionLastAccess: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../../src/repositories/pointsRepo.js", () => ({

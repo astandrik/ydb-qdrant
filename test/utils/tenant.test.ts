@@ -47,7 +47,8 @@ describe("utils/tenant/normalizeUserAgent", () => {
   });
 
   it("normalizes userAgent with trimming, sanitization, and lowercasing", () => {
-    expect(normalizeUserAgent("   FIREfox/121.0  ")).toBe("firefox_121_0");
+    const normalized = normalizeUserAgent("   FIREfox/121.0  ");
+    expect(normalized).toMatch(/^firefox_121_0_[0-9a-f]{8}$/);
   });
 
   it("handles realistic browser user agents", () => {
@@ -55,27 +56,33 @@ describe("utils/tenant/normalizeUserAgent", () => {
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.129 Safari/537.36"
     );
     expect(chrome).toBeDefined();
-    expect(chrome?.length).toBeLessThanOrEqual(32);
+    expect(chrome?.length).toBeLessThanOrEqual(41);
+    expect(chrome).toMatch(/_[0-9a-f]{8}$/);
   });
 
   it("removes consecutive underscores", () => {
-    expect(normalizeUserAgent("Chrome//120.0")).toBe("chrome_120_0");
+    const normalized = normalizeUserAgent("Chrome//120.0");
+    expect(normalized).toMatch(/^chrome_120_0_[0-9a-f]{8}$/);
   });
 
   it("strips leading underscores after sanitization", () => {
-    expect(normalizeUserAgent("/Chrome")).toBe("chrome");
+    const normalized = normalizeUserAgent("/Chrome");
+    expect(normalized).toMatch(/^chrome_[0-9a-f]{8}$/);
   });
 
   it("removes trailing underscores after normalization", () => {
-    expect(normalizeUserAgent("test/")).toBe("test");
+    const normalized = normalizeUserAgent("test/");
+    expect(normalized).toMatch(/^test_[0-9a-f]{8}$/);
   });
 
   it("does not leave trailing underscore after sanitization", () => {
-    expect(normalizeUserAgent("Chrome/")).toBe("chrome");
+    const normalized = normalizeUserAgent("Chrome/");
+    expect(normalized).toMatch(/^chrome_[0-9a-f]{8}$/);
   });
 
   it("drops leading and trailing underscores, keeping interior separators", () => {
-    expect(normalizeUserAgent("__Test///__Agent__")).toBe("test_agent");
+    const normalized = normalizeUserAgent("__Test///__Agent__");
+    expect(normalized).toMatch(/^test_agent_[0-9a-f]{8}$/);
   });
 
   it("returns undefined when normalization strips everything", () => {
@@ -86,7 +93,10 @@ describe("utils/tenant/normalizeUserAgent", () => {
     const longAgent = "A".repeat(100);
     const normalized = normalizeUserAgent(longAgent);
 
-    expect(normalized).toBe("a".repeat(32));
+    expect(normalized).toBeDefined();
+    expect(normalized!.length).toBeGreaterThan(32);
+    expect(normalized!.length).toBeLessThanOrEqual(41);
+    expect(normalized).toMatch(/^a{32}_[0-9a-f]{8}$/);
   });
 
   it("does not end with underscore after truncation at max length", () => {
@@ -94,8 +104,9 @@ describe("utils/tenant/normalizeUserAgent", () => {
     const normalized = normalizeUserAgent(ua);
 
     expect(normalized).toBeDefined();
-    expect(normalized!.length).toBeLessThanOrEqual(32);
+    expect(normalized!.length).toBeLessThanOrEqual(41);
     expect(normalized!.endsWith("_")).toBe(false);
+    expect(normalized).toMatch(/_[0-9a-f]{8}$/);
   });
 });
 
@@ -111,15 +122,21 @@ describe("utils/tenant/sanitizeCollectionName", () => {
   });
 
   it("appends normalized userAgent suffix when provided", () => {
-    expect(
-      sanitizeCollectionName("My-Collection", undefined, "firefox_121_0")
-    ).toBe("my_collection_firefox_121_0");
+    const name = sanitizeCollectionName(
+      "My-Collection",
+      undefined,
+      "firefox_121_0_deadbeef"
+    );
+    expect(name).toBe("my_collection_firefox_121_0_deadbeef");
   });
 
   it("appends both apiKeyHash and normalized userAgent when both provided", () => {
-    expect(
-      sanitizeCollectionName("My-Collection", "a1b2c3d4", "firefox_121_0")
-    ).toBe("my_collection_a1b2c3d4_firefox_121_0");
+    const name = sanitizeCollectionName(
+      "My-Collection",
+      "a1b2c3d4",
+      "firefox_121_0_deadbeef"
+    );
+    expect(name).toBe("my_collection_a1b2c3d4_firefox_121_0_deadbeef");
   });
 
   it("falls back to 'collection' when name is empty", () => {
@@ -127,9 +144,12 @@ describe("utils/tenant/sanitizeCollectionName", () => {
   });
 
   it("falls back to 'collection' with suffixes when name is empty but suffixes provided", () => {
-    expect(sanitizeCollectionName("", "a1b2c3d4", "firefox_121_0")).toBe(
-      "collection_a1b2c3d4_firefox_121_0"
+    const name = sanitizeCollectionName(
+      "",
+      "a1b2c3d4",
+      "firefox_121_0_deadbeef"
     );
+    expect(name).toBe("collection_a1b2c3d4_firefox_121_0_deadbeef");
   });
 });
 
