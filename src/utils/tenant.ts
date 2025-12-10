@@ -10,11 +10,12 @@ export function normalizeUserAgent(
   userAgent: string | undefined
 ): string | undefined {
   if (!userAgent || userAgent.trim() === "") return undefined;
-  const cleaned = userAgent
+  const lowered = userAgent
     .trim()
-    .replace(/[^a-zA-Z0-9_]/g, "_")
-    .replace(/_+/g, "_");
-  const lowered = cleaned.toLowerCase().replace(/^_+/, "").replace(/_+$/, "");
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
 
   if (lowered.length === 0) return undefined;
 
