@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## [6.0.0](https://github.com/astandrik/ydb-qdrant/compare/v5.2.1...v6.0.0) (2025-12-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* add collection last access timing ([#157](https://github.com/astandrik/ydb-qdrant/issues/157))
+
+### Features
+
+* add collection last access timing ([#157](https://github.com/astandrik/ydb-qdrant/issues/157)) ([cd73c1e](https://github.com/astandrik/ydb-qdrant/commit/cd73c1e8c5de2313353bf146ffd5d2dc1c0da380))
+* write agent hash as is ([#154](https://github.com/astandrik/ydb-qdrant/issues/154)) ([bbcc332](https://github.com/astandrik/ydb-qdrant/commit/bbcc332c4d6723afb64d58c4f1f1af4b78e78a6d))
+
 ## [5.2.1](https://github.com/astandrik/ydb-qdrant/compare/v5.2.0...v5.2.1) (2025-12-09)
 
 
