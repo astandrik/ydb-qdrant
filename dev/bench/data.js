@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765375615317,
+  "lastUpdate": 1765375624025,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (multi_table, 768D)": [
@@ -4157,6 +4157,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Soak: Upsert Latency p95",
             "value": 24.449999999999818,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Error Rate",
+            "value": 0,
+            "unit": "%"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bbcc332c4d6723afb64d58c4f1f1af4b78e78a6d",
+          "message": "feat: write agent hash as is (#154)\n\n* feat: write agent hash as is\n\n* fix: review fixes\n\n* fix: review\n\n* fix: review fix",
+          "timestamp": "2025-12-10T17:03:09+03:00",
+          "tree_id": "9e8af99f1faff12b2947287823fe9702c06464d6",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/bbcc332c4d6723afb64d58c4f1f1af4b78e78a6d"
+        },
+        "date": 1765375622859,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Soak: Search Latency p95",
+            "value": 76,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Search Latency p99",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Upsert Latency p95",
+            "value": 25,
             "unit": "ms"
           },
           {
