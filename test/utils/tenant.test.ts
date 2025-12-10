@@ -50,8 +50,43 @@ describe("utils/tenant/normalizeUserAgent", () => {
     expect(normalizeUserAgent("   FIREfox/121.0  ")).toBe("firefox_121_0");
   });
 
+  it("handles realistic browser user agents", () => {
+    const chrome = normalizeUserAgent(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.129 Safari/537.36"
+    );
+    expect(chrome).toBeDefined();
+    expect(chrome?.length).toBeLessThanOrEqual(32);
+  });
+
+  it("removes consecutive underscores", () => {
+    expect(normalizeUserAgent("Chrome//120.0")).toBe("chrome_120_0");
+  });
+
+  it("strips leading underscores after sanitization", () => {
+    expect(normalizeUserAgent("/Chrome")).toBe("chrome");
+  });
+
+  it("removes trailing underscores after normalization", () => {
+    expect(normalizeUserAgent("test/")).toBe("test");
+  });
+
+  it("does not leave trailing underscore after sanitization", () => {
+    expect(normalizeUserAgent("Chrome/")).toBe("chrome");
+  });
+
+  it("drops leading and trailing underscores, keeping interior separators", () => {
+    expect(normalizeUserAgent("__Test///__Agent__")).toBe("test_agent");
+  });
+
   it("returns undefined when normalization strips everything", () => {
     expect(normalizeUserAgent("!!!")).toBeUndefined();
+  });
+
+  it("applies length cap for very long normalized user agents", () => {
+    const longAgent = "A".repeat(100);
+    const normalized = normalizeUserAgent(longAgent);
+
+    expect(normalized).toBe("a".repeat(32));
   });
 });
 

@@ -14,8 +14,12 @@ export function normalizeUserAgent(
     .trim()
     .replace(/[^a-zA-Z0-9_]/g, "_")
     .replace(/_+/g, "_");
-  const lowered = cleaned.toLowerCase().replace(/^_+/, "");
-  return lowered.length > 0 ? lowered : undefined;
+  const lowered = cleaned.toLowerCase().replace(/^_+/, "").replace(/_+$/, "");
+
+  if (lowered.length === 0) return undefined;
+
+  const MAX_LEN = 32;
+  return lowered.length <= MAX_LEN ? lowered : lowered.slice(0, MAX_LEN);
 }
 
 export function sanitizeCollectionName(
