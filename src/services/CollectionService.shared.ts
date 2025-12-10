@@ -5,7 +5,7 @@ import {
   tableNameFor as tableNameForInternal,
   uidFor as uidForInternal,
   hashApiKey,
-  hashUserAgent,
+  normalizeUserAgent,
 } from "../utils/tenant.js";
 
 export interface NormalizedCollectionContextLike {
@@ -33,11 +33,11 @@ export function normalizeCollectionContextShared(
 } {
   const normalizedTenant = sanitizeTenantId(tenant);
   const apiKeyHash = hashApiKey(apiKey);
-  const userAgentHash = hashUserAgent(userAgent);
+  const userAgentNormalized = normalizeUserAgent(userAgent);
   const normalizedCollection = sanitizeCollectionName(
     collection,
     apiKeyHash,
-    userAgentHash
+    userAgentNormalized
   );
   const metaKey = metaKeyFor(normalizedTenant, normalizedCollection);
   return {
