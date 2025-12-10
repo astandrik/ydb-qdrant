@@ -1,6 +1,9 @@
 import { UpsertPointsReq, SearchReq, DeletePointsReq } from "../types.js";
 import { ensureMetaTable } from "../ydb/schema.js";
-import { getCollectionMeta } from "../repositories/collectionsRepo.js";
+import {
+  getCollectionMeta,
+  touchCollectionLastAccess,
+} from "../repositories/collectionsRepo.js";
 import {
   deletePoints as repoDeletePoints,
   searchPoints as repoSearchPoints,
@@ -76,6 +79,8 @@ export async function upsertPoints(
     }
     throw err;
   }
+
+  await touchCollectionLastAccess(normalized.metaKey);
 
   return { upserted };
 }
@@ -187,6 +192,8 @@ async function executeSearch(
     throw err;
   }
 
+  await touchCollectionLastAccess(normalized.metaKey);
+
   const threshold = normalizedSearch.scoreThreshold;
 
   // For Cosine, repository hits use distance scores; convert to a
@@ -281,5 +288,6 @@ export async function deletePoints(
 
   const { tableName, uid } = await resolvePointsTableAndUidOneTable(normalized);
   const deleted = await repoDeletePoints(tableName, parsed.data.points, uid);
+  await touchCollectionLastAccess(normalized.metaKey);
   return { deleted };
 }

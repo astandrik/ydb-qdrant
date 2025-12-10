@@ -11,6 +11,7 @@ import {
 export interface NormalizedCollectionContextLike {
   tenant: string;
   collection: string;
+  metaKey: string;
 }
 
 export function tableNameFor(tenantId: string, collection: string): string {

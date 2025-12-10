@@ -3,6 +3,20 @@ import { z } from "zod";
 export type DistanceKind = "Cosine" | "Euclid" | "Dot" | "Manhattan";
 export type VectorType = "float";
 
+/**
+ * Collection metadata from qdr__collections table.
+ *
+ * @property lastAccessedAt - Timestamp of last access; undefined for collections
+ * created before this feature, null if explicitly unset.
+ */
+export interface CollectionMeta {
+  table: string;
+  dimension: number;
+  distance: DistanceKind;
+  vectorType: VectorType;
+  lastAccessedAt?: Date | null;
+}
+
 export const CreateCollectionReq = z.object({
   vectors: z.object({
     size: z.number().int().positive(),

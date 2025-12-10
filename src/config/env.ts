@@ -143,3 +143,9 @@ export const SEARCH_OPERATION_TIMEOUT_MS = parseIntegerEnv(
   10000,
   { min: 1000 }
 );
+
+export const LAST_ACCESS_MIN_WRITE_INTERVAL_MS = parseIntegerEnv(
+  process.env.YDB_QDRANT_LAST_ACCESS_MIN_WRITE_INTERVAL_MS,
+  60000,
+  { min: 1000 }
+);
