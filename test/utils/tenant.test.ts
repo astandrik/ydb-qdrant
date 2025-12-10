@@ -88,6 +88,15 @@ describe("utils/tenant/normalizeUserAgent", () => {
 
     expect(normalized).toBe("a".repeat(32));
   });
+
+  it("does not end with underscore after truncation at max length", () => {
+    const ua = "a b c d e f g h i j k l m n o p q";
+    const normalized = normalizeUserAgent(ua);
+
+    expect(normalized).toBeDefined();
+    expect(normalized!.length).toBeLessThanOrEqual(32);
+    expect(normalized!.endsWith("_")).toBe(false);
+  });
 });
 
 describe("utils/tenant/sanitizeCollectionName", () => {

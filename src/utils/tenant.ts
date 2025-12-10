@@ -10,7 +10,7 @@ export function normalizeUserAgent(
   userAgent: string | undefined
 ): string | undefined {
   if (!userAgent || userAgent.trim() === "") return undefined;
-  const lowered = userAgent
+  let lowered = userAgent
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9_]/g, "_")
@@ -20,7 +20,11 @@ export function normalizeUserAgent(
   if (lowered.length === 0) return undefined;
 
   const MAX_LEN = 32;
-  return lowered.length <= MAX_LEN ? lowered : lowered.slice(0, MAX_LEN);
+  if (lowered.length > MAX_LEN) {
+    lowered = lowered.slice(0, MAX_LEN).replace(/_+$/g, "");
+  }
+
+  return lowered.length > 0 ? lowered : undefined;
 }
 
 export function sanitizeCollectionName(
