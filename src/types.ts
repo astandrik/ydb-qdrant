@@ -3,6 +3,12 @@ import { z } from "zod";
 export type DistanceKind = "Cosine" | "Euclid" | "Dot" | "Manhattan";
 export type VectorType = "float";
 
+/**
+ * Collection metadata from qdr__collections table.
+ *
+ * @property lastAccessedAt - Timestamp of last access; undefined for collections
+ * created before this feature, null if explicitly unset.
+ */
 export interface CollectionMeta {
   table: string;
   dimension: number;

@@ -19,6 +19,17 @@ import {
 import { withRetry, isTransientYdbError } from "../utils/retry.js";
 
 const lastAccessWriteCache = new Map<string, number>();
+const LAST_ACCESS_CACHE_MAX_SIZE = 10000;
+
+function evictOldestLastAccessEntry(): void {
+  if (lastAccessWriteCache.size < LAST_ACCESS_CACHE_MAX_SIZE) {
+    return;
+  }
+  const oldestKey = lastAccessWriteCache.keys().next().value;
+  if (oldestKey !== undefined) {
+    lastAccessWriteCache.delete(oldestKey);
+  }
+}
 
 function shouldWriteLastAccess(nowMs: number, key: string): boolean {
   const last = lastAccessWriteCache.get(key);
@@ -160,6 +171,14 @@ export async function deleteCollection(
   await deleteCollectionOneTable(metaKey, effectiveUid);
 }
 
+/**
+ * Best-effort metadata update for a collection's last_accessed_at timestamp.
+ *
+ * - Uses an in-memory throttle (per metaKey) to avoid writing more often than
+ *   LAST_ACCESS_MIN_WRITE_INTERVAL_MS.
+ * - Accepts an optional now parameter (default: current time) to aid testing.
+ * - Logs and ignores YDB errors so callers' primary operations are not affected.
+ */
 export async function touchCollectionLastAccess(
   metaKey: string,
   now: Date = new Date()
@@ -191,6 +210,7 @@ export async function touchCollectionLastAccess(
       );
     });
 
+    evictOldestLastAccessEntry();
     lastAccessWriteCache.set(metaKey, nowMs);
   } catch (err) {
     logger.warn(

@@ -85,7 +85,6 @@ export async function createCollection(
   }
 
   await repoCreateCollection(normalized.metaKey, dim, distance, vectorType);
-  await touchCollectionLastAccess(normalized.metaKey);
   return { name: normalized.collection, tenant: normalized.tenant };
 }
 

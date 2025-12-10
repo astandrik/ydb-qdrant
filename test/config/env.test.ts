@@ -17,6 +17,7 @@ describe("env.ts configuration", () => {
     delete process.env.YDB_QDRANT_SEARCH_TIMEOUT_MS;
     delete process.env.YDB_QDRANT_STARTUP_PROBE_SESSION_TIMEOUT_MS;
     delete process.env.YDB_QDRANT_USE_BATCH_DELETE;
+    delete process.env.YDB_QDRANT_LAST_ACCESS_MIN_WRITE_INTERVAL_MS;
   });
 
   afterEach(() => {
@@ -192,6 +193,29 @@ describe("env.ts configuration", () => {
       expect(env.UPSERT_OPERATION_TIMEOUT_MS).toBe(5000);
       expect(env.SEARCH_OPERATION_TIMEOUT_MS).toBe(10000);
       expect(env.STARTUP_PROBE_SESSION_TIMEOUT_MS).toBe(5000);
+    });
+  });
+
+  describe("LAST_ACCESS_MIN_WRITE_INTERVAL_MS", () => {
+    it("defaults to 60000 when not set", async () => {
+      const env = await import("../../src/config/env.js");
+      expect(env.LAST_ACCESS_MIN_WRITE_INTERVAL_MS).toBe(60000);
+    });
+
+    it("parses valid interval value from env", async () => {
+      process.env.YDB_QDRANT_LAST_ACCESS_MIN_WRITE_INTERVAL_MS = "120000";
+
+      const env = await import("../../src/config/env.js");
+
+      expect(env.LAST_ACCESS_MIN_WRITE_INTERVAL_MS).toBe(120000);
+    });
+
+    it("clamps interval to minimum 1000ms", async () => {
+      process.env.YDB_QDRANT_LAST_ACCESS_MIN_WRITE_INTERVAL_MS = "10";
+
+      const env = await import("../../src/config/env.js");
+
+      expect(env.LAST_ACCESS_MIN_WRITE_INTERVAL_MS).toBe(1000);
     });
   });
 

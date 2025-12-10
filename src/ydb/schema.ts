@@ -30,6 +30,11 @@ export async function ensureMetaTable(): Promise<void> {
             ADD COLUMN last_accessed_at Timestamp;
           `;
 
+          // NOTE: ydb-sdk's public TableSession type does not surface executeSchemeQuery,
+          // but the underlying implementation provides it. This cast relies on the
+          // current ydb-sdk internals (tested with ydb-sdk v5.11.1) to run ALTER TABLE
+          // as a scheme query. If the SDK changes its internal API, this may need to be
+          // revisited or replaced with an officially supported migration mechanism.
           const rawSession = s as unknown as {
             sessionId: string;
             api: {
@@ -68,7 +73,10 @@ export async function ensureMetaTable(): Promise<void> {
       }
     });
   } catch (err: unknown) {
-    logger.debug({ err }, "ensureMetaTable: ignored");
+    logger.warn(
+      { err },
+      "ensureMetaTable: failed to verify or migrate qdr__collections; subsequent operations may fail if schema is incomplete"
+    );
   }
 }
 
@@ -125,6 +133,11 @@ export async function ensureGlobalPointsTable(): Promise<void> {
           ADD COLUMN embedding_quantized String;
         `;
 
+      // NOTE: Same rationale as in ensureMetaTable: executeSchemeQuery is not part of
+      // the public TableSession TypeScript surface, so we reach into the underlying
+      // ydb-sdk implementation (verified with ydb-sdk v5.11.1) to apply schema changes.
+      // If future SDK versions alter this shape, this cast and migration path must be
+      // updated accordingly.
       const rawSession = s as unknown as {
         sessionId: string;
         api: {
