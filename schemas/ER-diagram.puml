@@ -20,15 +20,20 @@ entity "qdr__collections" as collections <<Metadata Table>> {
   distance : Utf8 {Cosine|Euclid|Dot|Manhattan}
   vector_type : Utf8 {float}
   created_at : Timestamp
+  last_accessed_at : Timestamp  // updated on each operation (throttled)
 }
 
 entity "qdrant_all_points" as global_points <<Global Points Table>> {
   * uid : Utf8 <<PK>>        // derived from tenant + collection (uidFor)
   * point_id : Utf8 <<PK>>
   --
-  embedding : String (binary, full-precision)
-  embedding_quantized : String (binary, bit-quantized)
+  embedding : String (binary, full-precision float)
+  embedding_quantized : String (binary, bit-quantized for approximate search)
   payload : JsonDocument
+  ....
+  **Auto-partitioning:**
+  partitioningByLoad = ENABLED
+  partitioningBySize = ENABLED (100MB)
 }
 
 collections ||--o{ global_points : "groups points via uid (tenant/collection)"
@@ -53,9 +58,13 @@ note right of global_points
   • embedding: Binary string via Knn::ToBinaryStringFloat
   • embedding_quantized: Binary string via Knn::ToBinaryStringBit
   
-  **Search:**
-  • Exact: KNN over embedding
-  • Approximate: candidates from embedding_quantized + re‑ranking over embedding
+  **Search Modes (YDB_QDRANT_SEARCH_MODE):**
+  • exact (default): single-phase KNN over embedding
+  • approximate: bit-quantized candidates from embedding_quantized + re-ranking over embedding
+  
+  **Serialization:**
+  • Server-side: Knn::ToBinaryStringFloat/Bit (default)
+  • Client-side: pre-serialized binary (YDB_QDRANT_CLIENT_SIDE_SERIALIZATION_ENABLED)
 end note
 
 legend right

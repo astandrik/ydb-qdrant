@@ -15,7 +15,7 @@ System_Boundary(ydbQdrant, "YDB-Qdrant Service") {
     Container(ydbClient, "YDB Client", "ydb-sdk (CJS)", "Database driver with session pooling and credential management")
 }
 
-ContainerDb(ydb, "YDB Database", "Distributed SQL/NoSQL", "Stores collection metadata (qdr__collections) and vector data (qdr_<tenant>__<collection>) with vector_kmeans_tree indexes")
+ContainerDb(ydb, "YDB Database", "Distributed SQL/NoSQL", "Stores collection metadata (qdr__collections) and vector data (qdrant_all_points) with auto-partitioning")
 
 Rel(developer, webApp, "Makes API requests", "HTTPS/REST")
 Rel(webApp, routes, "Routes requests to", "Function calls")
@@ -81,12 +81,15 @@ note right of ydb
   **Tables:**
   • qdr__collections (metadata)
     PK: collection (tenant/name)
+    Columns: table_name, vector_dimension, distance, vector_type, created_at, last_accessed_at
   • qdrant_all_points (global points table)
-    PK: (uid, point_id), columns: embedding, embedding_quantized, payload
+    PK: (uid, point_id)
+    Columns: embedding (float binary), embedding_quantized (bit binary), payload
+    Auto-partitioning: by load + by size (100MB)
   
-  **Search modes (application-side KNN):**
-  • Exact: single-phase KNN over embedding
-  • Approximate: two-phase bit-quantized candidate selection over embedding_quantized + exact re-ranking over embedding
+  **Search modes (YDB_QDRANT_SEARCH_MODE):**
+  • exact (default): single-phase KNN over embedding
+  • approximate: bit-quantized candidates + exact re-ranking
   
   **Distance metrics:**
   Cosine, Euclid, Dot, Manhattan

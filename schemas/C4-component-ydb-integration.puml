@@ -77,13 +77,31 @@ note top of env_config
   - YDB_ENDPOINT (string)
   - YDB_DATABASE (string)
   
-  **Optional:**
+  **Optional (Server):**
   - PORT (default 8080)
   - LOG_LEVEL (default "info")
   
-  **Loading:**
-  - Uses dotenv/config for .env file
-  - Exports constants for consumption
+  **Optional (Search):**
+  - YDB_QDRANT_SEARCH_MODE (exact|approximate, default "exact")
+  - YDB_QDRANT_OVERFETCH_MULTIPLIER (default 10)
+  - YDB_QDRANT_SEARCH_TIMEOUT_MS (default 10000)
+  
+  **Optional (Upsert):**
+  - YDB_QDRANT_UPSERT_BATCH_SIZE (default 100)
+  - YDB_QDRANT_UPSERT_TIMEOUT_MS (default 5000)
+  - YDB_QDRANT_CLIENT_SIDE_SERIALIZATION_ENABLED (default false)
+  
+  **Optional (Session Pool):**
+  - YDB_SESSION_POOL_MIN_SIZE (default 5)
+  - YDB_SESSION_POOL_MAX_SIZE (default 100)
+  - YDB_SESSION_KEEPALIVE_PERIOD_MS (default 5000)
+  
+  **Optional (Migration):**
+  - YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE (default false)
+  - YDB_QDRANT_USE_BATCH_DELETE (default false)
+  
+  **Optional (Tracking):**
+  - YDB_QDRANT_LAST_ACCESS_MIN_WRITE_INTERVAL_MS (default 60000)
 end note
 
 note right of logger

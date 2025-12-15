@@ -33,10 +33,15 @@ note right of collections_repo
   - createCollection(metaKey, dim, distance, vectorType)
   - getCollectionMeta(metaKey) → {table, dimension, distance, vectorType}
   - deleteCollection(metaKey)
+  - touchCollectionLastAccess(metaKey) — throttled update
   
   **Collection Creation Flow (one-table):**
   1. Ensure qdr__collections metadata table exists
   2. UPSERT metadata row for collection
+  
+  **Last Access Tracking:**
+  - Updated on upsert/search/delete
+  - Throttled by LAST_ACCESS_MIN_WRITE_INTERVAL_MS (default 60s)
 end note
 
 note left of points_repo
@@ -47,14 +52,17 @@ note left of points_repo
   
   **Upsert Flow (one-table):**
   1. Validate vector dimension
-  2. Batch UPSERT into global qdrant_all_points with serialized vectors
+  2. Batch UPSERT (UPSERT_BATCH_SIZE, default 100)
+  3. Serialize vectors:
+     • Server-side: Knn::ToBinaryStringFloat/Bit (default)
+     • Client-side: pre-serialized binary (YDB_QDRANT_CLIENT_SIDE_SERIALIZATION_ENABLED)
   
-  **Search Strategy (one-table):**
-  1. Exact: single-phase KNN over embedding
-  2. Approximate: bit-quantized candidate selection over embedding_quantized + exact re-ranking
+  **Search Strategy (one-table, YDB_QDRANT_SEARCH_MODE):**
+  1. exact (default): single-phase KNN over embedding
+  2. approximate: bit-quantized candidates (OVERFETCH_MULTIPLIER × top) + exact re-ranking
   
   **Distance Function Mapping:**
-  - Cosine → Knn::CosineSimilarity / Knn::CosineDistance
+  - Cosine → Knn::CosineDistance (converted to similarity in API)
   - Dot → Knn::InnerProductSimilarity
   - Euclid → Knn::EuclideanDistance
   - Manhattan → Knn::ManhattanDistance
@@ -78,8 +86,13 @@ note top of ydb_schema
   - If not: create with schema:
     * collection (PK)
     * table_name, vector_dimension
-    * distance, vector_type, created_at
-  - Idempotent; errors ignored if table exists
+    * distance, vector_type, created_at, last_accessed_at
+  - Auto-migrate: add last_accessed_at column if missing
+  
+  **ensureGlobalPointsTable():**
+  - Check if qdrant_all_points exists
+  - If not: create with auto-partitioning (100MB)
+  - Auto-migrate embedding_quantized if missing (requires YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE)
 end note
 
 @enduml
