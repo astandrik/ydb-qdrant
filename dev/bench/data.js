@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1765812329750,
+  "lastUpdate": 1765812331005,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (multi_table, 768D)": [
@@ -4421,6 +4421,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Soak: Upsert Latency p95",
             "value": 27,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Error Rate",
+            "value": 0,
+            "unit": "%"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0d8566020e54981f9ea31c0a88fcbbedfa5fb82a",
+          "message": "fix: regenerate diagrams (#158)",
+          "timestamp": "2025-12-15T18:21:45+03:00",
+          "tree_id": "03d50fbf27a1f3bd488f702800f27c49fe51a6c4",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/0d8566020e54981f9ea31c0a88fcbbedfa5fb82a"
+        },
+        "date": 1765812329743,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Soak: Search Latency p95",
+            "value": 69,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Search Latency p99",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Upsert Latency p95",
+            "value": 23,
             "unit": "ms"
           },
           {
