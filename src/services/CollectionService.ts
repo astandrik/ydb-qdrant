@@ -91,6 +91,15 @@ export async function createCollection(
 export async function getCollection(ctx: CollectionContextInput): Promise<{
   name: string;
   vectors: { size: number; distance: DistanceKind; data_type: string };
+  config: {
+    params: {
+      vectors: {
+        size: number;
+        distance: DistanceKind;
+        data_type: string;
+      };
+    };
+  };
 }> {
   await ensureMetaTable();
   const normalized = normalizeCollectionContextShared(
@@ -113,6 +122,15 @@ export async function getCollection(ctx: CollectionContextInput): Promise<{
       size: meta.dimension,
       distance: meta.distance,
       data_type: meta.vectorType,
+    },
+    config: {
+      params: {
+        vectors: {
+          size: meta.dimension,
+          distance: meta.distance,
+          data_type: meta.vectorType,
+        },
+      },
     },
   };
 }
