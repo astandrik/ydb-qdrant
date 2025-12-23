@@ -136,6 +136,176 @@ describe("YDB integration (real database via programmatic API)", () => {
     }
   });
 
+  it("deletes points by pathSegments filter (must) and does not over-delete", async () => {
+    const col = `${collectionBase}_delete_filter_must_${Date.now()}`;
+
+    await client.createCollection(col, {
+      vectors: {
+        size: 4,
+        distance: "Cosine",
+        data_type: "float",
+      },
+    });
+
+    const v = [0, 0, 0, 1];
+
+    await client.upsertPoints(col, {
+      points: [
+        {
+          id: "t1",
+          vector: v,
+          payload: {
+            filePath: "src/hooks/useMonacoGhost.ts",
+            pathSegments: { "0": "src", "1": "hooks", "2": "useMonacoGhost.ts" },
+          },
+        },
+        {
+          id: "c1",
+          vector: v,
+          payload: {
+            filePath: "src/hooks/other.ts",
+            pathSegments: { "0": "src", "1": "hooks", "2": "other.ts" },
+          },
+        },
+        {
+          id: "c2",
+          vector: v,
+          payload: {
+            filePath: "src/components/Button.tsx",
+            pathSegments: { "0": "src", "1": "components", "2": "Button.tsx" },
+          },
+        },
+      ],
+    });
+
+    const before = await client.searchPoints(col, {
+      vector: v,
+      top: 10,
+      with_payload: true,
+    });
+    const beforeIds = (before.points ?? []).map((p) => p.id);
+    expect(beforeIds).toEqual(expect.arrayContaining(["t1", "c1", "c2"]));
+
+    const del1 = await client.deletePoints(col, {
+      filter: {
+        must: [
+          { key: "pathSegments.0", match: { value: "src" } },
+          { key: "pathSegments.1", match: { value: "hooks" } },
+          { key: "pathSegments.2", match: { value: "useMonacoGhost.ts" } },
+        ],
+      },
+    });
+    expect(del1.deleted).toBe(1);
+
+    const after = await client.searchPoints(col, {
+      vector: v,
+      top: 10,
+      with_payload: true,
+    });
+    const afterIds = (after.points ?? []).map((p) => p.id);
+    expect(afterIds).toContain("c1");
+    expect(afterIds).toContain("c2");
+    expect(afterIds).not.toContain("t1");
+
+    const del2 = await client.deletePoints(col, {
+      filter: {
+        must: [
+          { key: "pathSegments.0", match: { value: "src" } },
+          { key: "pathSegments.1", match: { value: "hooks" } },
+          { key: "pathSegments.2", match: { value: "useMonacoGhost.ts" } },
+        ],
+      },
+    });
+    expect(del2.deleted).toBe(0);
+
+    try {
+      await client.deleteCollection(col);
+    } catch {
+      // ignore cleanup failures
+    }
+  });
+
+  it("deletes points by pathSegments filter (should) for multiple files", async () => {
+    const col = `${collectionBase}_delete_filter_should_${Date.now()}`;
+
+    await client.createCollection(col, {
+      vectors: {
+        size: 4,
+        distance: "Cosine",
+        data_type: "float",
+      },
+    });
+
+    const v = [0, 0, 0, 1];
+
+    await client.upsertPoints(col, {
+      points: [
+        {
+          id: "a",
+          vector: v,
+          payload: {
+            filePath: "src/hooks/useMonacoGhost.ts",
+            pathSegments: { "0": "src", "1": "hooks", "2": "useMonacoGhost.ts" },
+          },
+        },
+        {
+          id: "b",
+          vector: v,
+          payload: {
+            filePath: "src/hooks/other.ts",
+            pathSegments: { "0": "src", "1": "hooks", "2": "other.ts" },
+          },
+        },
+        {
+          id: "keep",
+          vector: v,
+          payload: {
+            filePath: "src/components/Button.tsx",
+            pathSegments: { "0": "src", "1": "components", "2": "Button.tsx" },
+          },
+        },
+      ],
+    });
+
+    const del = await client.deletePoints(col, {
+      filter: {
+        should: [
+          {
+            must: [
+              { key: "pathSegments.0", match: { value: "src" } },
+              { key: "pathSegments.1", match: { value: "hooks" } },
+              { key: "pathSegments.2", match: { value: "useMonacoGhost.ts" } },
+            ],
+          },
+          {
+            must: [
+              { key: "pathSegments.0", match: { value: "src" } },
+              { key: "pathSegments.1", match: { value: "hooks" } },
+              { key: "pathSegments.2", match: { value: "other.ts" } },
+            ],
+          },
+        ],
+      },
+    });
+    expect(del.deleted).toBe(2);
+
+    const after = await client.searchPoints(col, {
+      vector: v,
+      top: 10,
+      with_payload: true,
+    });
+    const afterIds = (after.points ?? []).map((p) => p.id);
+    expect(afterIds).toContain("keep");
+    expect(afterIds).not.toContain("a");
+    expect(afterIds).not.toContain("b");
+
+    try {
+      await client.deleteCollection(col);
+    } catch {
+      // ignore cleanup failures
+    }
+  });
+
   it("isolates data between tenants when using forTenant", async () => {
     const tenantA = `${tenant}_a`;
     const tenantB = `${tenant}_b`;

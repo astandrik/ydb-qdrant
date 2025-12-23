@@ -8,6 +8,7 @@ import {
   upsertPointsOneTable,
   searchPointsOneTable,
   deletePointsOneTable,
+  deletePointsByPathSegmentsOneTable,
 } from "./pointsRepo.one-table.js";
 
 export async function upsertPoints(
@@ -54,4 +55,12 @@ export async function deletePoints(
   uid: string
 ): Promise<number> {
   return await deletePointsOneTable(tableName, ids, uid);
+}
+
+export async function deletePointsByPathSegments(
+  tableName: string,
+  uid: string,
+  paths: Array<Array<string>>
+): Promise<number> {
+  return await deletePointsByPathSegmentsOneTable(tableName, uid, paths);
 }

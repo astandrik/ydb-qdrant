@@ -48,6 +48,33 @@ export const SearchReq = z.object({
   with_payload: z.boolean().optional(),
 });
 
-export const DeletePointsReq = z.object({
+export const DeletePointsByIdsReq = z.object({
   points: z.array(z.union([z.string(), z.number()])).min(1),
 });
+
+const DeletePointsFilterCondition = z.object({
+  key: z.string(),
+  match: z.object({
+    value: z.string(),
+  }),
+});
+
+const DeletePointsFilterMust = z.object({
+  must: z.array(DeletePointsFilterCondition).min(1),
+});
+
+const DeletePointsFilter = z.union([
+  DeletePointsFilterMust,
+  z.object({
+    should: z.array(DeletePointsFilterMust).min(1),
+  }),
+]);
+
+export const DeletePointsByFilterReq = z.object({
+  filter: DeletePointsFilter,
+});
+
+export const DeletePointsReq = z.union([
+  DeletePointsByIdsReq,
+  DeletePointsByFilterReq,
+]);
