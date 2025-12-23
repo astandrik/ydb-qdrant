@@ -9,7 +9,7 @@ import {
   searchPointsOneTable,
   deletePointsOneTable,
   deletePointsByPathSegmentsOneTable,
-} from "./pointsRepo.one-table";
+} from "./pointsRepo.one-table.js";
 
 export async function upsertPoints(
   tableName: string,
