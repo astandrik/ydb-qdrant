@@ -452,7 +452,8 @@ describe("QdrantService (with mocked YDB)", () => {
       true,
       "Cosine",
       4,
-      expect.any(String)
+      expect.any(String),
+      undefined
     );
   });
 

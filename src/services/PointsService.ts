@@ -213,6 +213,8 @@ async function executeSearch(
     `${source}: executing`
   );
 
+  const filterPaths = parsePathSegmentsFilterToPaths(normalizedSearch.filter);
+
   let hits;
   try {
     hits = await repoSearchPoints(
@@ -222,7 +224,8 @@ async function executeSearch(
       parsed.data.with_payload,
       meta.distance,
       meta.dimension,
-      uid
+      uid,
+      filterPaths ?? undefined
     );
   } catch (err: unknown) {
     if (isVectorDimensionMismatchError(err)) {
