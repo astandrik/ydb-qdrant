@@ -690,37 +690,59 @@ export async function deletePointsByPathSegmentsOneTable(
     }>;
   }): number {
     type Cell = {
-      uint64Value?: number;
-      int64Value?: number;
-      uint32Value?: number;
-      int32Value?: number;
+      uint64Value?: unknown;
+      int64Value?: unknown;
+      uint32Value?: unknown;
+      int32Value?: unknown;
       textValue?: string;
     };
-    const rowset = rs.resultSets?.[0];
-    const rows =
-      (rowset?.rows as
-        | Array<{
-            items?: Array<Cell | undefined>;
-          }>
-        | undefined) ?? [];
 
-    const first = rows[0];
-    const cell = first?.items?.[0];
-    if (!cell) return 0;
-
-    const numeric =
-      cell.uint64Value ??
-      cell.int64Value ??
-      cell.uint32Value ??
-      cell.int32Value;
-    if (typeof numeric === "number" && Number.isFinite(numeric)) {
-      return numeric;
+    function toNumber(value: unknown): number | null {
+      if (typeof value === "number" && Number.isFinite(value)) return value;
+      if (typeof value === "bigint") {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : null;
+      }
+      if (typeof value === "string") {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : null;
+      }
+      if (value && typeof value === "object") {
+        // ydb-sdk may return Uint64/Int64 as protobufjs Long-like objects:
+        // { low: number, high: number, unsigned?: boolean }
+        const v = value as { low?: unknown; high?: unknown };
+        if (typeof v.low === "number" && typeof v.high === "number") {
+          const low = BigInt(v.low >>> 0);
+          const high = BigInt(v.high >>> 0);
+          const n = Number(low + (high << 32n));
+          return Number.isFinite(n) ? n : null;
+        }
+      }
+      return null;
     }
 
-    if (typeof cell.textValue === "string") {
-      const parsed = Number(cell.textValue);
-      if (Number.isFinite(parsed)) {
-        return parsed;
+    const sets = rs.resultSets ?? [];
+    for (let i = sets.length - 1; i >= 0; i -= 1) {
+      const rowset = sets[i];
+      const rows =
+        (rowset?.rows as
+          | Array<{
+              items?: Array<Cell | undefined>;
+            }>
+          | undefined) ?? [];
+      const cell = rows[0]?.items?.[0];
+      if (!cell) continue;
+
+      const candidates: unknown[] = [
+        cell.uint64Value,
+        cell.int64Value,
+        cell.uint32Value,
+        cell.int32Value,
+        cell.textValue,
+      ];
+      for (const c of candidates) {
+        const n = toNumber(c);
+        if (n !== null) return n;
       }
     }
 
