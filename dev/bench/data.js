@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766493882772,
+  "lastUpdate": 1766493893551,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (multi_table, 768D)": [
@@ -4509,6 +4509,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Soak: Upsert Latency p95",
             "value": 25,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Error Rate",
+            "value": 0,
+            "unit": "%"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d4c510812bc052247f91c1aaedbfb24f69128862",
+          "message": "fix: dont recreate collection (#160)\n\n* fix: dont recreate collection\n\n* fix: review",
+          "timestamp": "2025-12-23T15:40:58+03:00",
+          "tree_id": "a017d1205ae1134b6a6d653a0c0c18d9b2fd6846",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/d4c510812bc052247f91c1aaedbfb24f69128862"
+        },
+        "date": 1766493892452,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Soak: Search Latency p95",
+            "value": 71,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Search Latency p99",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Upsert Latency p95",
+            "value": 26,
             "unit": "ms"
           },
           {
