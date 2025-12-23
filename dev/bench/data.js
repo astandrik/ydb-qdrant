@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766526342559,
+  "lastUpdate": 1766526343649,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (multi_table, 768D)": [
@@ -16371,6 +16371,45 @@ window.BENCHMARK_DATA = {
           {
             "name": "Stress: Throughput",
             "value": 164.68895920057886,
+            "unit": "ops/s"
+          },
+          {
+            "name": "Stress: Max VUs",
+            "value": 600,
+            "unit": "VUs"
+          },
+          {
+            "name": "Stress: Breaking Point VUs",
+            "value": 600,
+            "unit": "VUs"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "41898282+github-actions[bot]@users.noreply.github.com",
+            "name": "github-actions[bot]",
+            "username": "github-actions[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e99ccf9bcb38d4e03c62b481f3b6f986743b87e0",
+          "message": "chore(main): release 6.1.0 (#164)\n\nCo-authored-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>",
+          "timestamp": "2025-12-24T00:37:55+03:00",
+          "tree_id": "d1880b55307736aa1b9d8b7462bcfde2c8a01813",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/e99ccf9bcb38d4e03c62b481f3b6f986743b87e0"
+        },
+        "date": 1766526343328,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Stress: Throughput",
+            "value": 169.6555896655627,
             "unit": "ops/s"
           },
           {
