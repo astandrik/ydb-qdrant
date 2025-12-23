@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766511027270,
+  "lastUpdate": 1766511028820,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (multi_table, 768D)": [
@@ -15825,6 +15825,45 @@ window.BENCHMARK_DATA = {
           {
             "name": "Stress: Breaking Point VUs",
             "value": -1,
+            "unit": "VUs"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ec926a1457b97b14e8e978e984f5ee6f1caf6320",
+          "message": "fix: delete by filter (#163)\n\n* fix: delete by filter\n\n* fix: build\n\n* fix: declare",
+          "timestamp": "2025-12-23T20:22:09+03:00",
+          "tree_id": "71f7b8a94ee7b2cb798ae8b93c3433cff5247cdf",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/ec926a1457b97b14e8e978e984f5ee6f1caf6320"
+        },
+        "date": 1766511028534,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Stress: Throughput",
+            "value": 134.08612513780213,
+            "unit": "ops/s"
+          },
+          {
+            "name": "Stress: Max VUs",
+            "value": 600,
+            "unit": "VUs"
+          },
+          {
+            "name": "Stress: Breaking Point VUs",
+            "value": 600,
             "unit": "VUs"
           }
         ]
