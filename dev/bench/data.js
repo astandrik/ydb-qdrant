@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766494126346,
+  "lastUpdate": 1766494127047,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (multi_table, 768D)": [
@@ -11756,6 +11756,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "Stress: Error Rate",
             "value": 1.0524,
+            "unit": "%"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d4c510812bc052247f91c1aaedbfb24f69128862",
+          "message": "fix: dont recreate collection (#160)\n\n* fix: dont recreate collection\n\n* fix: review",
+          "timestamp": "2025-12-23T15:40:58+03:00",
+          "tree_id": "a017d1205ae1134b6a6d653a0c0c18d9b2fd6846",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/d4c510812bc052247f91c1aaedbfb24f69128862"
+        },
+        "date": 1766494126372,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Stress: Search Latency p95",
+            "value": 4430,
+            "unit": "ms"
+          },
+          {
+            "name": "Stress: Search Latency p99",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Stress: Search Latency max",
+            "value": 6501,
+            "unit": "ms"
+          },
+          {
+            "name": "Stress: Upsert Latency p95",
+            "value": 3996.95,
+            "unit": "ms"
+          },
+          {
+            "name": "Stress: Error Rate",
+            "value": 0.0213,
             "unit": "%"
           }
         ]
