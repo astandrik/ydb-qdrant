@@ -154,6 +154,14 @@ describe("QdrantService (with mocked YDB)", () => {
         distance: "Cosine",
         data_type: "float",
       },
+      config: {
+        params: {
+          vectors: {
+            size: 128,
+            distance: "Cosine",
+          },
+        },
+      },
     });
   });
 
