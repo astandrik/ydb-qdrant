@@ -622,9 +622,15 @@ export async function deletePointsByPathSegmentsOneTable(
 
   const { whereSql, params: whereParams } = buildPathSegmentsWhereClause(paths);
 
+  const whereParamDeclarations = Object.keys(whereParams)
+    .sort()
+    .map((key) => `DECLARE ${key} AS Utf8;`)
+    .join("\n    ");
+
   const selectIdsYql = `
     DECLARE $uid AS Utf8;
     DECLARE $limit AS Uint32;
+    ${whereParamDeclarations}
     SELECT point_id
     FROM ${tableName}
     WHERE uid = $uid AND ${whereSql}

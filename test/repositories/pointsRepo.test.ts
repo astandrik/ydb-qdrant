@@ -417,6 +417,9 @@ describe("pointsRepo (with mocked YDB)", () => {
     expect(deleted).toBe(1);
     const selectYql = sessionMock.executeQuery.mock.calls[0][0] as string;
     expect(selectYql).toContain("SELECT point_id");
+    expect(selectYql).toContain("DECLARE $p0_0 AS Utf8;");
+    expect(selectYql).toContain("DECLARE $p0_1 AS Utf8;");
+    expect(selectYql).toContain("DECLARE $p0_2 AS Utf8;");
     expect(selectYql).toContain("JSON_VALUE(payload, '$.pathSegments.\"0\"')");
     expect(selectYql).toContain("JSON_VALUE(payload, '$.pathSegments.\"1\"')");
     expect(selectYql).toContain("JSON_VALUE(payload, '$.pathSegments.\"2\"')");
