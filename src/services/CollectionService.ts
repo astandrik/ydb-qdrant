@@ -96,6 +96,7 @@ export async function getCollection(ctx: CollectionContextInput): Promise<{
       vectors: {
         size: number;
         distance: DistanceKind;
+        data_type: string;
       };
     };
   };
@@ -127,6 +128,7 @@ export async function getCollection(ctx: CollectionContextInput): Promise<{
         vectors: {
           size: meta.dimension,
           distance: meta.distance,
+          data_type: meta.vectorType,
         },
       },
     },
