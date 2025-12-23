@@ -57,6 +57,24 @@ function buildPathSegmentsWhereClause(paths: Array<Array<string>>): {
   };
 }
 
+function buildPathSegmentsFilter(paths: Array<Array<string>> | undefined):
+  | {
+      whereSql: string;
+      whereParamDeclarations: string;
+      whereParams: QueryParams;
+    }
+  | undefined {
+  if (!paths || paths.length === 0) return undefined;
+
+  const { whereSql, params: whereParams } = buildPathSegmentsWhereClause(paths);
+  const whereParamDeclarations = Object.keys(whereParams)
+    .sort()
+    .map((key) => `DECLARE ${key} AS Utf8;`)
+    .join("\n        ");
+
+  return { whereSql, whereParamDeclarations, whereParams };
+}
+
 export async function upsertPointsOneTable(
   tableName: string,
   points: Array<{
@@ -228,7 +246,8 @@ async function searchPointsOneTableExact(
   withPayload: boolean | undefined,
   distance: DistanceKind,
   dimension: number,
-  uid: string
+  uid: string,
+  filterPaths?: Array<Array<string>>
 ): Promise<
   Array<{ id: string; score: number; payload?: Record<string, unknown> }>
 > {
@@ -238,6 +257,8 @@ async function searchPointsOneTableExact(
     );
   }
   const { fn, order } = mapDistanceToKnnFn(distance);
+  const filter = buildPathSegmentsFilter(filterPaths);
+  const filterWhere = filter ? ` AND ${filter.whereSql}` : "";
 
   const results = await withSession(async (s) => {
     let yql: string;
@@ -250,16 +271,18 @@ async function searchPointsOneTableExact(
         DECLARE $qbinf AS String;
         DECLARE $k AS Uint32;
         DECLARE $uid AS Utf8;
+        ${filter?.whereParamDeclarations ?? ""}
         SELECT point_id, ${
           withPayload ? "payload, " : ""
         }${fn}(embedding, $qbinf) AS score
         FROM ${tableName}
-        WHERE uid = $uid
+        WHERE uid = $uid${filterWhere}
         ORDER BY score ${order}
         LIMIT $k;
       `;
 
       params = {
+        ...(filter?.whereParams ?? {}),
         $qbinf:
           typeof TypedValues.bytes === "function"
             ? TypedValues.bytes(binaries.float)
@@ -274,17 +297,19 @@ async function searchPointsOneTableExact(
         DECLARE $qf AS List<Float>;
         DECLARE $k AS Uint32;
         DECLARE $uid AS Utf8;
+        ${filter?.whereParamDeclarations ?? ""}
         $qbinf = Knn::ToBinaryStringFloat($qf);
         SELECT point_id, ${
           withPayload ? "payload, " : ""
         }${fn}(embedding, $qbinf) AS score
         FROM ${tableName}
-        WHERE uid = $uid
+        WHERE uid = $uid${filterWhere}
         ORDER BY score ${order}
         LIMIT $k;
       `;
 
       params = {
+        ...(filter?.whereParams ?? {}),
         $qf: qf,
         $k: TypedValues.uint32(top),
         $uid: TypedValues.utf8(uid),
@@ -364,7 +389,8 @@ async function searchPointsOneTableApproximate(
   distance: DistanceKind,
   dimension: number,
   uid: string,
-  overfetchMultiplier: number
+  overfetchMultiplier: number,
+  filterPaths?: Array<Array<string>>
 ): Promise<
   Array<{ id: string; score: number; payload?: Record<string, unknown> }>
 > {
@@ -379,6 +405,8 @@ async function searchPointsOneTableApproximate(
   const safeTop = top > 0 ? top : 1;
   const rawCandidateLimit = safeTop * overfetchMultiplier;
   const candidateLimit = Math.max(safeTop, rawCandidateLimit);
+  const filter = buildPathSegmentsFilter(filterPaths);
+  const filterWhere = filter ? ` AND ${filter.whereSql}` : "";
 
   const results = await withSession(async (s) => {
     let yql: string;
@@ -393,11 +421,13 @@ async function searchPointsOneTableApproximate(
         DECLARE $candidateLimit AS Uint32;
         DECLARE $safeTop AS Uint32;
         DECLARE $uid AS Utf8;
+        ${filter?.whereParamDeclarations ?? ""}
 
         $candidates = (
           SELECT point_id
           FROM ${tableName}
           WHERE uid = $uid AND embedding_quantized IS NOT NULL
+            ${filterWhere}
           ORDER BY ${bitFn}(embedding_quantized, $qbin_bit) ${bitOrder}
           LIMIT $candidateLimit
         );
@@ -408,11 +438,13 @@ async function searchPointsOneTableApproximate(
         FROM ${tableName}
         WHERE uid = $uid
           AND point_id IN $candidates
+          ${filterWhere}
         ORDER BY score ${order}
         LIMIT $safeTop;
       `;
 
       params = {
+        ...(filter?.whereParams ?? {}),
         $qbin_bit:
           typeof TypedValues.bytes === "function"
             ? TypedValues.bytes(binaries.bit)
@@ -453,6 +485,7 @@ async function searchPointsOneTableApproximate(
         DECLARE $candidateLimit AS Uint32;
         DECLARE $safeTop AS Uint32;
         DECLARE $uid AS Utf8;
+        ${filter?.whereParamDeclarations ?? ""}
 
         $qbin_bit = Knn::ToBinaryStringBit($qf);
         $qbinf = Knn::ToBinaryStringFloat($qf);
@@ -461,6 +494,7 @@ async function searchPointsOneTableApproximate(
           SELECT point_id
           FROM ${tableName}
           WHERE uid = $uid AND embedding_quantized IS NOT NULL
+            ${filterWhere}
           ORDER BY ${bitFn}(embedding_quantized, $qbin_bit) ${bitOrder}
           LIMIT $candidateLimit
         );
@@ -471,11 +505,13 @@ async function searchPointsOneTableApproximate(
         FROM ${tableName}
         WHERE uid = $uid
           AND point_id IN $candidates
+          ${filterWhere}
         ORDER BY score ${order}
         LIMIT $safeTop;
       `;
 
       params = {
+        ...(filter?.whereParams ?? {}),
         $qf: qf,
         $candidateLimit: TypedValues.uint32(candidateLimit),
         $safeTop: TypedValues.uint32(safeTop),
@@ -557,7 +593,8 @@ export async function searchPointsOneTable(
   dimension: number,
   uid: string,
   mode: SearchMode | undefined,
-  overfetchMultiplier: number
+  overfetchMultiplier: number,
+  filterPaths?: Array<Array<string>>
 ): Promise<
   Array<{ id: string; score: number; payload?: Record<string, unknown> }>
 > {
@@ -569,7 +606,8 @@ export async function searchPointsOneTable(
       withPayload,
       distance,
       dimension,
-      uid
+      uid,
+      filterPaths
     );
   }
 
@@ -581,7 +619,8 @@ export async function searchPointsOneTable(
     distance,
     dimension,
     uid,
-    overfetchMultiplier
+    overfetchMultiplier,
+    filterPaths
   );
 }
 
@@ -627,22 +666,88 @@ export async function deletePointsByPathSegmentsOneTable(
     .map((key) => `DECLARE ${key} AS Utf8;`)
     .join("\n    ");
 
-  const selectIdsYql = `
+  const deleteBatchYql = `
     DECLARE $uid AS Utf8;
     DECLARE $limit AS Uint32;
     ${whereParamDeclarations}
-    SELECT point_id
-    FROM ${tableName}
-    WHERE uid = $uid AND ${whereSql}
-    LIMIT $limit;
+
+    $to_delete = (
+      SELECT uid, point_id
+      FROM ${tableName}
+      WHERE uid = $uid AND ${whereSql}
+      LIMIT $limit
+    );
+
+    DELETE FROM ${tableName} ON
+    SELECT uid, point_id FROM $to_delete;
+
+    SELECT COUNT(*) AS deleted FROM $to_delete;
   `;
 
-  const deleteBatchYql = `
-    DECLARE $uid AS Utf8;
-    DECLARE $ids AS List<Utf8>;
-    DELETE FROM ${tableName}
-    WHERE uid = $uid AND point_id IN $ids;
-  `;
+  function readDeletedCountFromResult(rs: {
+    resultSets?: Array<{
+      rows?: unknown[];
+    }>;
+  }): number {
+    type Cell = {
+      uint64Value?: unknown;
+      int64Value?: unknown;
+      uint32Value?: unknown;
+      int32Value?: unknown;
+      textValue?: string;
+    };
+
+    function toNumber(value: unknown): number | null {
+      if (typeof value === "number" && Number.isFinite(value)) return value;
+      if (typeof value === "bigint") {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : null;
+      }
+      if (typeof value === "string") {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : null;
+      }
+      if (value && typeof value === "object") {
+        // ydb-sdk may return Uint64/Int64 as protobufjs Long-like objects:
+        // { low: number, high: number, unsigned?: boolean }
+        const v = value as { low?: unknown; high?: unknown };
+        if (typeof v.low === "number" && typeof v.high === "number") {
+          const low = BigInt(v.low >>> 0);
+          const high = BigInt(v.high >>> 0);
+          const n = Number(low + (high << 32n));
+          return Number.isFinite(n) ? n : null;
+        }
+      }
+      return null;
+    }
+
+    const sets = rs.resultSets ?? [];
+    for (let i = sets.length - 1; i >= 0; i -= 1) {
+      const rowset = sets[i];
+      const rows =
+        (rowset?.rows as
+          | Array<{
+              items?: Array<Cell | undefined>;
+            }>
+          | undefined) ?? [];
+      const cell = rows[0]?.items?.[0];
+      if (!cell) continue;
+
+      const candidates: unknown[] = [
+        cell.uint64Value,
+        cell.int64Value,
+        cell.uint32Value,
+        cell.int32Value,
+        cell.textValue,
+      ];
+      for (const c of candidates) {
+        const n = toNumber(c);
+        if (n !== null) return n;
+      }
+    }
+
+    return 0;
+  }
 
   let deleted = 0;
   await withSession(async (s) => {
@@ -651,7 +756,7 @@ export async function deletePointsByPathSegmentsOneTable(
     // Use limited batches to avoid per-operation buffer limits.
     while (true) {
       const rs = (await s.executeQuery(
-        selectIdsYql,
+        deleteBatchYql,
         {
           ...whereParams,
           $uid: TypedValues.utf8(uid),
@@ -665,33 +770,11 @@ export async function deletePointsByPathSegmentsOneTable(
         }>;
       };
 
-      const rowset = rs.resultSets?.[0];
-      const rows =
-        (rowset?.rows as
-          | Array<{
-              items?: Array<{ textValue?: string } | undefined>;
-            }>
-          | undefined) ?? [];
-
-      const ids = rows
-        .map((row) => row.items?.[0]?.textValue)
-        .filter((id): id is string => typeof id === "string");
-
-      if (ids.length === 0) {
+      const batchDeleted = readDeletedCountFromResult(rs);
+      if (batchDeleted <= 0) {
         break;
       }
-
-      await s.executeQuery(
-        deleteBatchYql,
-        {
-          $uid: TypedValues.utf8(uid),
-          $ids: TypedValues.list(Types.UTF8, ids),
-        },
-        undefined,
-        settings
-      );
-
-      deleted += ids.length;
+      deleted += batchDeleted;
     }
   });
 

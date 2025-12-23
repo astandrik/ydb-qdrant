@@ -279,7 +279,8 @@ describe("pointsRepo (with mocked YDB)", () => {
       false,
       "Cosine",
       4,
-      "qdr_tenant_a__my_collection"
+      "qdr_tenant_a__my_collection",
+      [["src", "hooks"]]
     );
 
     expect(result).toEqual([{ id: "p1", score: 0.9 }]);
@@ -290,6 +291,10 @@ describe("pointsRepo (with mocked YDB)", () => {
     expect(yql).toContain("ORDER BY Knn::CosineSimilarity");
     expect(yql).toContain("Knn::CosineDistance");
     expect(yql).toContain("ORDER BY score ASC");
+    expect(yql).toContain("DECLARE $p0_0 AS Utf8;");
+    expect(yql).toContain("DECLARE $p0_1 AS Utf8;");
+    expect(yql).toContain("JSON_VALUE(payload, '$.pathSegments.\"0\"')");
+    expect(yql).toContain("JSON_VALUE(payload, '$.pathSegments.\"1\"')");
   });
 
   it("searches points with uid parameter for one_table mode (Euclid)", async () => {
@@ -318,7 +323,8 @@ describe("pointsRepo (with mocked YDB)", () => {
       false,
       "Euclid",
       4,
-      "qdr_tenant_a__my_collection"
+      "qdr_tenant_a__my_collection",
+      undefined
     );
 
     expect(result).toEqual([{ id: "p1", score: 0.5 }]);
@@ -362,7 +368,8 @@ describe("pointsRepo (with mocked YDB)", () => {
       false,
       "Cosine",
       4,
-      "qdr_tenant_a__my_collection"
+      "qdr_tenant_a__my_collection",
+      undefined
     );
 
     expect(result).toEqual([{ id: "p1", score: 0.9 }]);
@@ -396,12 +403,13 @@ describe("pointsRepo (with mocked YDB)", () => {
     const sessionMock = {
       executeQuery: vi
         .fn()
-        // select: returns one id, then empty to stop
+        // delete script: returns deleted count per batch, then 0 to stop
         .mockResolvedValueOnce({
-          resultSets: [{ rows: [{ items: [{ textValue: "p1" }] }] }],
+          resultSets: [{ rows: [{ items: [{ uint64Value: 1 }] }] }],
         })
-        .mockResolvedValueOnce({})
-        .mockResolvedValueOnce({ resultSets: [{ rows: [] }] }),
+        .mockResolvedValueOnce({
+          resultSets: [{ rows: [{ items: [{ uint64Value: 0 }] }] }],
+        }),
     };
 
     withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
@@ -415,16 +423,17 @@ describe("pointsRepo (with mocked YDB)", () => {
     );
 
     expect(deleted).toBe(1);
-    const selectYql = sessionMock.executeQuery.mock.calls[0][0] as string;
-    expect(selectYql).toContain("SELECT point_id");
-    expect(selectYql).toContain("DECLARE $p0_0 AS Utf8;");
-    expect(selectYql).toContain("DECLARE $p0_1 AS Utf8;");
-    expect(selectYql).toContain("DECLARE $p0_2 AS Utf8;");
-    expect(selectYql).toContain("JSON_VALUE(payload, '$.pathSegments.\"0\"')");
-    expect(selectYql).toContain("JSON_VALUE(payload, '$.pathSegments.\"1\"')");
-    expect(selectYql).toContain("JSON_VALUE(payload, '$.pathSegments.\"2\"')");
-    const deleteYql = sessionMock.executeQuery.mock.calls[1][0] as string;
-    expect(deleteYql).toContain("DELETE FROM qdrant_all_points");
-    expect(deleteYql).toContain("point_id IN $ids");
+    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(2);
+    const yql = sessionMock.executeQuery.mock.calls[0][0] as string;
+    expect(yql).toContain("DECLARE $p0_0 AS Utf8;");
+    expect(yql).toContain("DECLARE $p0_1 AS Utf8;");
+    expect(yql).toContain("DECLARE $p0_2 AS Utf8;");
+    expect(yql).toContain("JSON_VALUE(payload, '$.pathSegments.\"0\"')");
+    expect(yql).toContain("JSON_VALUE(payload, '$.pathSegments.\"1\"')");
+    expect(yql).toContain("JSON_VALUE(payload, '$.pathSegments.\"2\"')");
+    expect(yql).toContain("$to_delete");
+    expect(yql).toContain("SELECT uid, point_id");
+    expect(yql).toContain("DELETE FROM qdrant_all_points ON");
+    expect(yql).toContain("SELECT COUNT(*) AS deleted FROM $to_delete");
   });
 });

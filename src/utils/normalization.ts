@@ -3,6 +3,7 @@ export interface SearchNormalizationResult {
   top: number | undefined;
   withPayload: boolean | undefined;
   scoreThreshold: number | undefined;
+  filter?: unknown;
 }
 
 export function isNumberArray(value: unknown): value is number[] {
@@ -101,6 +102,8 @@ function normalizeSearchCommon(
   const topFromLimit = typeof rawLimit === "number" ? rawLimit : undefined;
   const top = topFromTop ?? topFromLimit;
 
+  const filter = b["filter"];
+
   let withPayload: boolean | undefined;
   const rawWithPayload = b["with_payload"];
   if (typeof rawWithPayload === "boolean") {
@@ -119,5 +122,5 @@ function normalizeSearchCommon(
     ? thresholdValue
     : undefined;
 
-  return { vector, top, withPayload, scoreThreshold };
+  return { vector, top, withPayload, scoreThreshold, filter };
 }

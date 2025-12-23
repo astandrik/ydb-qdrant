@@ -31,7 +31,8 @@ export async function searchPoints(
   withPayload: boolean | undefined,
   distance: DistanceKind,
   dimension: number,
-  uid: string
+  uid: string,
+  filterPaths?: Array<Array<string>>
 ): Promise<
   Array<{ id: string; score: number; payload?: Record<string, unknown> }>
 > {
@@ -45,7 +46,8 @@ export async function searchPoints(
     dimension,
     uid,
     mode,
-    OVERFETCH_MULTIPLIER
+    OVERFETCH_MULTIPLIER,
+    filterPaths
   );
 }
 
