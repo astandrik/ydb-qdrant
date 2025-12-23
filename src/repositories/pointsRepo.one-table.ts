@@ -24,6 +24,39 @@ import { logger } from "../logging/logger.js";
 
 type QueryParams = { [key: string]: Ydb.ITypedValue };
 
+const DELETE_FILTER_SELECT_BATCH_SIZE = 1000;
+
+function buildPathSegmentsWhereClause(paths: Array<Array<string>>): {
+  whereSql: string;
+  params: QueryParams;
+} {
+  const params: QueryParams = {};
+  const orGroups: string[] = [];
+
+  for (let pIdx = 0; pIdx < paths.length; pIdx += 1) {
+    const segs = paths[pIdx];
+    if (segs.length === 0) {
+      throw new Error("delete-by-filter: empty path segments");
+    }
+    const andParts: string[] = [];
+    for (let sIdx = 0; sIdx < segs.length; sIdx += 1) {
+      const paramName = `$p${pIdx}_${sIdx}`;
+      // payload is JsonDocument; JSON_VALUE supports JsonPath access.
+      andParts.push(
+        `JSON_VALUE(payload, '$.pathSegments."${sIdx}"') = ${paramName}`
+      );
+      params[paramName] = TypedValues.utf8(segs[sIdx]);
+    }
+    orGroups.push(`(${andParts.join(" AND ")})`);
+  }
+
+  return {
+    whereSql:
+      orGroups.length === 1 ? orGroups[0] : `(${orGroups.join(" OR ")})`,
+    params,
+  };
+}
+
 export async function upsertPointsOneTable(
   tableName: string,
   points: Array<{
@@ -575,5 +608,86 @@ export async function deletePointsOneTable(
       deleted += 1;
     }
   });
+  return deleted;
+}
+
+export async function deletePointsByPathSegmentsOneTable(
+  tableName: string,
+  uid: string,
+  paths: Array<Array<string>>
+): Promise<number> {
+  if (paths.length === 0) {
+    return 0;
+  }
+
+  const { whereSql, params: whereParams } = buildPathSegmentsWhereClause(paths);
+
+  const selectIdsYql = `
+    DECLARE $uid AS Utf8;
+    DECLARE $limit AS Uint32;
+    SELECT point_id
+    FROM ${tableName}
+    WHERE uid = $uid AND ${whereSql}
+    LIMIT $limit;
+  `;
+
+  const deleteBatchYql = `
+    DECLARE $uid AS Utf8;
+    DECLARE $ids AS List<Utf8>;
+    DELETE FROM ${tableName}
+    WHERE uid = $uid AND point_id IN $ids;
+  `;
+
+  let deleted = 0;
+  await withSession(async (s) => {
+    const settings = createExecuteQuerySettings();
+    // Best-effort loop: stop when there are no more matching rows.
+    // Use limited batches to avoid per-operation buffer limits.
+    while (true) {
+      const rs = (await s.executeQuery(
+        selectIdsYql,
+        {
+          ...whereParams,
+          $uid: TypedValues.utf8(uid),
+          $limit: TypedValues.uint32(DELETE_FILTER_SELECT_BATCH_SIZE),
+        },
+        undefined,
+        settings
+      )) as {
+        resultSets?: Array<{
+          rows?: unknown[];
+        }>;
+      };
+
+      const rowset = rs.resultSets?.[0];
+      const rows =
+        (rowset?.rows as
+          | Array<{
+              items?: Array<{ textValue?: string } | undefined>;
+            }>
+          | undefined) ?? [];
+
+      const ids = rows
+        .map((row) => row.items?.[0]?.textValue)
+        .filter((id): id is string => typeof id === "string");
+
+      if (ids.length === 0) {
+        break;
+      }
+
+      await s.executeQuery(
+        deleteBatchYql,
+        {
+          $uid: TypedValues.utf8(uid),
+          $ids: TypedValues.list(Types.UTF8, ids),
+        },
+        undefined,
+        settings
+      );
+
+      deleted += ids.length;
+    }
+  });
+
   return deleted;
 }

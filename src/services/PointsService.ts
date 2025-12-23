@@ -6,6 +6,7 @@ import {
 } from "../repositories/collectionsRepo.js";
 import {
   deletePoints as repoDeletePoints,
+  deletePointsByPathSegments as repoDeletePointsByPathSegments,
   searchPoints as repoSearchPoints,
   upsertPoints as repoUpsertPoints,
 } from "../repositories/pointsRepo.js";
@@ -24,6 +25,57 @@ import {
 } from "../utils/normalization.js";
 
 type PointsContextInput = CollectionContextInput;
+
+function parsePathSegmentsFilterToPaths(
+  filter: unknown
+): Array<Array<string>> | null {
+  const extractMust = (must: unknown): Array<string> | null => {
+    if (!Array.isArray(must) || must.length === 0) return null;
+    const pairs: Array<{ idx: number; value: string }> = [];
+    for (const cond of must) {
+      if (typeof cond !== "object" || cond === null) return null;
+      const c = cond as {
+        key?: unknown;
+        match?: unknown;
+      };
+      if (typeof c.key !== "string") return null;
+      const m = /^pathSegments\.(\d+)$/.exec(c.key);
+      if (!m) return null;
+      const idx = Number(m[1]);
+      if (!Number.isInteger(idx) || idx < 0) return null;
+      if (typeof c.match !== "object" || c.match === null) return null;
+      const match = c.match as { value?: unknown };
+      if (typeof match.value !== "string") return null;
+      pairs.push({ idx, value: match.value });
+    }
+    pairs.sort((a, b) => a.idx - b.idx);
+    // Require contiguous indexes starting from 0 to avoid ambiguous matches.
+    for (let i = 0; i < pairs.length; i += 1) {
+      if (pairs[i].idx !== i) return null;
+    }
+    return pairs.map((p) => p.value);
+  };
+
+  if (typeof filter !== "object" || filter === null) return null;
+  const f = filter as { must?: unknown; should?: unknown };
+  if (f.must !== undefined) {
+    const path = extractMust(f.must);
+    return path ? [path] : null;
+  }
+  if (f.should !== undefined) {
+    if (!Array.isArray(f.should) || f.should.length === 0) return null;
+    const paths: Array<Array<string>> = [];
+    for (const g of f.should) {
+      if (typeof g !== "object" || g === null) return null;
+      const group = g as { must?: unknown };
+      const path = extractMust(group.must);
+      if (!path) return null;
+      paths.push(path);
+    }
+    return paths;
+  }
+  return null;
+}
 
 export async function upsertPoints(
   ctx: PointsContextInput,
@@ -287,7 +339,20 @@ export async function deletePoints(
   }
 
   const { tableName, uid } = await resolvePointsTableAndUidOneTable(normalized);
-  const deleted = await repoDeletePoints(tableName, parsed.data.points, uid);
+  let deleted: number;
+  if ("points" in parsed.data) {
+    deleted = await repoDeletePoints(tableName, parsed.data.points, uid);
+  } else {
+    const paths = parsePathSegmentsFilterToPaths(parsed.data.filter);
+    if (!paths) {
+      throw new QdrantServiceError(400, {
+        status: "error",
+        error:
+          "unsupported delete filter: only pathSegments.N match filters with must/should are supported",
+      });
+    }
+    deleted = await repoDeletePointsByPathSegments(tableName, uid, paths);
+  }
   await touchCollectionLastAccess(normalized.metaKey);
   return { deleted };
 }

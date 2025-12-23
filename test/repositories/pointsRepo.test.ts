@@ -70,6 +70,7 @@ import {
   upsertPoints,
   searchPoints,
   deletePoints,
+  deletePointsByPathSegments,
 } from "../../src/repositories/pointsRepo.js";
 import * as ydbClient from "../../src/ydb/client.js";
 import { UPSERT_BATCH_SIZE } from "../../src/ydb/schema.js";
@@ -389,5 +390,38 @@ describe("pointsRepo (with mocked YDB)", () => {
     expect(deleted).toBe(1);
     const yql = sessionMock.executeQuery.mock.calls[0][0] as string;
     expect(yql).toContain("WHERE uid = $uid AND point_id = $id");
+  });
+
+  it("deletes points by pathSegments filter (must) for one_table mode", async () => {
+    const sessionMock = {
+      executeQuery: vi
+        .fn()
+        // select: returns one id, then empty to stop
+        .mockResolvedValueOnce({
+          resultSets: [{ rows: [{ items: [{ textValue: "p1" }] }] }],
+        })
+        .mockResolvedValueOnce({})
+        .mockResolvedValueOnce({ resultSets: [{ rows: [] }] }),
+    };
+
+    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
+      return await fn(sessionMock);
+    });
+
+    const deleted = await deletePointsByPathSegments(
+      "qdrant_all_points",
+      "qdr_tenant_a__my_collection",
+      [["src", "hooks", "useMonacoGhost.ts"]]
+    );
+
+    expect(deleted).toBe(1);
+    const selectYql = sessionMock.executeQuery.mock.calls[0][0] as string;
+    expect(selectYql).toContain("SELECT point_id");
+    expect(selectYql).toContain("JSON_VALUE(payload, '$.pathSegments.\"0\"')");
+    expect(selectYql).toContain("JSON_VALUE(payload, '$.pathSegments.\"1\"')");
+    expect(selectYql).toContain("JSON_VALUE(payload, '$.pathSegments.\"2\"')");
+    const deleteYql = sessionMock.executeQuery.mock.calls[1][0] as string;
+    expect(deleteYql).toContain("DELETE FROM qdrant_all_points");
+    expect(deleteYql).toContain("point_id IN $ids");
   });
 });

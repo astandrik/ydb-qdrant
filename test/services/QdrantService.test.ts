@@ -37,6 +37,7 @@ vi.mock("../../src/repositories/pointsRepo.js", () => ({
   upsertPoints: vi.fn(),
   searchPoints: vi.fn(),
   deletePoints: vi.fn(),
+  deletePointsByPathSegments: vi.fn(),
 }));
 
 import * as collectionsRepo from "../../src/repositories/collectionsRepo.js";
@@ -510,6 +511,36 @@ describe("QdrantService (with mocked YDB)", () => {
 
     expect(result).toEqual({ deleted: 3 });
     expect(pointsRepo.deletePoints).toHaveBeenCalledTimes(1);
+  });
+
+  it("deletes points by filter (pathSegments.*) via repository", async () => {
+    vi.mocked(collectionsRepo.getCollectionMeta).mockResolvedValueOnce({
+      table: "qdrant_all_points",
+      dimension: 4,
+      distance: "Cosine",
+      vectorType: "float",
+    });
+    vi.mocked(pointsRepo.deletePointsByPathSegments).mockResolvedValueOnce(2);
+
+    const result = await deletePoints(
+      { tenant, collection },
+      {
+        filter: {
+          must: [
+            { key: "pathSegments.0", match: { value: "src" } },
+            { key: "pathSegments.1", match: { value: "hooks" } },
+            { key: "pathSegments.2", match: { value: "useMonacoGhost.ts" } },
+          ],
+        },
+      }
+    );
+
+    expect(result).toEqual({ deleted: 2 });
+    expect(pointsRepo.deletePointsByPathSegments).toHaveBeenCalledWith(
+      "qdrant_all_points",
+      "qdr_tenant_a__my_collection",
+      [["src", "hooks", "useMonacoGhost.ts"]]
+    );
   });
 
   it("throws 404 when deleting points for a missing collection", async () => {
