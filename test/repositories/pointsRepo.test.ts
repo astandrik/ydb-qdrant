@@ -399,6 +399,43 @@ describe("pointsRepo (with mocked YDB)", () => {
     expect(yql).toContain("WHERE uid = $uid AND point_id = $id");
   });
 
+  it("retries transient OVERLOADED errors for deletePoints (one_table)", async () => {
+    vi.useFakeTimers();
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      const sessionMock = {
+        executeQuery: vi
+          .fn()
+          .mockRejectedValueOnce(
+            new Error(
+              'Overloaded (code 400060): [{"message":"Kikimr cluster or one of its subsystems is overloaded."}]'
+            )
+          )
+          .mockResolvedValueOnce({}),
+      };
+
+      withSessionMock.mockImplementation(
+        async (fn: (s: unknown) => unknown) => await fn(sessionMock)
+      );
+
+      const p = deletePoints(
+        "qdrant_all_points",
+        ["p1"],
+        "qdr_tenant_a__my_collection"
+      );
+      await Promise.resolve(); // allow backoff timer to be scheduled
+      await vi.advanceTimersByTimeAsync(250);
+
+      const deleted = await p;
+
+      expect(deleted).toBe(1);
+      expect(sessionMock.executeQuery).toHaveBeenCalledTimes(2);
+    } finally {
+      randomSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("deletes points by pathSegments filter (must) for one_table mode", async () => {
     const sessionMock = {
       executeQuery: vi
@@ -435,5 +472,49 @@ describe("pointsRepo (with mocked YDB)", () => {
     expect(yql).toContain("SELECT uid, point_id");
     expect(yql).toContain("DELETE FROM qdrant_all_points ON");
     expect(yql).toContain("SELECT COUNT(*) AS deleted FROM $to_delete");
+  });
+
+  it("retries transient OVERLOADED errors for deletePointsByPathSegments (one_table)", async () => {
+    vi.useFakeTimers();
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      const sessionMock = {
+        executeQuery: vi
+          .fn()
+          .mockRejectedValueOnce(
+            new Error(
+              'Overloaded (code 400060): [{"message":"Tablet is overloaded."},{"message":"wrong shard state"}]'
+            )
+          )
+          // delete script: returns deleted count per batch, then 0 to stop
+          .mockResolvedValueOnce({
+            resultSets: [{ rows: [{ items: [{ uint64Value: 1 }] }] }],
+          })
+          .mockResolvedValueOnce({
+            resultSets: [{ rows: [{ items: [{ uint64Value: 0 }] }] }],
+          }),
+      };
+
+      withSessionMock.mockImplementation(
+        async (fn: (s: unknown) => unknown) => await fn(sessionMock)
+      );
+
+      const p = deletePointsByPathSegments(
+        "qdrant_all_points",
+        "qdr_tenant_a__my_collection",
+        [["src", "hooks", "useMonacoGhost.ts"]]
+      );
+      await Promise.resolve(); // allow backoff timer to be scheduled
+      await vi.advanceTimersByTimeAsync(250);
+
+      const deleted = await p;
+
+      expect(deleted).toBe(1);
+      // 1 failed attempt + 1 retry success + 1 final batch (0)
+      expect(sessionMock.executeQuery).toHaveBeenCalledTimes(3);
+    } finally {
+      randomSpy.mockRestore();
+      vi.useRealTimers();
+    }
   });
 });
