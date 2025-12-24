@@ -208,26 +208,28 @@ export async function upsertPointsOneTable(
         };
       }
 
-      logger.debug(
-        {
-          tableName,
-          mode: CLIENT_SIDE_SERIALIZATION_ENABLED
-            ? "one_table_upsert_client_side_serialization"
-            : "one_table_upsert_server_side_knn",
-          batchSize: batch.length,
-          yql: ddl,
-          params: {
-            rows: batch.map((p) => ({
-              uid,
-              point_id: String(p.id),
-              vectorLength: p.vector.length,
-              vectorPreview: p.vector.slice(0, 3),
-              payload: p.payload ?? {},
-            })),
+      if (logger.isLevelEnabled("debug")) {
+        logger.debug(
+          {
+            tableName,
+            mode: CLIENT_SIDE_SERIALIZATION_ENABLED
+              ? "one_table_upsert_client_side_serialization"
+              : "one_table_upsert_server_side_knn",
+            batchSize: batch.length,
+            yql: ddl,
+            params: {
+              rows: batch.map((p) => ({
+                uid,
+                point_id: String(p.id),
+                vectorLength: p.vector.length,
+                vectorPreview: p.vector.slice(0, 3),
+                payload: p.payload ?? {},
+              })),
+            },
           },
-        },
-        "one_table upsert: executing YQL"
-      );
+          "one_table upsert: executing YQL"
+        );
+      }
 
       await withRetry(() => s.executeQuery(ddl, params, undefined, settings), {
         isTransient: isTransientYdbError,
@@ -316,25 +318,27 @@ async function searchPointsOneTableExact(
       };
     }
 
-    logger.debug(
-      {
-        tableName,
-        distance,
-        top,
-        withPayload,
-        mode: CLIENT_SIDE_SERIALIZATION_ENABLED
-          ? "one_table_exact_client_side_serialization"
-          : "one_table_exact",
-        yql,
-        params: {
-          uid,
+    if (logger.isLevelEnabled("debug")) {
+      logger.debug(
+        {
+          tableName,
+          distance,
           top,
-          vectorLength: queryVector.length,
-          vectorPreview: queryVector.slice(0, 3),
+          withPayload,
+          mode: CLIENT_SIDE_SERIALIZATION_ENABLED
+            ? "one_table_exact_client_side_serialization"
+            : "one_table_exact",
+          yql,
+          params: {
+            uid,
+            top,
+            vectorLength: queryVector.length,
+            vectorPreview: queryVector.slice(0, 3),
+          },
         },
-      },
-      "one_table search (exact): executing YQL"
-    );
+        "one_table search (exact): executing YQL"
+      );
+    }
 
     const settings = createExecuteQuerySettingsWithTimeout({
       keepInCache: true,
@@ -458,25 +462,27 @@ async function searchPointsOneTableApproximate(
         $uid: TypedValues.utf8(uid),
       };
 
-      logger.debug(
-        {
-          tableName,
-          distance,
-          top,
-          safeTop,
-          candidateLimit,
-          mode: "one_table_approximate_client_side_serialization",
-          yql,
-          params: {
-            uid,
+      if (logger.isLevelEnabled("debug")) {
+        logger.debug(
+          {
+            tableName,
+            distance,
+            top,
             safeTop,
             candidateLimit,
-            vectorLength: queryVector.length,
-            vectorPreview: queryVector.slice(0, 3),
+            mode: "one_table_approximate_client_side_serialization",
+            yql,
+            params: {
+              uid,
+              safeTop,
+              candidateLimit,
+              vectorLength: queryVector.length,
+              vectorPreview: queryVector.slice(0, 3),
+            },
           },
-        },
-        "one_table search (approximate): executing YQL with client-side serialization"
-      );
+          "one_table search (approximate): executing YQL with client-side serialization"
+        );
+      }
     } else {
       const qf = buildVectorParam(queryVector);
 
@@ -518,25 +524,27 @@ async function searchPointsOneTableApproximate(
         $uid: TypedValues.utf8(uid),
       };
 
-      logger.debug(
-        {
-          tableName,
-          distance,
-          top,
-          safeTop,
-          candidateLimit,
-          mode: "one_table_approximate",
-          yql,
-          params: {
-            uid,
+      if (logger.isLevelEnabled("debug")) {
+        logger.debug(
+          {
+            tableName,
+            distance,
+            top,
             safeTop,
             candidateLimit,
-            vectorLength: queryVector.length,
-            vectorPreview: queryVector.slice(0, 3),
+            mode: "one_table_approximate",
+            yql,
+            params: {
+              uid,
+              safeTop,
+              candidateLimit,
+              vectorLength: queryVector.length,
+              vectorPreview: queryVector.slice(0, 3),
+            },
           },
-        },
-        "one_table search (approximate): executing YQL"
-      );
+          "one_table search (approximate): executing YQL"
+        );
+      }
     }
 
     const settings = createExecuteQuerySettingsWithTimeout({
