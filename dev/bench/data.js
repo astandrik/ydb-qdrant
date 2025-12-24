@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766586099838,
+  "lastUpdate": 1766605980307,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (multi_table, 768D)": [
@@ -5257,6 +5257,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Soak: Upsert Latency p95",
             "value": 25,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Error Rate",
+            "value": 0,
+            "unit": "%"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "43a30d2bde280085ddaaa5fe11add7f6229fe4c1",
+          "message": "fix: root route (#168)\n\n* fix: root route\n\n* fix: other errors",
+          "timestamp": "2025-12-24T22:49:18+03:00",
+          "tree_id": "71ab2dedac8c9cfd93a37531d5e69a36a25264b5",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/43a30d2bde280085ddaaa5fe11add7f6229fe4c1"
+        },
+        "date": 1766605979469,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Soak: Search Latency p95",
+            "value": 42,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Search Latency p99",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Upsert Latency p95",
+            "value": 23,
             "unit": "ms"
           },
           {
