@@ -73,6 +73,26 @@ export function buildServer() {
     }
   );
 
+  // Catch-all error handler: avoid Express default handler printing stacktraces to stderr
+  // and provide consistent JSON error responses.
+  app.use(
+    (err: unknown, _req: Request, res: Response, _next: NextFunction): void => {
+      logger.error({ err }, "Unhandled error in Express middleware");
+      void _next;
+
+      if (res.headersSent || res.writableEnded) {
+        return;
+      }
+
+      const statusCode = extractHttpStatusCode(err) ?? 500;
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      res.status(statusCode).json({
+        status: "error",
+        error: errorMessage,
+      });
+    }
+  );
+
   return app;
 }
 
@@ -92,4 +112,29 @@ function isRequestAbortedError(err: unknown): boolean {
   }
 
   return false;
+}
+
+function extractHttpStatusCode(err: unknown): number | undefined {
+  if (!err || typeof err !== "object") {
+    return undefined;
+  }
+
+  const obj = err as Record<string, unknown>;
+  let statusCodeValue: number | undefined;
+  if (typeof obj.statusCode === "number") {
+    statusCodeValue = obj.statusCode;
+  } else if (typeof obj.status === "number") {
+    statusCodeValue = obj.status;
+  }
+
+  if (
+    statusCodeValue === undefined ||
+    !Number.isInteger(statusCodeValue) ||
+    statusCodeValue < 400 ||
+    statusCodeValue > 599
+  ) {
+    return undefined;
+  }
+
+  return statusCodeValue;
 }
