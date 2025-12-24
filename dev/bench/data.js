@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766585769322,
+  "lastUpdate": 1766585780452,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (multi_table, 768D)": [
@@ -13464,6 +13464,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "Stress: Error Rate",
             "value": 1.2124,
+            "unit": "%"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f04fdf8078d8c68d470e2fb5afd0ce360ea60237",
+          "message": "fix: retry delete (#166)",
+          "timestamp": "2025-12-24T17:08:21+03:00",
+          "tree_id": "1226f00d2726f8c66bd2d34d911a038b9003d162",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/f04fdf8078d8c68d470e2fb5afd0ce360ea60237"
+        },
+        "date": 1766585779341,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Stress: Search Latency p95",
+            "value": 4523.949999999999,
+            "unit": "ms"
+          },
+          {
+            "name": "Stress: Search Latency p99",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Stress: Search Latency max",
+            "value": 8057,
+            "unit": "ms"
+          },
+          {
+            "name": "Stress: Upsert Latency p95",
+            "value": 3987.7,
+            "unit": "ms"
+          },
+          {
+            "name": "Stress: Error Rate",
+            "value": 0.0288,
             "unit": "%"
           }
         ]
