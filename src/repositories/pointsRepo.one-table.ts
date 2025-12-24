@@ -643,7 +643,10 @@ export async function deletePointsOneTable(
         $id: TypedValues.utf8(String(id)),
       };
 
-      await s.executeQuery(yql, params, undefined, settings);
+      await withRetry(() => s.executeQuery(yql, params, undefined, settings), {
+        isTransient: isTransientYdbError,
+        context: { tableName, uid, pointId: String(id) },
+      });
       deleted += 1;
     }
   });
@@ -755,15 +758,27 @@ export async function deletePointsByPathSegmentsOneTable(
     // Best-effort loop: stop when there are no more matching rows.
     // Use limited batches to avoid per-operation buffer limits.
     while (true) {
-      const rs = (await s.executeQuery(
-        deleteBatchYql,
+      const rs = (await withRetry(
+        () =>
+          s.executeQuery(
+            deleteBatchYql,
+            {
+              ...whereParams,
+              $uid: TypedValues.utf8(uid),
+              $limit: TypedValues.uint32(DELETE_FILTER_SELECT_BATCH_SIZE),
+            },
+            undefined,
+            settings
+          ),
         {
-          ...whereParams,
-          $uid: TypedValues.utf8(uid),
-          $limit: TypedValues.uint32(DELETE_FILTER_SELECT_BATCH_SIZE),
-        },
-        undefined,
-        settings
+          isTransient: isTransientYdbError,
+          context: {
+            tableName,
+            uid,
+            filterPathsCount: paths.length,
+            batchLimit: DELETE_FILTER_SELECT_BATCH_SIZE,
+          },
+        }
       )) as {
         resultSets?: Array<{
           rows?: unknown[];
