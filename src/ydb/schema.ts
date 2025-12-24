@@ -6,6 +6,9 @@ export const GLOBAL_POINTS_TABLE = "qdrant_all_points";
 // Shared YDB-related constants for repositories.
 export { UPSERT_BATCH_SIZE } from "../config/env.js";
 
+let metaTableReady = false;
+let metaTableReadyInFlight: Promise<void> | null = null;
+
 let globalPointsTableReady = false;
 
 function throwMigrationRequired(message: string): never {
@@ -13,7 +16,7 @@ function throwMigrationRequired(message: string): never {
   throw new Error(message);
 }
 
-export async function ensureMetaTable(): Promise<void> {
+async function ensureMetaTableOnce(): Promise<void> {
   try {
     await withSession(async (s) => {
       // If table exists, describeTable will succeed
@@ -72,11 +75,29 @@ export async function ensureMetaTable(): Promise<void> {
         logger.info("created metadata table qdr__collections");
       }
     });
+    metaTableReady = true;
   } catch (err: unknown) {
     logger.warn(
       { err },
       "ensureMetaTable: failed to verify or migrate qdr__collections; subsequent operations may fail if schema is incomplete"
     );
+  }
+}
+
+export async function ensureMetaTable(): Promise<void> {
+  if (metaTableReady) {
+    return;
+  }
+  if (metaTableReadyInFlight) {
+    await metaTableReadyInFlight;
+    return;
+  }
+
+  metaTableReadyInFlight = ensureMetaTableOnce();
+  try {
+    await metaTableReadyInFlight;
+  } finally {
+    metaTableReadyInFlight = null;
   }
 }
 
