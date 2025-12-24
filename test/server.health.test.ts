@@ -33,7 +33,7 @@ vi.mock("../src/utils/exit.js", () => ({
   __setExitFnForTests: vi.fn(),
 }));
 
-import { healthHandler } from "../src/server.js";
+import { healthHandler, rootHandler } from "../src/server.js";
 
 describe("GET /health", () => {
   beforeEach(() => {
@@ -51,9 +51,9 @@ describe("GET /health", () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).toMatchObject({ status: "ok" });
     expect(scheduleExitMock).not.toHaveBeenCalled();
-    expect(verifyCollectionsQueryCompilationForStartupMock).toHaveBeenCalledTimes(
-      1
-    );
+    expect(
+      verifyCollectionsQueryCompilationForStartupMock
+    ).toHaveBeenCalledTimes(1);
   });
 
   it("returns 503 with error payload and schedules exit when YDB is unavailable", async () => {
@@ -87,5 +87,61 @@ describe("GET /health", () => {
       error: "YDB health probe failed",
     });
     expect(scheduleExitMock).toHaveBeenCalledWith(1);
+  });
+});
+
+describe("GET /", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns 200 with title and version (npm_package_version)", () => {
+    const originalVersion = process.env.npm_package_version;
+    process.env.npm_package_version = "4.23.0-test";
+    const res = createMockRes();
+
+    try {
+      rootHandler({} as Request, res);
+    } finally {
+      if (originalVersion === undefined) {
+        delete process.env.npm_package_version;
+      } else {
+        process.env.npm_package_version = originalVersion;
+      }
+    }
+
+    expect(res.statusCode).toBe(200);
+    const body = res.body as unknown as {
+      title?: unknown;
+      version?: unknown;
+    };
+    expect(typeof body.title).toBe("string");
+    expect((body.title as string).toLowerCase()).toContain("qdrant");
+    expect(body.version).toBe("4.23.0-test");
+  });
+
+  it('returns 200 with version "unknown" when npm_package_version is missing', () => {
+    const originalVersion = process.env.npm_package_version;
+    delete process.env.npm_package_version;
+    const res = createMockRes();
+
+    try {
+      rootHandler({} as Request, res);
+    } finally {
+      if (originalVersion === undefined) {
+        delete process.env.npm_package_version;
+      } else {
+        process.env.npm_package_version = originalVersion;
+      }
+    }
+
+    expect(res.statusCode).toBe(200);
+    const body = res.body as unknown as {
+      title?: unknown;
+      version?: unknown;
+    };
+    expect(typeof body.title).toBe("string");
+    expect((body.title as string).toLowerCase()).toContain("qdrant");
+    expect(body.version).toBe("unknown");
   });
 });
