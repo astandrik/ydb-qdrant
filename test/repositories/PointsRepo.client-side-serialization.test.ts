@@ -49,19 +49,6 @@ vi.mock("../../src/ydb/helpers.js", () => {
   };
 });
 
-vi.mock("../../src/config/env.js", async () => {
-  const actual = await vi.importActual<
-    typeof import("../../src/config/env.js")
-  >("../../src/config/env.js");
-
-  return {
-    ...actual,
-    LOG_LEVEL: "info",
-    SEARCH_MODE: actual.SearchMode.Approximate,
-    CLIENT_SIDE_SERIALIZATION_ENABLED: true,
-  };
-});
-
 import * as ydbClient from "../../src/ydb/client.js";
 import * as helpers from "../../src/ydb/helpers.js";
 import { searchPointsOneTable as searchPointsOneTableInternal } from "../../src/repositories/pointsRepo.one-table.js";

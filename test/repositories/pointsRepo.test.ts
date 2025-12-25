@@ -62,7 +62,6 @@ vi.mock("../../src/config/env.js", async () => {
     ...actual,
     LOG_LEVEL: "info",
     SEARCH_MODE: actual.SearchMode.Approximate,
-    CLIENT_SIDE_SERIALIZATION_ENABLED: false,
   };
 });
 
@@ -220,8 +219,10 @@ describe("pointsRepo (with mocked YDB)", () => {
     expect(yql).toContain(
       "UPSERT INTO qdrant_all_points (uid, point_id, embedding, embedding_quantized, payload)"
     );
-    expect(yql).toContain("Knn::ToBinaryStringFloat(vec)");
-    expect(yql).toContain("Knn::ToBinaryStringBit(vec)");
+    expect(yql).toContain("embedding: String");
+    expect(yql).toContain("embedding_quantized: String");
+    expect(yql).not.toContain("Knn::ToBinaryStringFloat");
+    expect(yql).not.toContain("Knn::ToBinaryStringBit");
   });
 
   it("upserts more than UPSERT_BATCH_SIZE points in multiple batches (one_table)", async () => {

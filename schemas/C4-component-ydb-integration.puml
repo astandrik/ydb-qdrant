@@ -89,7 +89,6 @@ note top of env_config
   **Optional (Upsert):**
   - YDB_QDRANT_UPSERT_BATCH_SIZE (default 100)
   - YDB_QDRANT_UPSERT_TIMEOUT_MS (default 5000)
-  - YDB_QDRANT_CLIENT_SIDE_SERIALIZATION_ENABLED (default false)
   
   **Optional (Session Pool):**
   - YDB_SESSION_POOL_MIN_SIZE (default 5)

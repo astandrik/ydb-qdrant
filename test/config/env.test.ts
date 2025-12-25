@@ -8,7 +8,6 @@ describe("env.ts configuration", () => {
     // Clear relevant env vars before each test
     delete process.env.YDB_QDRANT_SEARCH_MODE;
     delete process.env.YDB_QDRANT_OVERFETCH_MULTIPLIER;
-    delete process.env.YDB_QDRANT_CLIENT_SIDE_SERIALIZATION_ENABLED;
     delete process.env.YDB_QDRANT_UPSERT_BATCH_SIZE;
     delete process.env.YDB_SESSION_POOL_MIN_SIZE;
     delete process.env.YDB_SESSION_POOL_MAX_SIZE;
@@ -45,14 +44,6 @@ describe("env.ts configuration", () => {
       const env = await import("../../src/config/env.js");
 
       expect(env.OVERFETCH_MULTIPLIER).toBe(1);
-    });
-
-    it("parses CLIENT_SIDE_SERIALIZATION_ENABLED boolean flag", async () => {
-      process.env.YDB_QDRANT_CLIENT_SIDE_SERIALIZATION_ENABLED = "true";
-
-      const env = await import("../../src/config/env.js");
-
-      expect(env.CLIENT_SIDE_SERIALIZATION_ENABLED).toBe(true);
     });
   });
 
