@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766694172574,
+  "lastUpdate": 1766698011067,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (multi_table, 768D)": [
@@ -5526,6 +5526,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Soak: Error Rate",
             "value": 0.009,
+            "unit": "%"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "43f8a61fae659cb640c7943f4c13fb05d47903e5",
+          "message": "fix: always use client serialization (#173)\n\n* fix: always use client serialization\n\n* fix: vectorToBit\n\n* fix: remove unused",
+          "timestamp": "2025-12-26T00:23:01+03:00",
+          "tree_id": "93f8f29b100ec8f2d16f2e58156276ce43639658",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/43f8a61fae659cb640c7943f4c13fb05d47903e5"
+        },
+        "date": 1766698010427,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Soak: Search Latency p95",
+            "value": 48,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Search Latency p99",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Upsert Latency p95",
+            "value": 22,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Error Rate",
+            "value": 0,
             "unit": "%"
           }
         ]
