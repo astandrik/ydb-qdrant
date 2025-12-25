@@ -1,4 +1,8 @@
-import { TypedValues, withSession, createExecuteQuerySettings } from "../../ydb/client.js";
+import {
+  TypedValues,
+  withSession,
+  createExecuteQuerySettings,
+} from "../../ydb/client.js";
 import { withRetry, isTransientYdbError } from "../../utils/retry.js";
 import type { Ydb } from "ydb-sdk";
 import { buildPathSegmentsWhereClause } from "./PathSegmentsFilter.js";
@@ -178,5 +182,3 @@ export async function deletePointsByPathSegmentsOneTable(
 
   return deleted;
 }
-
-
