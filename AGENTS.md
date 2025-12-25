@@ -7,9 +7,9 @@ A small Node.js service and npm library that exposes a minimal Qdrant‑compatib
 - **Base URLs**:
   - Public demo: `http://ydb-qdrant.tech:8080` (no setup, free to use)
   - Self-hosted: `http://localhost:8080` (default)
-- **Tenancy**: per‑client isolation via header `X-Tenant-Id`; each tenant+collection is stored under a unique `uid` partition in the global points table.
+- **Tenancy**: per‑client isolation via header `X-Tenant-Id`; collection names are additionally namespaced by a short hash of `api-key` and normalized `User-Agent` (when present). Each tenant+collection is stored under a unique `uid` partition in the global points table.
 - **Search**: one-table global search over `qdrant_all_points` using either approximate two-phase KNN (bit‑quantized `embedding_quantized` + exact re‑ranking over `embedding`) or exact table scan, controlled by `YDB_QDRANT_SEARCH_MODE` (`approximate` or `exact`).
-- **Vectors**: stored as binary strings using `Knn::ToBinaryStringFloat` (full-precision `embedding`) and `Knn::ToBinaryStringBit` (bit‑quantized `embedding_quantized`).
+- **Vectors**: stored as binary strings; by default serialized in YDB via `Knn::ToBinaryStringFloat` (full-precision `embedding`) and `Knn::ToBinaryStringBit` (bit‑quantized `embedding_quantized`), or serialized client-side when `YDB_QDRANT_CLIENT_SIDE_SERIALIZATION_ENABLED=true`.
 
 ## API (Qdrant‑compatible subset)
 - PUT `/collections/{collection}`
@@ -39,17 +39,24 @@ Notes
 - `PORT` (default 8080)
 - `LOG_LEVEL`
 - `YDB_QDRANT_SEARCH_MODE` — `"exact"` (default) or `"approximate"`; in approximate mode searches use a two-phase flow over `embedding_quantized` + `embedding`, in exact mode they scan `embedding` only.
+- `YDB_QDRANT_OVERFETCH_MULTIPLIER` — candidate overfetch multiplier for approximate search phase 1 (default `10`, min `1`).
+- `YDB_QDRANT_UPSERT_BATCH_SIZE` — upsert batch size per YDB query (default `100`, min `1`).
+- `YDB_QDRANT_CLIENT_SIDE_SERIALIZATION_ENABLED` — enable client-side vector serialization instead of YDB-side `Knn::ToBinaryString*` (default `false`).
+- `YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE` — allow automatic schema migration for `qdrant_all_points` (default `false`).
 - `YDB_QDRANT_USE_BATCH_DELETE` — controls collection delete strategy; by default (when omitted) uses a single `DELETE` with a chunked per-uid cleanup loop for compatibility, and when set to a truthy value uses `BATCH DELETE FROM qdrant_all_points WHERE uid = <uid>` (YDB v25.2+).
 - `YDB_SESSION_POOL_MIN_SIZE` — minimum number of sessions in the pool (default `5`, range 1–500).
 - `YDB_SESSION_POOL_MAX_SIZE` — maximum number of sessions in the pool (default `100`, range 1–500).
 - `YDB_SESSION_KEEPALIVE_PERIOD_MS` — interval in milliseconds for session health checks (default `5000`, range 1000–60000). Dead sessions are automatically removed from the pool.
+- `YDB_QDRANT_STARTUP_PROBE_SESSION_TIMEOUT_MS` — session timeout used by the startup compilation probe (default `5000`, min `1000`).
 - `YDB_QDRANT_UPSERT_TIMEOUT_MS` — per‑query YDB operation timeout in milliseconds for upsert batches (default `5000`); individual UPSERT statements are cancelled if they exceed this bound.
 - `YDB_QDRANT_SEARCH_TIMEOUT_MS` — per‑query YDB operation timeout in milliseconds for search operations (default `10000`); search YQL statements are cancelled if they exceed this bound.
+- `YDB_QDRANT_LAST_ACCESS_MIN_WRITE_INTERVAL_MS` — minimum interval between `last_accessed_at` updates per collection (default `60000`, min `1000`).
 
 ## Run
 - Dev: `npm run dev`  (tsx + watch)
 - Build: `npm run build`
 - Prod: `npm start`
+- Note: service startup does not block on YDB readiness; requests may fail until YDB becomes available.
 - Health: `GET /health` returns JSON health status. It responds with `{ "status": "ok" }` only when the HTTP server is up, the YDB driver is ready, and a lightweight compilation probe over `qdr__collections` succeeds; if YDB is unavailable or the probe fails it returns HTTP 503 with an error payload and then terminates the process after sending the response so a supervisor/orchestrator can restart the service.
 
 ## Docker images & compose
@@ -71,7 +78,7 @@ Notes
 ## Data model
 - Metadata table: `qdr__collections`
   - Row key `collection`: tenant/collection string in form `<tenant>/<collection>`
-  - Fields: `table_name`, `vector_dimension`, `distance`, `vector_type`, `created_at`
+  - Fields: `table_name`, `vector_dimension`, `distance`, `vector_type`, `created_at`, `last_accessed_at`
 - Global points table (one-table layout only): `qdrant_all_points`
   - `uid Utf8`, `point_id Utf8`, `embedding String` (binary float), `embedding_quantized String` (bit‑quantized), `payload JsonDocument`
   - Primary key: `(uid, point_id)` where `uid` is derived from tenant+collection (uses the same naming as the historical per‑collection tables).
@@ -105,7 +112,7 @@ Notes
 - `services/errors.ts` — `QdrantServiceError` class and `QdrantServiceErrorPayload` interface.
 - `services/CollectionService.ts` — collection operations (`createCollection`, `getCollection`, `deleteCollection`, `putCollectionIndex`); context normalization and one-table UID resolution.
 - `services/PointsService.ts` — points operations (`upsertPoints`, `searchPoints`, `queryPoints`, `deletePoints`); uses normalization utilities and collection metadata.
-- `package/api.ts` — public programmatic API (`createYdbQdrantClient`, `buildTenantClient` factory) exposing Qdrant‑like operations directly to Node.js callers.
+- `package/api.ts` — public programmatic API (`createYdbQdrantClient`) exposing Qdrant‑like operations directly to Node.js callers.
 - `SmokeTest.ts` — minimal example/smoke test using the programmatic API to create a collection, upsert points, and run a search.
 - `test/api/Api.test.ts` — Vitest unit tests for the programmatic API client (`createYdbQdrantClient`, `forTenant`, driver/schema wiring; YDB and service mocked).
 - `test/services/QdrantService.test.ts` — service‑layer tests for collections and points (create/get/delete, upsert/search/delete, query alias, thresholds, error paths; repositories/YDB mocked).
@@ -140,15 +147,15 @@ Notes
 ## Plugin integration (Roo Code, Cline)
 **Public demo (no setup required)**:
 - Qdrant URL: `http://ydb-qdrant.tech:8080`
-- API key: Leave empty or use any value (not enforced)
+- API key: Optional (not enforced); if provided it is only used for namespacing (short hash) when deriving internal collection keys
 - Isolation: Use unique collection names or `X-Tenant-Id` header
 
 **Self-hosted**:
 - Qdrant URL: `http://localhost:8080`
-- API key: Optional (not enforced)
+- API key: Optional (not enforced); if provided it is only used for namespacing (short hash) when deriving internal collection keys
 - Isolation: Full control via `X-Tenant-Id` header
 
-Collection created automatically on first use.
+Collections are not auto-created: create them explicitly via `PUT /collections/{collection}`. Point operations return `404 collection not found` until the collection exists.
 
 ## All-in-one local YDB + ydb-qdrant image
 
@@ -170,7 +177,7 @@ Collection created automatically on first use.
 
 ## Implementation notes for agents
 - ydb-sdk is consumed via CJS interop (`createRequire`) even in ESM TS to avoid ESM default export issues.
-- Use `withSession(fn, 15000)` for queries and declare parameters in YQL with `DECLARE`.
+- Use `withSession(fn)` for queries and declare parameters in YQL with `DECLARE`. For per-query timeouts, use `createExecuteQuerySettingsWithTimeout({ timeoutMs })` and pass it to `executeQuery`.
 - Prefer repository layer for YDB access; routes and services should remain thin.
 - Service layer is split by domain: `CollectionService.ts` for collection operations, `PointsService.ts` for points operations, `errors.ts` for error types.
 - Utility functions are extracted to `utils/`: `normalization.ts` (vector extraction), `distance.ts` (KNN/index mapping), `retry.ts` (transient error handling).
@@ -190,9 +197,10 @@ Collection created automatically on first use.
 ## CI and release
 
 - CI:
-  - Workflow `ci-ydb-qdrant.yml` runs `npm ci`, `npm run lint`, `npm test`, and `npm run build` on pushes and pull requests targeting `main`.
+  - Workflows split by concern: `ci-tests.yml` (lint/typecheck/tests), `ci-build.yml` (build), `ci-integration.yml` (integration), `ci-recall.yml` (recall), `ci-load-soak.yml` and `ci-load-stress.yml` (k6 load tests).
 - Release:
-  - Workflow `publish-ydb-qdrant.yml` runs on tags matching `ydb-qdrant-v*` and publishes the package to npm with `npm publish` (using `NPM_TOKEN`).
+  - Workflow `release-please.yml` manages releases on `main`.
+  - Workflow `publish-ydb-qdrant.yml` publishes to npm on GitHub Release `published` events (uses `NPM_TOKEN`).
   - `prepublishOnly` script in `package.json` enforces `npm test` and `npm run build` before any manual `npm publish`.
 
 ## Semantic recall/completeness tests

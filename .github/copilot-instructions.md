@@ -10,7 +10,7 @@
 
 ## Tech stack and layout
 
-- **Runtime**: Node.js 18+ (ESM, `type: "module"`).
+- **Runtime**: Node.js 18+ (ESM, `type: "module"`). CI currently uses Node.js 22.
 - **Languages & tools**: TypeScript, Express, Vitest, ESLint, k6, YDB SDK.
 - **Key directories**:
   - `src/` – main implementation:
@@ -75,12 +75,12 @@ When you modify search logic, point serialization, or collection/points reposito
 ## CI workflows
 
 The main GitHub Actions workflows (referenced by README badges) are:
-- `ci-build.yml` – install, typecheck, build.
-- `ci-tests.yml` – unit tests and coverage.
+- `ci-build.yml` – install, build.
+- `ci-tests.yml` – lint, typecheck, unit tests (with coverage).
 - `ci-integration.yml` – integration tests against YDB.
 - `ci-recall.yml` – recall and F1 benchmarks for the one-table layout.
 - `ci-load-soak.yml` / `ci-load-stress.yml` – k6 load tests.
-- `publish-ydb-qdrant.yml` – publishes the npm package on tags `ydb-qdrant-v*`.
+- `publish-ydb-qdrant.yml` – publishes the npm package on GitHub Release `published` events.
 
 Assume CI will at minimum run `npm ci`, `npm test`, `npm run lint`, and `npm run build` on pull requests; generated changes should keep these green.
 
