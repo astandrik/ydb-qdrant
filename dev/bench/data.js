@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766698011067,
+  "lastUpdate": 1766698012118,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (multi_table, 768D)": [
@@ -8298,6 +8298,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Soak: Throughput",
             "value": 68.1819217407925,
+            "unit": "ops/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "43f8a61fae659cb640c7943f4c13fb05d47903e5",
+          "message": "fix: always use client serialization (#173)\n\n* fix: always use client serialization\n\n* fix: vectorToBit\n\n* fix: remove unused",
+          "timestamp": "2025-12-26T00:23:01+03:00",
+          "tree_id": "93f8f29b100ec8f2d16f2e58156276ce43639658",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/43f8a61fae659cb640c7943f4c13fb05d47903e5"
+        },
+        "date": 1766698011816,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Soak: Throughput",
+            "value": 71.23888893376113,
             "unit": "ops/s"
           }
         ]
