@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766698238762,
+  "lastUpdate": 1766698239722,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (multi_table, 768D)": [
@@ -18313,6 +18313,45 @@ window.BENCHMARK_DATA = {
           {
             "name": "Stress: Breaking Point VUs",
             "value": 600,
+            "unit": "VUs"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "43f8a61fae659cb640c7943f4c13fb05d47903e5",
+          "message": "fix: always use client serialization (#173)\n\n* fix: always use client serialization\n\n* fix: vectorToBit\n\n* fix: remove unused",
+          "timestamp": "2025-12-26T00:23:01+03:00",
+          "tree_id": "93f8f29b100ec8f2d16f2e58156276ce43639658",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/43f8a61fae659cb640c7943f4c13fb05d47903e5"
+        },
+        "date": 1766698239488,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Stress: Throughput",
+            "value": 222.01779880488456,
+            "unit": "ops/s"
+          },
+          {
+            "name": "Stress: Max VUs",
+            "value": 600,
+            "unit": "VUs"
+          },
+          {
+            "name": "Stress: Breaking Point VUs",
+            "value": -1,
             "unit": "VUs"
           }
         ]
