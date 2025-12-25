@@ -116,7 +116,7 @@ Notes
 - `test/services/QdrantService.test.ts` — service‑layer tests for collections and points (create/get/delete, upsert/search/delete, query alias, thresholds, error paths; repositories/YDB mocked).
 - `test/routes/collections.test.ts`, `test/routes/points.test.ts` — HTTP route tests for Express routers (status codes, payload shapes, `QdrantServiceError` handling; service and logger mocked).
 - `test/repositories/collectionsRepo.test.ts`, `test/repositories/pointsRepo.test.ts` — repository tests for YDB integration (`withSession`, YQL, delete/migration flows, one-table upsert/search/delete).
-- `test/ydb/helpers.test.ts` — tests for YDB helper utilities (`buildVectorParam`, `buildJsonOrEmpty`).
+- `test/ydb/helpers.test.ts` — tests for YDB helper utilities (`buildVectorBinaryParams`).
 
 ## Conventions & constraints
 - Tenancy via `X-Tenant-Id`; logical collection keys use `uid = qdr_<tenant>__<collection>` in the global table.

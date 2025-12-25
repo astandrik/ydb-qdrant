@@ -51,13 +51,8 @@ note right of ydb_client
 end note
 
 note left of ydb_helpers
-  **buildVectorParam(vec, type):**
-  - float: TypedValues.list(Types.FLOAT, vec)
-  - Returns TypedValues.list(Types.FLOAT, vec)
-  
-  **buildJsonOrEmpty(payload?):**
-  - Returns TypedValues.jsonDocument(JSON.stringify(payload ?? {}))
-  - Ensures valid JSON even for undefined payloads
+  **buildVectorBinaryParams(vec):**
+  - Returns { float, bit } binary buffers for Knn::* functions
 end note
 
 note bottom of schema_mgr

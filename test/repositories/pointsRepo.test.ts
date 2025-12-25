@@ -38,14 +38,6 @@ vi.mock("../../src/ydb/client.js", () => {
 
 vi.mock("../../src/ydb/helpers.js", () => {
   return {
-    buildVectorParam: vi.fn((vec: number[]) => ({
-      kind: "vector",
-      vec,
-    })),
-    buildJsonOrEmpty: vi.fn((payload?: Record<string, unknown>) => ({
-      kind: "json",
-      payload: payload ?? {},
-    })),
     buildVectorBinaryParams: vi.fn((vec: number[]) => ({
       float: { kind: "float-bytes", vec },
       bit: { kind: "bit-bytes", vec },

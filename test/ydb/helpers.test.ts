@@ -1,23 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { buildVectorParam, buildJsonOrEmpty } from "../../src/ydb/helpers.js";
-import { Types, TypedValues } from "../../src/ydb/client.js";
+import { buildVectorBinaryParams } from "../../src/ydb/helpers.js";
 
 describe("ydb/helpers", () => {
-  it("builds float vector param", () => {
-    const vec = [0.1, 0.2, 0.3];
-    const param = buildVectorParam(vec);
+  it("builds binary params for float and bit vectors", () => {
+    const vec = [1, 0, -1];
+    const params = buildVectorBinaryParams(vec);
 
-    const expected = TypedValues.list(Types.FLOAT, vec);
-    expect(param).toEqual(expected);
-  });
-
-  it("builds JSON document from payload or empty object", () => {
-    const paramWithPayload = buildJsonOrEmpty({ a: 1 });
-    const paramEmpty = buildJsonOrEmpty();
-
-    expect(paramWithPayload).toEqual(
-      TypedValues.jsonDocument(JSON.stringify({ a: 1 }))
-    );
-    expect(paramEmpty).toEqual(TypedValues.jsonDocument(JSON.stringify({})));
+    expect(Buffer.isBuffer(params.float)).toBe(true);
+    expect(Buffer.isBuffer(params.bit)).toBe(true);
+    expect(params.float[params.float.length - 1]).toBe(1);
+    expect(params.bit[params.bit.length - 1]).toBe(10);
   });
 });
