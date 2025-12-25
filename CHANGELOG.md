@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## [6.1.2](https://github.com/astandrik/ydb-qdrant/compare/v6.1.1...v6.1.2) (2025-12-25)
+
+
+### Bug Fixes
+
+* always use client serialization ([#173](https://github.com/astandrik/ydb-qdrant/issues/173)) ([43f8a61](https://github.com/astandrik/ydb-qdrant/commit/43f8a61fae659cb640c7943f4c13fb05d47903e5))
+* root route ([#168](https://github.com/astandrik/ydb-qdrant/issues/168)) ([43a30d2](https://github.com/astandrik/ydb-qdrant/commit/43a30d2bde280085ddaaa5fe11add7f6229fe4c1))
+* small optimizations ([#170](https://github.com/astandrik/ydb-qdrant/issues/170)) ([dd7d578](https://github.com/astandrik/ydb-qdrant/commit/dd7d57810115af04eda1ca5ad68bca632347ba8c))
+
 ## [6.1.1](https://github.com/astandrik/ydb-qdrant/compare/v6.1.0...v6.1.1) (2025-12-24)
 
 
