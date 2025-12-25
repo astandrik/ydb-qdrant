@@ -9,7 +9,7 @@ A small Node.js service and npm library that exposes a minimal Qdrant‑compatib
   - Self-hosted: `http://localhost:8080` (default)
 - **Tenancy**: per‑client isolation via header `X-Tenant-Id`; collection names are additionally namespaced by a short hash of `api-key` and normalized `User-Agent` (when present). Each tenant+collection is stored under a unique `uid` partition in the global points table.
 - **Search**: one-table global search over `qdrant_all_points` using either approximate two-phase KNN (bit‑quantized `embedding_quantized` + exact re‑ranking over `embedding`) or exact table scan, controlled by `YDB_QDRANT_SEARCH_MODE` (`approximate` or `exact`).
-- **Vectors**: stored as binary strings; by default serialized in YDB via `Knn::ToBinaryStringFloat` (full-precision `embedding`) and `Knn::ToBinaryStringBit` (bit‑quantized `embedding_quantized`), or serialized client-side when `YDB_QDRANT_CLIENT_SIDE_SERIALIZATION_ENABLED=true`.
+- **Vectors**: stored as binary strings (`embedding` full-precision, `embedding_quantized` bit-quantized) and serialized client-side before being sent to YDB.
 
 ## API (Qdrant‑compatible subset)
 - PUT `/collections/{collection}`
@@ -41,7 +41,6 @@ Notes
 - `YDB_QDRANT_SEARCH_MODE` — `"exact"` (default) or `"approximate"`; in approximate mode searches use a two-phase flow over `embedding_quantized` + `embedding`, in exact mode they scan `embedding` only.
 - `YDB_QDRANT_OVERFETCH_MULTIPLIER` — candidate overfetch multiplier for approximate search phase 1 (default `10`, min `1`).
 - `YDB_QDRANT_UPSERT_BATCH_SIZE` — upsert batch size per YDB query (default `100`, min `1`).
-- `YDB_QDRANT_CLIENT_SIDE_SERIALIZATION_ENABLED` — enable client-side vector serialization instead of YDB-side `Knn::ToBinaryString*` (default `false`).
 - `YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE` — allow automatic schema migration for `qdrant_all_points` (default `false`).
 - `YDB_QDRANT_USE_BATCH_DELETE` — controls collection delete strategy; by default (when omitted) uses a single `DELETE` with a chunked per-uid cleanup loop for compatibility, and when set to a truthy value uses `BATCH DELETE FROM qdrant_all_points WHERE uid = <uid>` (YDB v25.2+).
 - `YDB_SESSION_POOL_MIN_SIZE` — minimum number of sessions in the pool (default `5`, range 1–500).
@@ -90,11 +89,10 @@ Notes
   - Exact mode (`YDB_QDRANT_SEARCH_MODE=exact`, default): single-phase top‑k over `embedding` using `Knn::<Fn>(embedding, $qbinf)` with the appropriate distance/similarity (`CosineDistance`, `InnerProductSimilarity`, `EuclideanDistance`, `ManhattanDistance`).
   - Approximate mode (`YDB_QDRANT_SEARCH_MODE=approximate`): two‑phase flow — phase 1 selects candidates using bit‑quantized `embedding_quantized` (`CosineSimilarity` DESC for Cosine, distance ASC for Euclid/Manhattan, `CosineDistance` ASC as proxy for Dot); phase 2 re‑ranks candidates over `embedding` with the exact metric.
 - Serialization:
-  - `embedding` via `Untag(Knn::ToBinaryStringFloat($vec), "FloatVector")`
-  - `embedding_quantized` via `Untag(Knn::ToBinaryStringBit($vec), "BitVector")`
+  - `embedding` and `embedding_quantized` are encoded client-side using the binary formats expected by YDB `Knn::*` functions.
 
 ## Project structure (src/)
-- `config/env.ts` — loads env (`dotenv/config`), exports `YDB_ENDPOINT`, `YDB_DATABASE`, `PORT`, `LOG_LEVEL`, search mode/config (`SearchMode`, `SEARCH_MODE`, `OVERFETCH_MULTIPLIER`), client-side serialization flag, and YDB session pool settings.
+- `config/env.ts` — loads env (`dotenv/config`), exports `YDB_ENDPOINT`, `YDB_DATABASE`, `PORT`, `LOG_LEVEL`, search mode/config (`SearchMode`, `SEARCH_MODE`, `OVERFETCH_MULTIPLIER`), and YDB session pool settings.
 - `logging/logger.ts` — pino logger (level from env).
 - `utils/tenant.ts` — `sanitizeTenantId`, `sanitizeCollectionName`, `metaKeyFor`, `tableNameFor`, `uidFor`, API key and User-Agent hashing for collection names.
 - `utils/normalization.ts` — vector extraction (`extractVectorLoose`, `isNumberArray`) and search body normalization (`normalizeSearchBodyForSearch`, `normalizeSearchBodyForQuery`).
@@ -118,7 +116,7 @@ Notes
 - `test/services/QdrantService.test.ts` — service‑layer tests for collections and points (create/get/delete, upsert/search/delete, query alias, thresholds, error paths; repositories/YDB mocked).
 - `test/routes/collections.test.ts`, `test/routes/points.test.ts` — HTTP route tests for Express routers (status codes, payload shapes, `QdrantServiceError` handling; service and logger mocked).
 - `test/repositories/collectionsRepo.test.ts`, `test/repositories/pointsRepo.test.ts` — repository tests for YDB integration (`withSession`, YQL, delete/migration flows, one-table upsert/search/delete).
-- `test/ydb/helpers.test.ts` — tests for YDB helper utilities (`buildVectorParam`, `buildJsonOrEmpty`).
+- `test/ydb/helpers.test.ts` — tests for YDB helper utilities (`buildVectorBinaryParams`).
 
 ## Conventions & constraints
 - Tenancy via `X-Tenant-Id`; logical collection keys use `uid = qdr_<tenant>__<collection>` in the global table.

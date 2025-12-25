@@ -7,10 +7,7 @@ import {
 import { buildVectorBinaryParams } from "../../ydb/helpers.js";
 import { withRetry, isTransientYdbError } from "../../utils/retry.js";
 import { UPSERT_BATCH_SIZE } from "../../ydb/schema.js";
-import {
-  CLIENT_SIDE_SERIALIZATION_ENABLED,
-  UPSERT_OPERATION_TIMEOUT_MS,
-} from "../../config/env.js";
+import { UPSERT_OPERATION_TIMEOUT_MS } from "../../config/env.js";
 import { logger } from "../../logging/logger.js";
 import type { Ydb } from "ydb-sdk";
 
@@ -59,8 +56,7 @@ function buildUpsertQueryAndParams(args: {
     payload?: Record<string, unknown>;
   }>;
 }): { ddl: string; params: QueryParams; debugMode: string } {
-  if (CLIENT_SIDE_SERIALIZATION_ENABLED) {
-    const ddl = `
+  const ddl = `
           DECLARE $rows AS List<Struct<
             uid: Utf8,
             point_id: Utf8,
@@ -79,74 +75,32 @@ function buildUpsertQueryAndParams(args: {
           FROM AS_TABLE($rows);
         `;
 
-    const rowType = Types.struct({
-      uid: Types.UTF8,
-      point_id: Types.UTF8,
-      embedding: Types.BYTES,
-      embedding_quantized: Types.BYTES,
-      payload: Types.JSON_DOCUMENT,
-    });
-
-    const rowsValue = TypedValues.list(
-      rowType,
-      args.batch.map((p) => {
-        const binaries = buildVectorBinaryParams(p.vector);
-        return {
-          uid: args.uid,
-          point_id: String(p.id),
-          embedding: binaries.float,
-          embedding_quantized: binaries.bit,
-          payload: JSON.stringify(p.payload ?? {}),
-        };
-      })
-    );
-
-    return {
-      ddl,
-      params: { $rows: rowsValue },
-      debugMode: "one_table_upsert_client_side_serialization",
-    };
-  }
-
-  const ddl = `
-          DECLARE $rows AS List<Struct<
-            uid: Utf8,
-            point_id: Utf8,
-            vec: List<Float>,
-            payload: JsonDocument
-          >>;
-
-          UPSERT INTO ${args.tableName} (uid, point_id, embedding, embedding_quantized, payload)
-          SELECT
-            uid,
-            point_id,
-            Untag(Knn::ToBinaryStringFloat(vec), "FloatVector") AS embedding,
-            Untag(Knn::ToBinaryStringBit(vec), "BitVector") AS embedding_quantized,
-            payload
-          FROM AS_TABLE($rows);
-        `;
-
   const rowType = Types.struct({
     uid: Types.UTF8,
     point_id: Types.UTF8,
-    vec: Types.list(Types.FLOAT),
+    embedding: Types.BYTES,
+    embedding_quantized: Types.BYTES,
     payload: Types.JSON_DOCUMENT,
   });
 
   const rowsValue = TypedValues.list(
     rowType,
-    args.batch.map((p) => ({
-      uid: args.uid,
-      point_id: String(p.id),
-      vec: p.vector,
-      payload: JSON.stringify(p.payload ?? {}),
-    }))
+    args.batch.map((p) => {
+      const binaries = buildVectorBinaryParams(p.vector);
+      return {
+        uid: args.uid,
+        point_id: String(p.id),
+        embedding: binaries.float,
+        embedding_quantized: binaries.bit,
+        payload: JSON.stringify(p.payload ?? {}),
+      };
+    })
   );
 
   return {
     ddl,
     params: { $rows: rowsValue },
-    debugMode: "one_table_upsert_server_side_knn",
+    debugMode: "one_table_upsert_client_side_serialization",
   };
 }
 

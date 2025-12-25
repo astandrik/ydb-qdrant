@@ -18,9 +18,13 @@ describe("vectorBinary utilities", () => {
     const vec = [1, 0, -1, 2, 0.1];
     const buf = vectorToBitBinary(vec);
 
-    const expectedBytes = Math.ceil(vec.length / 8) + 1;
+    const expectedBytes = Math.ceil(vec.length / 8) + 2;
     expect(buf.length).toBe(expectedBytes);
     expect(buf[buf.length - 1]).toBe(10);
+    // Number of unused bits in the last data byte.
+    const expectedUnusedBits =
+      vec.length === 0 ? 0 : (8 - (vec.length % 8)) % 8;
+    expect(buf[buf.length - 2]).toBe(expectedUnusedBits);
   });
 
   it("throws on non-finite values", () => {

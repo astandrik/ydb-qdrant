@@ -88,11 +88,6 @@ export const OVERFETCH_MULTIPLIER = parseIntegerEnv(
   { min: 1 }
 );
 
-export const CLIENT_SIDE_SERIALIZATION_ENABLED = parseBooleanEnv(
-  process.env.YDB_QDRANT_CLIENT_SIDE_SERIALIZATION_ENABLED,
-  false
-);
-
 export const UPSERT_BATCH_SIZE = parseIntegerEnv(
   process.env.YDB_QDRANT_UPSERT_BATCH_SIZE,
   100,

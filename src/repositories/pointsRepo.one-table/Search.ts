@@ -4,21 +4,14 @@ import {
   createExecuteQuerySettingsWithTimeout,
 } from "../../ydb/client.js";
 import type { Ydb } from "ydb-sdk";
-import {
-  buildVectorParam,
-  buildVectorBinaryParams,
-} from "../../ydb/helpers.js";
+import { buildVectorBinaryParams } from "../../ydb/helpers.js";
 import type { DistanceKind } from "../../types";
 import {
   mapDistanceToKnnFn,
   mapDistanceToBitKnnFn,
 } from "../../utils/distance.js";
 import { logger } from "../../logging/logger.js";
-import {
-  CLIENT_SIDE_SERIALIZATION_ENABLED,
-  SearchMode,
-  SEARCH_OPERATION_TIMEOUT_MS,
-} from "../../config/env.js";
+import { SearchMode, SEARCH_OPERATION_TIMEOUT_MS } from "../../config/env.js";
 import { buildPathSegmentsFilter } from "./PathSegmentsFilter.js";
 
 type QueryParams = { [key: string]: Ydb.ITypedValue };
@@ -91,9 +84,8 @@ function buildExactSearchQueryAndParams(args: {
   const filter = buildPathSegmentsFilter(args.filterPaths);
   const filterWhere = filter ? ` AND ${filter.whereSql}` : "";
 
-  if (CLIENT_SIDE_SERIALIZATION_ENABLED) {
-    const binaries = buildVectorBinaryParams(args.queryVector);
-    const yql = `
+  const binaries = buildVectorBinaryParams(args.queryVector);
+  const yql = `
         DECLARE $qbinf AS String;
         DECLARE $k AS Uint32;
         DECLARE $uid AS Utf8;
@@ -107,44 +99,14 @@ function buildExactSearchQueryAndParams(args: {
         LIMIT $k;
       `;
 
-    const params: QueryParams = {
-      ...(filter?.whereParams ?? {}),
-      $qbinf: typedBytesOrFallback(binaries.float),
-      $k: TypedValues.uint32(args.top),
-      $uid: TypedValues.utf8(args.uid),
-    };
-
-    return {
-      yql,
-      params,
-      modeLog: "one_table_exact_client_side_serialization",
-    };
-  }
-
-  const qf = buildVectorParam(args.queryVector);
-  const yql = `
-        DECLARE $qf AS List<Float>;
-        DECLARE $k AS Uint32;
-        DECLARE $uid AS Utf8;
-        ${filter?.whereParamDeclarations ?? ""}
-        $qbinf = Knn::ToBinaryStringFloat($qf);
-        SELECT point_id, ${
-          args.withPayload ? "payload, " : ""
-        }${fn}(embedding, $qbinf) AS score
-        FROM ${args.tableName}
-        WHERE uid = $uid${filterWhere}
-        ORDER BY score ${order}
-        LIMIT $k;
-      `;
-
   const params: QueryParams = {
     ...(filter?.whereParams ?? {}),
-    $qf: qf,
+    $qbinf: typedBytesOrFallback(binaries.float),
     $k: TypedValues.uint32(args.top),
     $uid: TypedValues.utf8(args.uid),
   };
 
-  return { yql, params, modeLog: "one_table_exact" };
+  return { yql, params, modeLog: "one_table_exact_client_side_serialization" };
 }
 
 function buildApproxSearchQueryAndParams(args: {
@@ -173,9 +135,8 @@ function buildApproxSearchQueryAndParams(args: {
   const filter = buildPathSegmentsFilter(args.filterPaths);
   const filterWhere = filter ? ` AND ${filter.whereSql}` : "";
 
-  if (CLIENT_SIDE_SERIALIZATION_ENABLED) {
-    const binaries = buildVectorBinaryParams(args.queryVector);
-    const yql = `
+  const binaries = buildVectorBinaryParams(args.queryVector);
+  const yql = `
         DECLARE $qbin_bit AS String;
         DECLARE $qbinf AS String;
         DECLARE $candidateLimit AS Uint32;
@@ -203,58 +164,10 @@ function buildApproxSearchQueryAndParams(args: {
         LIMIT $safeTop;
       `;
 
-    const params: QueryParams = {
-      ...(filter?.whereParams ?? {}),
-      $qbin_bit: typedBytesOrFallback(binaries.bit),
-      $qbinf: typedBytesOrFallback(binaries.float),
-      $candidateLimit: TypedValues.uint32(candidateLimit),
-      $safeTop: TypedValues.uint32(safeTop),
-      $uid: TypedValues.utf8(args.uid),
-    };
-
-    return {
-      yql,
-      params,
-      safeTop,
-      candidateLimit,
-      modeLog: "one_table_approximate_client_side_serialization",
-    };
-  }
-
-  const qf = buildVectorParam(args.queryVector);
-  const yql = `
-        DECLARE $qf AS List<Float>;
-        DECLARE $candidateLimit AS Uint32;
-        DECLARE $safeTop AS Uint32;
-        DECLARE $uid AS Utf8;
-        ${filter?.whereParamDeclarations ?? ""}
-
-        $qbin_bit = Knn::ToBinaryStringBit($qf);
-        $qbinf = Knn::ToBinaryStringFloat($qf);
-
-        $candidates = (
-          SELECT point_id
-          FROM ${args.tableName}
-          WHERE uid = $uid AND embedding_quantized IS NOT NULL
-            ${filterWhere}
-          ORDER BY ${bitFn}(embedding_quantized, $qbin_bit) ${bitOrder}
-          LIMIT $candidateLimit
-        );
-
-        SELECT point_id, ${
-          args.withPayload ? "payload, " : ""
-        }${fn}(embedding, $qbinf) AS score
-        FROM ${args.tableName}
-        WHERE uid = $uid
-          AND point_id IN $candidates
-          ${filterWhere}
-        ORDER BY score ${order}
-        LIMIT $safeTop;
-      `;
-
   const params: QueryParams = {
     ...(filter?.whereParams ?? {}),
-    $qf: qf,
+    $qbin_bit: typedBytesOrFallback(binaries.bit),
+    $qbinf: typedBytesOrFallback(binaries.float),
     $candidateLimit: TypedValues.uint32(candidateLimit),
     $safeTop: TypedValues.uint32(safeTop),
     $uid: TypedValues.utf8(args.uid),
@@ -265,7 +178,7 @@ function buildApproxSearchQueryAndParams(args: {
     params,
     safeTop,
     candidateLimit,
-    modeLog: "one_table_approximate",
+    modeLog: "one_table_approximate_client_side_serialization",
   };
 }
 
@@ -383,9 +296,7 @@ async function searchPointsOneTableApproximate(
             vectorPreview: queryVector.slice(0, 3),
           },
         },
-        CLIENT_SIDE_SERIALIZATION_ENABLED
-          ? "one_table search (approximate): executing YQL with client-side serialization"
-          : "one_table search (approximate): executing YQL"
+        "one_table search (approximate): executing YQL"
       );
     }
 

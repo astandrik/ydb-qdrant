@@ -51,13 +51,8 @@ note right of ydb_client
 end note
 
 note left of ydb_helpers
-  **buildVectorParam(vec, type):**
-  - float: TypedValues.list(Types.FLOAT, vec)
-  - Returns TypedValues.list(Types.FLOAT, vec)
-  
-  **buildJsonOrEmpty(payload?):**
-  - Returns TypedValues.jsonDocument(JSON.stringify(payload ?? {}))
-  - Ensures valid JSON even for undefined payloads
+  **buildVectorBinaryParams(vec):**
+  - Returns { float, bit } binary buffers for Knn::* functions
 end note
 
 note bottom of schema_mgr
@@ -89,7 +84,6 @@ note top of env_config
   **Optional (Upsert):**
   - YDB_QDRANT_UPSERT_BATCH_SIZE (default 100)
   - YDB_QDRANT_UPSERT_TIMEOUT_MS (default 5000)
-  - YDB_QDRANT_CLIENT_SIDE_SERIALIZATION_ENABLED (default false)
   
   **Optional (Session Pool):**
   - YDB_SESSION_POOL_MIN_SIZE (default 5)

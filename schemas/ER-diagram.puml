@@ -55,16 +55,15 @@ note right of global_points
   uid = uidFor(tenant, collection)
   
   **Embedding Storage:**
-  • embedding: Binary string via Knn::ToBinaryStringFloat
-  • embedding_quantized: Binary string via Knn::ToBinaryStringBit
+  • embedding: Binary string (FloatVector format)
+  • embedding_quantized: Binary string (BitVector format)
   
   **Search Modes (YDB_QDRANT_SEARCH_MODE):**
   • exact (default): single-phase KNN over embedding
   • approximate: bit-quantized candidates from embedding_quantized + re-ranking over embedding
   
   **Serialization:**
-  • Server-side: Knn::ToBinaryStringFloat/Bit (default)
-  • Client-side: pre-serialized binary (YDB_QDRANT_CLIENT_SIDE_SERIALIZATION_ENABLED)
+  • Client-side: pre-serialized binary (always)
 end note
 
 legend right

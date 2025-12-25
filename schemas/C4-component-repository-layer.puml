@@ -53,9 +53,7 @@ note left of points_repo
   **Upsert Flow (one-table):**
   1. Validate vector dimension
   2. Batch UPSERT (UPSERT_BATCH_SIZE, default 100)
-  3. Serialize vectors:
-     • Server-side: Knn::ToBinaryStringFloat/Bit (default)
-     • Client-side: pre-serialized binary (YDB_QDRANT_CLIENT_SIDE_SERIALIZATION_ENABLED)
+  3. Serialize vectors client-side (pre-serialized binary)
   
   **Search Strategy (one-table, YDB_QDRANT_SEARCH_MODE):**
   1. exact (default): single-phase KNN over embedding

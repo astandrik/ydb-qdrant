@@ -34,31 +34,10 @@ vi.mock("../../src/ydb/client.js", () => {
 
 vi.mock("../../src/ydb/helpers.js", () => {
   return {
-    buildVectorParam: vi.fn((vec: number[]) => ({
-      kind: "vector",
-      vec,
-    })),
-    buildJsonOrEmpty: vi.fn((payload?: Record<string, unknown>) => ({
-      kind: "json",
-      payload: payload ?? {},
-    })),
     buildVectorBinaryParams: vi.fn((vec: number[]) => ({
       float: { kind: "float-bytes", vec },
       bit: { kind: "bit-bytes", vec },
     })),
-  };
-});
-
-vi.mock("../../src/config/env.js", async () => {
-  const actual = await vi.importActual<
-    typeof import("../../src/config/env.js")
-  >("../../src/config/env.js");
-
-  return {
-    ...actual,
-    LOG_LEVEL: "info",
-    SEARCH_MODE: actual.SearchMode.Approximate,
-    CLIENT_SIDE_SERIALIZATION_ENABLED: true,
   };
 });
 
@@ -68,7 +47,6 @@ import { searchPointsOneTable as searchPointsOneTableInternal } from "../../src/
 import { SearchMode } from "../../src/config/env.js";
 
 const withSessionMock = ydbClient.withSession as unknown as Mock;
-const buildVectorParamMock = helpers.buildVectorParam as unknown as Mock;
 const buildVectorBinaryParamsMock =
   helpers.buildVectorBinaryParams as unknown as Mock;
 
@@ -116,7 +94,6 @@ describe("pointsRepo one_table with client-side serialization", () => {
     expect(yql).not.toContain("Knn::ToBinaryStringFloat");
 
     expect(buildVectorBinaryParamsMock).toHaveBeenCalledWith([0, 0, 0, 1]);
-    expect(buildVectorParamMock).not.toHaveBeenCalled();
   });
 
   it("uses binary string params for approximate search phases when client-side serialization is enabled", async () => {
@@ -163,6 +140,5 @@ describe("pointsRepo one_table with client-side serialization", () => {
     expect(yql).toContain("ORDER BY Knn::CosineSimilarity");
 
     expect(buildVectorBinaryParamsMock).toHaveBeenCalledWith([0, 0, 0, 1]);
-    expect(buildVectorParamMock).not.toHaveBeenCalled();
   });
 });
