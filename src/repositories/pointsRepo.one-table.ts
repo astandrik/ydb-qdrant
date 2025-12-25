@@ -1,12 +1,13 @@
 import {
   TypedValues,
   Types,
-  withSession,
   createExecuteQuerySettings,
   createExecuteQuerySettingsWithTimeout,
+  createBulkUpsertSettingsWithTimeout,
+  withSessionRetry,
 } from "../ydb/client.js";
 import type { Ydb } from "ydb-sdk";
-import { buildVectorParam, buildVectorBinaryParams } from "../ydb/helpers.js";
+import { buildVectorBinaryParams } from "../ydb/helpers.js";
 import type { DistanceKind } from "../types";
 import {
   mapDistanceToKnnFn,
@@ -15,7 +16,7 @@ import {
 import { withRetry, isTransientYdbError } from "../utils/retry.js";
 import { UPSERT_BATCH_SIZE } from "../ydb/schema.js";
 import {
-  CLIENT_SIDE_SERIALIZATION_ENABLED,
+  BULK_UPSERT_ENABLED,
   SearchMode,
   UPSERT_OPERATION_TIMEOUT_MS,
   SEARCH_OPERATION_TIMEOUT_MS,
@@ -110,111 +111,72 @@ export async function upsertPointsOneTable(
 
   let upserted = 0;
 
-  await withSession(async (s) => {
-    const settings = createExecuteQuerySettingsWithTimeout({
+  await withSessionRetry(async (s) => {
+    const querySettings = createExecuteQuerySettingsWithTimeout({
       keepInCache: true,
       idempotent: true,
+      timeoutMs: UPSERT_OPERATION_TIMEOUT_MS,
+    });
+    const bulkUpsertSettings = createBulkUpsertSettingsWithTimeout({
       timeoutMs: UPSERT_OPERATION_TIMEOUT_MS,
     });
     for (let i = 0; i < points.length; i += UPSERT_BATCH_SIZE) {
       const batch = points.slice(i, i + UPSERT_BATCH_SIZE);
 
-      let ddl: string;
-      let params: QueryParams;
-
-      if (CLIENT_SIDE_SERIALIZATION_ENABLED) {
-        ddl = `
-          DECLARE $rows AS List<Struct<
-            uid: Utf8,
-            point_id: Utf8,
-            embedding: String,
-            embedding_quantized: String,
-            payload: JsonDocument
-          >>;
-
-          UPSERT INTO ${tableName} (uid, point_id, embedding, embedding_quantized, payload)
-          SELECT
-            uid,
-            point_id,
-            embedding,
-            embedding_quantized,
-            payload
-          FROM AS_TABLE($rows);
-        `;
-
-        const rowType = Types.struct({
-          uid: Types.UTF8,
-          point_id: Types.UTF8,
-          embedding: Types.BYTES,
-          embedding_quantized: Types.BYTES,
-          payload: Types.JSON_DOCUMENT,
-        });
-
-        const rowsValue = TypedValues.list(
-          rowType,
-          batch.map((p) => {
-            const binaries = buildVectorBinaryParams(p.vector);
-            return {
+      const ddl = `
+            DECLARE $rows AS List<Struct<
+              uid: Utf8,
+              point_id: Utf8,
+              embedding: String,
+              embedding_quantized: String,
+              payload: JsonDocument
+            >>;
+  
+            UPSERT INTO ${tableName} (uid, point_id, embedding, embedding_quantized, payload)
+            SELECT
               uid,
-              point_id: String(p.id),
-              embedding: binaries.float,
-              embedding_quantized: binaries.bit,
-              payload: JSON.stringify(p.payload ?? {}),
-            };
-          })
-        );
+              point_id,
+              embedding,
+              embedding_quantized,
+              payload
+            FROM AS_TABLE($rows);
+          `;
 
-        params = {
-          $rows: rowsValue,
-        };
-      } else {
-        ddl = `
-          DECLARE $rows AS List<Struct<
-            uid: Utf8,
-            point_id: Utf8,
-            vec: List<Float>,
-            payload: JsonDocument
-          >>;
+      const rowType = Types.struct({
+        uid: Types.UTF8,
+        point_id: Types.UTF8,
+        embedding: Types.BYTES,
+        embedding_quantized: Types.BYTES,
+        payload: Types.JSON_DOCUMENT,
+      });
 
-          UPSERT INTO ${tableName} (uid, point_id, embedding, embedding_quantized, payload)
-          SELECT
-            uid,
-            point_id,
-            Untag(Knn::ToBinaryStringFloat(vec), "FloatVector") AS embedding,
-            Untag(Knn::ToBinaryStringBit(vec), "BitVector") AS embedding_quantized,
-            payload
-          FROM AS_TABLE($rows);
-        `;
-
-        const rowType = Types.struct({
-          uid: Types.UTF8,
-          point_id: Types.UTF8,
-          vec: Types.list(Types.FLOAT),
-          payload: Types.JSON_DOCUMENT,
-        });
-
-        const rowsValue = TypedValues.list(
-          rowType,
-          batch.map((p) => ({
+      const rowsValue = TypedValues.list(
+        rowType,
+        batch.map((p) => {
+          const binaries = buildVectorBinaryParams(p.vector);
+          return {
             uid,
             point_id: String(p.id),
-            vec: p.vector,
+            embedding: binaries.float,
+            embedding_quantized: binaries.bit,
             payload: JSON.stringify(p.payload ?? {}),
-          }))
-        );
+          };
+        })
+      );
 
-        params = {
-          $rows: rowsValue,
-        };
-      }
+      const params: QueryParams = {
+        $rows: rowsValue,
+      };
+      const bulkRows = rowsValue as unknown as Ydb.TypedValue;
 
       if (logger.isLevelEnabled("debug")) {
+        const mode = BULK_UPSERT_ENABLED
+          ? "one_table_bulk_upsert"
+          : "one_table_upsert_client_side_serialization";
         logger.debug(
           {
             tableName,
-            mode: CLIENT_SIDE_SERIALIZATION_ENABLED
-              ? "one_table_upsert_client_side_serialization"
-              : "one_table_upsert_server_side_knn",
+            mode,
             batchSize: batch.length,
             yql: ddl,
             params: {
@@ -231,10 +193,26 @@ export async function upsertPointsOneTable(
         );
       }
 
-      await withRetry(() => s.executeQuery(ddl, params, undefined, settings), {
-        isTransient: isTransientYdbError,
-        context: { tableName, batchSize: batch.length },
-      });
+      if (BULK_UPSERT_ENABLED) {
+        if (!bulkRows) {
+          throw new Error(
+            "bulk upsert enabled but bulk rows are not available"
+          );
+        }
+        await withRetry(
+          () => s.bulkUpsert(tableName, bulkRows, bulkUpsertSettings),
+          {
+            isTransient: isTransientYdbError,
+            context: {
+              operation: "bulkUpsert",
+              tableName,
+              batchSize: batch.length,
+            },
+          }
+        );
+      } else {
+        await s.executeQuery(ddl, params, undefined, querySettings);
+      }
       upserted += batch.length;
     }
   });
@@ -262,61 +240,32 @@ async function searchPointsOneTableExact(
   const filter = buildPathSegmentsFilter(filterPaths);
   const filterWhere = filter ? ` AND ${filter.whereSql}` : "";
 
-  const results = await withSession(async (s) => {
-    let yql: string;
-    let params: QueryParams;
+  const results = await withSessionRetry(async (s) => {
+    const binaries = buildVectorBinaryParams(queryVector);
 
-    if (CLIENT_SIDE_SERIALIZATION_ENABLED) {
-      const binaries = buildVectorBinaryParams(queryVector);
+    const yql = `
+          DECLARE $qbinf AS String;
+          DECLARE $k AS Uint32;
+          DECLARE $uid AS Utf8;
+          ${filter?.whereParamDeclarations ?? ""}
+          SELECT point_id, ${
+            withPayload ? "payload, " : ""
+          }${fn}(embedding, $qbinf) AS score
+          FROM ${tableName}
+          WHERE uid = $uid${filterWhere}
+          ORDER BY score ${order}
+          LIMIT $k;
+        `;
 
-      yql = `
-        DECLARE $qbinf AS String;
-        DECLARE $k AS Uint32;
-        DECLARE $uid AS Utf8;
-        ${filter?.whereParamDeclarations ?? ""}
-        SELECT point_id, ${
-          withPayload ? "payload, " : ""
-        }${fn}(embedding, $qbinf) AS score
-        FROM ${tableName}
-        WHERE uid = $uid${filterWhere}
-        ORDER BY score ${order}
-        LIMIT $k;
-      `;
-
-      params = {
-        ...(filter?.whereParams ?? {}),
-        $qbinf:
-          typeof TypedValues.bytes === "function"
-            ? TypedValues.bytes(binaries.float)
-            : (binaries.float as unknown as Ydb.ITypedValue),
-        $k: TypedValues.uint32(top),
-        $uid: TypedValues.utf8(uid),
-      };
-    } else {
-      const qf = buildVectorParam(queryVector);
-
-      yql = `
-        DECLARE $qf AS List<Float>;
-        DECLARE $k AS Uint32;
-        DECLARE $uid AS Utf8;
-        ${filter?.whereParamDeclarations ?? ""}
-        $qbinf = Knn::ToBinaryStringFloat($qf);
-        SELECT point_id, ${
-          withPayload ? "payload, " : ""
-        }${fn}(embedding, $qbinf) AS score
-        FROM ${tableName}
-        WHERE uid = $uid${filterWhere}
-        ORDER BY score ${order}
-        LIMIT $k;
-      `;
-
-      params = {
-        ...(filter?.whereParams ?? {}),
-        $qf: qf,
-        $k: TypedValues.uint32(top),
-        $uid: TypedValues.utf8(uid),
-      };
-    }
+    const params: QueryParams = {
+      ...(filter?.whereParams ?? {}),
+      $qbinf:
+        typeof TypedValues.bytes === "function"
+          ? TypedValues.bytes(binaries.float)
+          : (binaries.float as unknown as Ydb.ITypedValue),
+      $k: TypedValues.uint32(top),
+      $uid: TypedValues.utf8(uid),
+    };
 
     if (logger.isLevelEnabled("debug")) {
       logger.debug(
@@ -325,9 +274,7 @@ async function searchPointsOneTableExact(
           distance,
           top,
           withPayload,
-          mode: CLIENT_SIDE_SERIALIZATION_ENABLED
-            ? "one_table_exact_client_side_serialization"
-            : "one_table_exact",
+          mode: "one_table_exact_client_side_serialization",
           yql,
           params: {
             uid,
@@ -412,139 +359,72 @@ async function searchPointsOneTableApproximate(
   const filter = buildPathSegmentsFilter(filterPaths);
   const filterWhere = filter ? ` AND ${filter.whereSql}` : "";
 
-  const results = await withSession(async (s) => {
-    let yql: string;
-    let params: QueryParams;
+  const results = await withSessionRetry(async (s) => {
+    const binaries = buildVectorBinaryParams(queryVector);
 
-    if (CLIENT_SIDE_SERIALIZATION_ENABLED) {
-      const binaries = buildVectorBinaryParams(queryVector);
-
-      yql = `
-        DECLARE $qbin_bit AS String;
-        DECLARE $qbinf AS String;
-        DECLARE $candidateLimit AS Uint32;
-        DECLARE $safeTop AS Uint32;
-        DECLARE $uid AS Utf8;
-        ${filter?.whereParamDeclarations ?? ""}
-
-        $candidates = (
-          SELECT point_id
+    const yql = `
+          DECLARE $qbin_bit AS String;
+          DECLARE $qbinf AS String;
+          DECLARE $candidateLimit AS Uint32;
+          DECLARE $safeTop AS Uint32;
+          DECLARE $uid AS Utf8;
+          ${filter?.whereParamDeclarations ?? ""}
+  
+          $candidates = (
+            SELECT point_id
+            FROM ${tableName}
+            WHERE uid = $uid AND embedding_quantized IS NOT NULL
+              ${filterWhere}
+            ORDER BY ${bitFn}(embedding_quantized, $qbin_bit) ${bitOrder}
+            LIMIT $candidateLimit
+          );
+  
+          SELECT point_id, ${
+            withPayload ? "payload, " : ""
+          }${fn}(embedding, $qbinf) AS score
           FROM ${tableName}
-          WHERE uid = $uid AND embedding_quantized IS NOT NULL
+          WHERE uid = $uid
+            AND point_id IN $candidates
             ${filterWhere}
-          ORDER BY ${bitFn}(embedding_quantized, $qbin_bit) ${bitOrder}
-          LIMIT $candidateLimit
-        );
+          ORDER BY score ${order}
+          LIMIT $safeTop;
+        `;
 
-        SELECT point_id, ${
-          withPayload ? "payload, " : ""
-        }${fn}(embedding, $qbinf) AS score
-        FROM ${tableName}
-        WHERE uid = $uid
-          AND point_id IN $candidates
-          ${filterWhere}
-        ORDER BY score ${order}
-        LIMIT $safeTop;
-      `;
+    const params: QueryParams = {
+      ...(filter?.whereParams ?? {}),
+      $qbin_bit:
+        typeof TypedValues.bytes === "function"
+          ? TypedValues.bytes(binaries.bit)
+          : (binaries.bit as unknown as Ydb.ITypedValue),
+      $qbinf:
+        typeof TypedValues.bytes === "function"
+          ? TypedValues.bytes(binaries.float)
+          : (binaries.float as unknown as Ydb.ITypedValue),
+      $candidateLimit: TypedValues.uint32(candidateLimit),
+      $safeTop: TypedValues.uint32(safeTop),
+      $uid: TypedValues.utf8(uid),
+    };
 
-      params = {
-        ...(filter?.whereParams ?? {}),
-        $qbin_bit:
-          typeof TypedValues.bytes === "function"
-            ? TypedValues.bytes(binaries.bit)
-            : (binaries.bit as unknown as Ydb.ITypedValue),
-        $qbinf:
-          typeof TypedValues.bytes === "function"
-            ? TypedValues.bytes(binaries.float)
-            : (binaries.float as unknown as Ydb.ITypedValue),
-        $candidateLimit: TypedValues.uint32(candidateLimit),
-        $safeTop: TypedValues.uint32(safeTop),
-        $uid: TypedValues.utf8(uid),
-      };
-
-      if (logger.isLevelEnabled("debug")) {
-        logger.debug(
-          {
-            tableName,
-            distance,
-            top,
+    if (logger.isLevelEnabled("debug")) {
+      logger.debug(
+        {
+          tableName,
+          distance,
+          top,
+          safeTop,
+          candidateLimit,
+          mode: "one_table_approximate_client_side_serialization",
+          yql,
+          params: {
+            uid,
             safeTop,
             candidateLimit,
-            mode: "one_table_approximate_client_side_serialization",
-            yql,
-            params: {
-              uid,
-              safeTop,
-              candidateLimit,
-              vectorLength: queryVector.length,
-              vectorPreview: queryVector.slice(0, 3),
-            },
+            vectorLength: queryVector.length,
+            vectorPreview: queryVector.slice(0, 3),
           },
-          "one_table search (approximate): executing YQL with client-side serialization"
-        );
-      }
-    } else {
-      const qf = buildVectorParam(queryVector);
-
-      yql = `
-        DECLARE $qf AS List<Float>;
-        DECLARE $candidateLimit AS Uint32;
-        DECLARE $safeTop AS Uint32;
-        DECLARE $uid AS Utf8;
-        ${filter?.whereParamDeclarations ?? ""}
-
-        $qbin_bit = Knn::ToBinaryStringBit($qf);
-        $qbinf = Knn::ToBinaryStringFloat($qf);
-
-        $candidates = (
-          SELECT point_id
-          FROM ${tableName}
-          WHERE uid = $uid AND embedding_quantized IS NOT NULL
-            ${filterWhere}
-          ORDER BY ${bitFn}(embedding_quantized, $qbin_bit) ${bitOrder}
-          LIMIT $candidateLimit
-        );
-
-        SELECT point_id, ${
-          withPayload ? "payload, " : ""
-        }${fn}(embedding, $qbinf) AS score
-        FROM ${tableName}
-        WHERE uid = $uid
-          AND point_id IN $candidates
-          ${filterWhere}
-        ORDER BY score ${order}
-        LIMIT $safeTop;
-      `;
-
-      params = {
-        ...(filter?.whereParams ?? {}),
-        $qf: qf,
-        $candidateLimit: TypedValues.uint32(candidateLimit),
-        $safeTop: TypedValues.uint32(safeTop),
-        $uid: TypedValues.utf8(uid),
-      };
-
-      if (logger.isLevelEnabled("debug")) {
-        logger.debug(
-          {
-            tableName,
-            distance,
-            top,
-            safeTop,
-            candidateLimit,
-            mode: "one_table_approximate",
-            yql,
-            params: {
-              uid,
-              safeTop,
-              candidateLimit,
-              vectorLength: queryVector.length,
-              vectorPreview: queryVector.slice(0, 3),
-            },
-          },
-          "one_table search (approximate): executing YQL"
-        );
-      }
+        },
+        "one_table search (approximate): executing YQL with client-side serialization"
+      );
     }
 
     const settings = createExecuteQuerySettingsWithTimeout({
@@ -638,23 +518,28 @@ export async function deletePointsOneTable(
   uid: string
 ): Promise<number> {
   let deleted = 0;
-  await withSession(async (s) => {
+  await withSessionRetry(async (s) => {
     const settings = createExecuteQuerySettings();
     for (const id of ids) {
       const yql = `
-        DECLARE $uid AS Utf8;
-        DECLARE $id AS Utf8;
-        DELETE FROM ${tableName} WHERE uid = $uid AND point_id = $id;
-      `;
+          DECLARE $uid AS Utf8;
+          DECLARE $id AS Utf8;
+          DELETE FROM ${tableName} WHERE uid = $uid AND point_id = $id;
+        `;
       const params: QueryParams = {
         $uid: TypedValues.utf8(uid),
         $id: TypedValues.utf8(String(id)),
       };
 
-      await withRetry(() => s.executeQuery(yql, params, undefined, settings), {
-        isTransient: isTransientYdbError,
-        context: { tableName, uid, pointId: String(id) },
-      });
+      try {
+        await s.executeQuery(yql, params, undefined, settings);
+      } catch (err: unknown) {
+        logger.warn(
+          { err, tableName, uid, pointId: String(id) },
+          "deletePointsOneTable: delete failed"
+        );
+        throw err;
+      }
       deleted += 1;
     }
   });
@@ -678,22 +563,22 @@ export async function deletePointsByPathSegmentsOneTable(
     .join("\n    ");
 
   const deleteBatchYql = `
-    DECLARE $uid AS Utf8;
-    DECLARE $limit AS Uint32;
-    ${whereParamDeclarations}
-
-    $to_delete = (
-      SELECT uid, point_id
-      FROM ${tableName}
-      WHERE uid = $uid AND ${whereSql}
-      LIMIT $limit
-    );
-
-    DELETE FROM ${tableName} ON
-    SELECT uid, point_id FROM $to_delete;
-
-    SELECT COUNT(*) AS deleted FROM $to_delete;
-  `;
+      DECLARE $uid AS Utf8;
+      DECLARE $limit AS Uint32;
+      ${whereParamDeclarations}
+  
+      $to_delete = (
+        SELECT uid, point_id
+        FROM ${tableName}
+        WHERE uid = $uid AND ${whereSql}
+        LIMIT $limit
+      );
+  
+      DELETE FROM ${tableName} ON
+      SELECT uid, point_id FROM $to_delete;
+  
+      SELECT COUNT(*) AS deleted FROM $to_delete;
+    `;
 
   function readDeletedCountFromResult(rs: {
     resultSets?: Array<{
@@ -761,39 +646,44 @@ export async function deletePointsByPathSegmentsOneTable(
   }
 
   let deleted = 0;
-  await withSession(async (s) => {
+  await withSessionRetry(async (s) => {
     const settings = createExecuteQuerySettings();
     // Best-effort loop: stop when there are no more matching rows.
     // Use limited batches to avoid per-operation buffer limits.
     while (true) {
-      const rs = (await withRetry(
-        () =>
-          s.executeQuery(
-            deleteBatchYql,
-            {
-              ...whereParams,
-              $uid: TypedValues.utf8(uid),
-              $limit: TypedValues.uint32(DELETE_FILTER_SELECT_BATCH_SIZE),
-            },
-            undefined,
-            settings
-          ),
-        {
-          isTransient: isTransientYdbError,
-          context: {
+      let rs: unknown;
+      try {
+        rs = await s.executeQuery(
+          deleteBatchYql,
+          {
+            ...whereParams,
+            $uid: TypedValues.utf8(uid),
+            $limit: TypedValues.uint32(DELETE_FILTER_SELECT_BATCH_SIZE),
+          },
+          undefined,
+          settings
+        );
+      } catch (err: unknown) {
+        logger.warn(
+          {
+            err,
             tableName,
             uid,
             filterPathsCount: paths.length,
             batchLimit: DELETE_FILTER_SELECT_BATCH_SIZE,
           },
-        }
-      )) as {
+          "deletePointsByPathSegmentsOneTable: delete batch failed"
+        );
+        throw err;
+      }
+
+      const typed = rs as {
         resultSets?: Array<{
           rows?: unknown[];
         }>;
       };
 
-      const batchDeleted = readDeletedCountFromResult(rs);
+      const batchDeleted = readDeletedCountFromResult(typed);
       if (batchDeleted <= 0) {
         break;
       }

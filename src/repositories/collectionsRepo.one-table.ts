@@ -1,14 +1,14 @@
 import {
   TypedValues,
   Types,
-  withSession,
+  withSessionRetry,
   createExecuteQuerySettings,
 } from "../ydb/client.js";
 import type { DistanceKind, VectorType } from "../types";
 import { GLOBAL_POINTS_TABLE, ensureGlobalPointsTable } from "../ydb/schema.js";
 import { upsertCollectionMeta } from "./collectionsRepo.shared.js";
-import { withRetry, isTransientYdbError } from "../utils/retry.js";
 import { USE_BATCH_DELETE_FOR_COLLECTIONS } from "../config/env.js";
+import { logger } from "../logging/logger.js";
 
 const DELETE_COLLECTION_BATCH_SIZE = 10000;
 
@@ -135,86 +135,68 @@ export async function deleteCollectionOneTable(
       WHERE uid = $uid;
     `;
 
-    await withRetry(
-      () =>
-        withSession(async (s) => {
-          const settings = createExecuteQuerySettings();
-          try {
-            await s.executeQuery(
-              batchDeletePointsYql,
-              {
-                $uid: TypedValues.utf8(uid),
-              },
-              undefined,
-              settings
-            );
-          } catch (err: unknown) {
-            if (!isOutOfBufferMemoryYdbError(err)) {
-              throw err;
-            }
+    await withSessionRetry(async (s) => {
+      const settings = createExecuteQuerySettings();
+      try {
+        await s.executeQuery(
+          batchDeletePointsYql,
+          {
+            $uid: TypedValues.utf8(uid),
+          },
+          undefined,
+          settings
+        );
+      } catch (err: unknown) {
+        if (!isOutOfBufferMemoryYdbError(err)) {
+          logger.warn(
+            { err, tableName: GLOBAL_POINTS_TABLE, metaKey, uid },
+            "deleteCollectionOneTable: batch delete failed"
+          );
+          throw err;
+        }
 
-            // BATCH DELETE already deletes in chunks per partition, but if YDB
-            // still reports an out-of-buffer-memory condition, fall back to
-            // the same per-uid chunked deletion strategy as the legacy path.
-            await deletePointsForUidInChunks(s, uid);
-          }
-        }),
-      {
-        isTransient: isTransientYdbError,
-        context: {
-          operation: "deleteCollectionOneTable",
-          tableName: GLOBAL_POINTS_TABLE,
-          metaKey,
-          uid,
-          mode: "batch_delete",
-        },
+        // BATCH DELETE already deletes in chunks per partition, but if YDB
+        // still reports an out-of-buffer-memory condition, fall back to
+        // the same per-uid chunked deletion strategy as the legacy path.
+        await deletePointsForUidInChunks(s, uid);
       }
-    );
+    });
   } else {
     const deletePointsYql = `
       DECLARE $uid AS Utf8;
       DELETE FROM ${GLOBAL_POINTS_TABLE} WHERE uid = $uid;
     `;
 
-    await withRetry(
-      () =>
-        withSession(async (s) => {
-          const settings = createExecuteQuerySettings();
-          try {
-            await s.executeQuery(
-              deletePointsYql,
-              {
-                $uid: TypedValues.utf8(uid),
-              },
-              undefined,
-              settings
-            );
-          } catch (err: unknown) {
-            if (!isOutOfBufferMemoryYdbError(err)) {
-              throw err;
-            }
+    await withSessionRetry(async (s) => {
+      const settings = createExecuteQuerySettings();
+      try {
+        await s.executeQuery(
+          deletePointsYql,
+          {
+            $uid: TypedValues.utf8(uid),
+          },
+          undefined,
+          settings
+        );
+      } catch (err: unknown) {
+        if (!isOutOfBufferMemoryYdbError(err)) {
+          logger.warn(
+            { err, tableName: GLOBAL_POINTS_TABLE, metaKey, uid },
+            "deleteCollectionOneTable: delete failed"
+          );
+          throw err;
+        }
 
-            await deletePointsForUidInChunks(s, uid);
-          }
-        }),
-      {
-        isTransient: isTransientYdbError,
-        context: {
-          operation: "deleteCollectionOneTable",
-          tableName: GLOBAL_POINTS_TABLE,
-          metaKey,
-          uid,
-          mode: "legacy_chunked",
-        },
+        await deletePointsForUidInChunks(s, uid);
       }
-    );
+    });
   }
 
   const delMeta = `
     DECLARE $collection AS Utf8;
     DELETE FROM qdr__collections WHERE collection = $collection;
   `;
-  await withSession(async (s) => {
+  await withSessionRetry(async (s) => {
     const settings = createExecuteQuerySettings();
     await s.executeQuery(
       delMeta,

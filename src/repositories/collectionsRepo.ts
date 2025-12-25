@@ -2,7 +2,7 @@ import {
   TypedValues,
   withSession,
   createExecuteQuerySettings,
-  withStartupProbeSession,
+  withStartupProbeSessionRetry,
   createExecuteQuerySettingsWithTimeout,
 } from "../ydb/client.js";
 import {
@@ -16,7 +16,6 @@ import {
   createCollectionOneTable,
   deleteCollectionOneTable,
 } from "./collectionsRepo.one-table.js";
-import { withRetry, isTransientYdbError } from "../utils/retry.js";
 
 const lastAccessWriteCache = new Map<string, number>();
 const LAST_ACCESS_CACHE_MAX_SIZE = 10000;
@@ -124,30 +123,23 @@ export async function verifyCollectionsQueryCompilationForStartup(): Promise<voi
     FROM qdr__collections
     WHERE collection = $collection;
   `;
-  await withRetry(
-    async () => {
-      await withStartupProbeSession(async (s) => {
-        const settings = createExecuteQuerySettingsWithTimeout({
-          keepInCache: true,
-          idempotent: true,
-          timeoutMs: STARTUP_PROBE_SESSION_TIMEOUT_MS,
-        });
-        await s.executeQuery(
-          qry,
-          {
-            $collection: TypedValues.utf8(probeKey),
-          },
-          undefined,
-          settings
-        );
+  await withStartupProbeSessionRetry(
+    async (s) => {
+      const settings = createExecuteQuerySettingsWithTimeout({
+        keepInCache: true,
+        idempotent: true,
+        timeoutMs: STARTUP_PROBE_SESSION_TIMEOUT_MS,
       });
+      await s.executeQuery(
+        qry,
+        {
+          $collection: TypedValues.utf8(probeKey),
+        },
+        undefined,
+        settings
+      );
     },
-    {
-      isTransient: isTransientYdbError,
-      maxRetries: 2,
-      baseDelayMs: 200,
-      context: { probe: "collections_startup_compilation" },
-    }
+    { maxRetries: 2 }
   );
 }
 

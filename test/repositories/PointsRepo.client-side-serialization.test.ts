@@ -23,10 +23,14 @@ vi.mock("../../src/ydb/client.js", () => {
       utf8: vi.fn((v: string) => ({ type: "utf8", v })),
       uint32: vi.fn((v: number) => ({ type: "uint32", v })),
       timestamp: vi.fn((v: Date) => ({ type: "timestamp", v })),
-      list: vi.fn((t: unknown, list: unknown[]) => ({ type: "list", t, list })),
+      list: vi.fn((t: unknown, list: unknown[]) => ({
+        type: "list",
+        t,
+        list,
+      })),
       bytes: vi.fn((v: unknown) => ({ type: "bytes", v })),
     },
-    withSession: vi.fn(),
+    withSessionRetry: vi.fn(),
     createExecuteQuerySettings,
     createExecuteQuerySettingsWithTimeout,
   };
@@ -58,7 +62,6 @@ vi.mock("../../src/config/env.js", async () => {
     ...actual,
     LOG_LEVEL: "info",
     SEARCH_MODE: actual.SearchMode.Approximate,
-    CLIENT_SIDE_SERIALIZATION_ENABLED: true,
   };
 });
 
@@ -67,17 +70,16 @@ import * as helpers from "../../src/ydb/helpers.js";
 import { searchPointsOneTable as searchPointsOneTableInternal } from "../../src/repositories/pointsRepo.one-table.js";
 import { SearchMode } from "../../src/config/env.js";
 
-const withSessionMock = ydbClient.withSession as unknown as Mock;
-const buildVectorParamMock = helpers.buildVectorParam as unknown as Mock;
 const buildVectorBinaryParamsMock =
   helpers.buildVectorBinaryParams as unknown as Mock;
+const withSessionMock = ydbClient.withSessionRetry as unknown as Mock;
 
 describe("pointsRepo one_table with client-side serialization", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("uses binary string param for exact search when client-side serialization is enabled", async () => {
+  it("uses binary string param for exact search", async () => {
     const sessionMock = {
       executeQuery: vi.fn().mockResolvedValue({
         resultSets: [
@@ -116,10 +118,9 @@ describe("pointsRepo one_table with client-side serialization", () => {
     expect(yql).not.toContain("Knn::ToBinaryStringFloat");
 
     expect(buildVectorBinaryParamsMock).toHaveBeenCalledWith([0, 0, 0, 1]);
-    expect(buildVectorParamMock).not.toHaveBeenCalled();
   });
 
-  it("uses binary string params for approximate search phases when client-side serialization is enabled", async () => {
+  it("uses binary string params for approximate search phases", async () => {
     const sessionMock = {
       executeQuery: vi.fn().mockResolvedValue({
         resultSets: [
@@ -163,6 +164,5 @@ describe("pointsRepo one_table with client-side serialization", () => {
     expect(yql).toContain("ORDER BY Knn::CosineSimilarity");
 
     expect(buildVectorBinaryParamsMock).toHaveBeenCalledWith([0, 0, 0, 1]);
-    expect(buildVectorParamMock).not.toHaveBeenCalled();
   });
 });

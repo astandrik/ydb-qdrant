@@ -101,7 +101,6 @@ function normalizeSearchCommon(
   const topFromTop = typeof rawTop === "number" ? rawTop : undefined;
   const topFromLimit = typeof rawLimit === "number" ? rawLimit : undefined;
   const top = topFromTop ?? topFromLimit;
-
   const filter = b["filter"];
 
   let withPayload: boolean | undefined;

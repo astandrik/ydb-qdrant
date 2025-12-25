@@ -17,9 +17,14 @@ vi.mock("../../src/ydb/client.js", () => {
       utf8: vi.fn((v: string) => ({ type: "utf8", v })),
       uint32: vi.fn((v: number) => ({ type: "uint32", v })),
       timestamp: vi.fn((v: Date) => ({ type: "timestamp", v })),
-      list: vi.fn((t: unknown, list: unknown[]) => ({ type: "list", t, list })),
+      list: vi.fn((t: unknown, list: unknown[]) => ({
+        type: "list",
+        t,
+        list,
+      })),
     },
     withSession: vi.fn(),
+    withSessionRetry: vi.fn(),
     TableDescription: class {
       cols: unknown[] = [];
       pk: string[] = [];
@@ -72,6 +77,7 @@ import * as ydbClient from "../../src/ydb/client.js";
 import * as envConfig from "../../src/config/env.js";
 
 const withSessionMock = ydbClient.withSession as unknown as Mock;
+const withSessionRetryMock = ydbClient.withSessionRetry as unknown as Mock;
 const envConfigWithSetter = envConfig as unknown as {
   __setUseBatchDeleteForCollections?: (value: boolean) => void;
 };
@@ -118,6 +124,11 @@ describe("collectionsRepo/deleteCollection one-table (with mocked YDB)", () => {
       .mockImplementation(async (fn: (s: unknown) => unknown) => {
         await fn(sessionMock);
       });
+    withSessionRetryMock.mockImplementation(
+      async (fn: (s: unknown) => unknown) => {
+        await fn(sessionMock);
+      }
+    );
 
     await deleteCollection(
       "tenant_a/my_collection",
@@ -169,6 +180,11 @@ describe("collectionsRepo/deleteCollection one-table (with mocked YDB)", () => {
       .mockImplementation(async (fn: (s: unknown) => unknown) => {
         await fn(sessionMock);
       });
+    withSessionRetryMock.mockImplementation(
+      async (fn: (s: unknown) => unknown) => {
+        await fn(sessionMock);
+      }
+    );
 
     await deleteCollection(
       "tenant_a/my_collection",
@@ -235,7 +251,13 @@ describe("collectionsRepo/deleteCollection one-table (with mocked YDB)", () => {
                 {
                   rows: [
                     { items: [{ textValue: "p3" }] },
-                    { items: [{ textValue: undefined as unknown as string }] },
+                    {
+                      items: [
+                        {
+                          textValue: undefined as unknown as string,
+                        },
+                      ],
+                    },
                   ],
                 },
               ],
@@ -296,6 +318,11 @@ describe("collectionsRepo/deleteCollection one-table (with mocked YDB)", () => {
       .mockImplementation(async (fn: (s: unknown) => unknown) => {
         await fn(sessionMock);
       });
+    withSessionRetryMock.mockImplementation(
+      async (fn: (s: unknown) => unknown) => {
+        await fn(sessionMock);
+      }
+    );
 
     await deleteCollection(
       "tenant_a/my_collection",
@@ -360,7 +387,13 @@ describe("collectionsRepo/deleteCollection one-table (with mocked YDB)", () => {
                   rows: [
                     { items: [{ textValue: "p3" }] },
                     // non-string id should be filtered out
-                    { items: [{ textValue: undefined as unknown as string }] },
+                    {
+                      items: [
+                        {
+                          textValue: undefined as unknown as string,
+                        },
+                      ],
+                    },
                   ],
                 },
               ],
@@ -421,6 +454,11 @@ describe("collectionsRepo/deleteCollection one-table (with mocked YDB)", () => {
       .mockImplementation(async (fn: (s: unknown) => unknown) => {
         await fn(sessionMock);
       });
+    withSessionRetryMock.mockImplementation(
+      async (fn: (s: unknown) => unknown) => {
+        await fn(sessionMock);
+      }
+    );
 
     await deleteCollection(
       "tenant_a/my_collection",
@@ -513,6 +551,11 @@ describe("collectionsRepo/deleteCollection one-table (with mocked YDB)", () => {
       .mockImplementation(async (fn: (s: unknown) => unknown) => {
         await fn(sessionMock);
       });
+    withSessionRetryMock.mockImplementation(
+      async (fn: (s: unknown) => unknown) => {
+        await fn(sessionMock);
+      }
+    );
 
     await deleteCollection(
       "tenant_a/my_collection",
@@ -593,6 +636,11 @@ describe("collectionsRepo/deleteCollection one-table (with mocked YDB)", () => {
       .mockImplementation(async (fn: (s: unknown) => unknown) => {
         await fn(sessionMock);
       });
+    withSessionRetryMock.mockImplementation(
+      async (fn: (s: unknown) => unknown) => {
+        await fn(sessionMock);
+      }
+    );
 
     await expect(
       deleteCollection("tenant_a/my_collection", "qdr_tenant_a__my_collection")
@@ -668,6 +716,11 @@ describe("collectionsRepo/deleteCollection one-table (with mocked YDB)", () => {
       .mockImplementation(async (fn: (s: unknown) => unknown) => {
         await fn(sessionMock);
       });
+    withSessionRetryMock.mockImplementation(
+      async (fn: (s: unknown) => unknown) => {
+        await fn(sessionMock);
+      }
+    );
 
     await expect(
       deleteCollection("tenant_a/my_collection", "qdr_tenant_a__my_collection")

@@ -12,6 +12,13 @@ vi.mock("../../src/ydb/client.js", () => {
     })
   );
 
+  const createBulkUpsertSettingsWithTimeout = vi.fn(
+    (options?: { timeoutMs: number }) => ({
+      kind: "BulkUpsertSettingsWithTimeout",
+      timeoutMs: options?.timeoutMs,
+    })
+  );
+
   return {
     Types: {
       UTF8: "UTF8",
@@ -28,11 +35,16 @@ vi.mock("../../src/ydb/client.js", () => {
       utf8: vi.fn((v: string) => ({ type: "utf8", v })),
       uint32: vi.fn((v: number) => ({ type: "uint32", v })),
       timestamp: vi.fn((v: Date) => ({ type: "timestamp", v })),
-      list: vi.fn((t: unknown, list: unknown[]) => ({ type: "list", t, list })),
+      list: vi.fn((t: unknown, list: unknown[]) => ({
+        type: "list",
+        t,
+        list,
+      })),
     },
-    withSession: vi.fn(),
+    withSessionRetry: vi.fn(),
     createExecuteQuerySettings,
     createExecuteQuerySettingsWithTimeout,
+    createBulkUpsertSettingsWithTimeout,
   };
 });
 
@@ -62,7 +74,6 @@ vi.mock("../../src/config/env.js", async () => {
     ...actual,
     LOG_LEVEL: "info",
     SEARCH_MODE: actual.SearchMode.Approximate,
-    CLIENT_SIDE_SERIALIZATION_ENABLED: false,
   };
 });
 
@@ -73,9 +84,8 @@ import {
   deletePointsByPathSegments,
 } from "../../src/repositories/pointsRepo.js";
 import * as ydbClient from "../../src/ydb/client.js";
-import { UPSERT_BATCH_SIZE } from "../../src/ydb/schema.js";
 
-const withSessionMock = ydbClient.withSession as unknown as Mock;
+const withSessionMock = ydbClient.withSessionRetry as unknown as Mock;
 
 describe("pointsRepo (with mocked YDB)", () => {
   beforeEach(() => {
@@ -220,11 +230,12 @@ describe("pointsRepo (with mocked YDB)", () => {
     expect(yql).toContain(
       "UPSERT INTO qdrant_all_points (uid, point_id, embedding, embedding_quantized, payload)"
     );
-    expect(yql).toContain("Knn::ToBinaryStringFloat(vec)");
-    expect(yql).toContain("Knn::ToBinaryStringBit(vec)");
+    expect(yql).not.toContain("Knn::ToBinaryStringFloat");
+    expect(yql).not.toContain("Knn::ToBinaryStringBit");
   });
 
   it("upserts more than UPSERT_BATCH_SIZE points in multiple batches (one_table)", async () => {
+    const upsertBatchSize = 100;
     const sessionMock = {
       executeQuery: vi.fn(),
     };
@@ -233,7 +244,7 @@ describe("pointsRepo (with mocked YDB)", () => {
       await fn(sessionMock);
     });
 
-    const total = UPSERT_BATCH_SIZE + 50;
+    const total = upsertBatchSize + 50;
     const points = Array.from({ length: total }, (_, i) => ({
       id: `p${i}`,
       vector: [0, 0, 0, 1],
@@ -249,7 +260,7 @@ describe("pointsRepo (with mocked YDB)", () => {
 
     expect(result).toBe(total);
     expect(sessionMock.executeQuery).toHaveBeenCalledTimes(
-      Math.ceil(total / UPSERT_BATCH_SIZE)
+      Math.ceil(total / upsertBatchSize)
     );
   });
 
@@ -399,41 +410,25 @@ describe("pointsRepo (with mocked YDB)", () => {
     expect(yql).toContain("WHERE uid = $uid AND point_id = $id");
   });
 
-  it("retries transient OVERLOADED errors for deletePoints (one_table)", async () => {
-    vi.useFakeTimers();
-    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
-    try {
-      const sessionMock = {
-        executeQuery: vi
-          .fn()
-          .mockRejectedValueOnce(
-            new Error(
-              'Overloaded (code 400060): [{"message":"Kikimr cluster or one of its subsystems is overloaded."}]'
-            )
+  it("propagates transient OVERLOADED errors for deletePoints (one_table)", async () => {
+    const sessionMock = {
+      executeQuery: vi
+        .fn()
+        .mockRejectedValueOnce(
+          new Error(
+            'Overloaded (code 400060): [{"message":"Kikimr cluster or one of its subsystems is overloaded."}]'
           )
-          .mockResolvedValueOnce({}),
-      };
+        ),
+    };
 
-      withSessionMock.mockImplementation(
-        async (fn: (s: unknown) => unknown) => await fn(sessionMock)
-      );
+    withSessionMock.mockImplementation(
+      async (fn: (s: unknown) => unknown) => await fn(sessionMock)
+    );
 
-      const p = deletePoints(
-        "qdrant_all_points",
-        ["p1"],
-        "qdr_tenant_a__my_collection"
-      );
-      await Promise.resolve(); // allow backoff timer to be scheduled
-      await vi.advanceTimersByTimeAsync(250);
-
-      const deleted = await p;
-
-      expect(deleted).toBe(1);
-      expect(sessionMock.executeQuery).toHaveBeenCalledTimes(2);
-    } finally {
-      randomSpy.mockRestore();
-      vi.useRealTimers();
-    }
+    await expect(
+      deletePoints("qdrant_all_points", ["p1"], "qdr_tenant_a__my_collection")
+    ).rejects.toThrow("Overloaded (code 400060)");
+    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
   });
 
   it("deletes points by pathSegments filter (must) for one_table mode", async () => {
@@ -474,47 +469,28 @@ describe("pointsRepo (with mocked YDB)", () => {
     expect(yql).toContain("SELECT COUNT(*) AS deleted FROM $to_delete");
   });
 
-  it("retries transient OVERLOADED errors for deletePointsByPathSegments (one_table)", async () => {
-    vi.useFakeTimers();
-    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
-    try {
-      const sessionMock = {
-        executeQuery: vi
-          .fn()
-          .mockRejectedValueOnce(
-            new Error(
-              'Overloaded (code 400060): [{"message":"Tablet is overloaded."},{"message":"wrong shard state"}]'
-            )
+  it("propagates transient OVERLOADED errors for deletePointsByPathSegments (one_table)", async () => {
+    const sessionMock = {
+      executeQuery: vi
+        .fn()
+        .mockRejectedValueOnce(
+          new Error(
+            'Overloaded (code 400060): [{"message":"Tablet is overloaded."},{"message":"wrong shard state"}]'
           )
-          // delete script: returns deleted count per batch, then 0 to stop
-          .mockResolvedValueOnce({
-            resultSets: [{ rows: [{ items: [{ uint64Value: 1 }] }] }],
-          })
-          .mockResolvedValueOnce({
-            resultSets: [{ rows: [{ items: [{ uint64Value: 0 }] }] }],
-          }),
-      };
+        ),
+    };
 
-      withSessionMock.mockImplementation(
-        async (fn: (s: unknown) => unknown) => await fn(sessionMock)
-      );
+    withSessionMock.mockImplementation(
+      async (fn: (s: unknown) => unknown) => await fn(sessionMock)
+    );
 
-      const p = deletePointsByPathSegments(
+    await expect(
+      deletePointsByPathSegments(
         "qdrant_all_points",
         "qdr_tenant_a__my_collection",
         [["src", "hooks", "useMonacoGhost.ts"]]
-      );
-      await Promise.resolve(); // allow backoff timer to be scheduled
-      await vi.advanceTimersByTimeAsync(250);
-
-      const deleted = await p;
-
-      expect(deleted).toBe(1);
-      // 1 failed attempt + 1 retry success + 1 final batch (0)
-      expect(sessionMock.executeQuery).toHaveBeenCalledTimes(3);
-    } finally {
-      randomSpy.mockRestore();
-      vi.useRealTimers();
-    }
+      )
+    ).rejects.toThrow("Overloaded (code 400060)");
+    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
   });
 });

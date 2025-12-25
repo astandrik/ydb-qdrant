@@ -88,11 +88,6 @@ export const OVERFETCH_MULTIPLIER = parseIntegerEnv(
   { min: 1 }
 );
 
-export const CLIENT_SIDE_SERIALIZATION_ENABLED = parseBooleanEnv(
-  process.env.YDB_QDRANT_CLIENT_SIDE_SERIALIZATION_ENABLED,
-  false
-);
-
 export const UPSERT_BATCH_SIZE = parseIntegerEnv(
   process.env.YDB_QDRANT_UPSERT_BATCH_SIZE,
   100,
@@ -142,6 +137,11 @@ export const SEARCH_OPERATION_TIMEOUT_MS = parseIntegerEnv(
   process.env.YDB_QDRANT_SEARCH_TIMEOUT_MS,
   10000,
   { min: 1000 }
+);
+
+export const BULK_UPSERT_ENABLED = parseBooleanEnv(
+  process.env.YDB_QDRANT_BULK_UPSERT_ENABLED,
+  false
 );
 
 export const LAST_ACCESS_MIN_WRITE_INTERVAL_MS = parseIntegerEnv(
