@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766693917169,
+  "lastUpdate": 1766693917970,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (multi_table, 768D)": [
@@ -5482,6 +5482,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Soak: Error Rate",
             "value": 0,
+            "unit": "%"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d9fea8777648915a15b264aa637dd8991f21283a",
+          "message": "chore: refactor pointsRepo (#172)\n\n* chore: refactor pointsRepo\n\n* fix: extra empty line",
+          "timestamp": "2025-12-25T23:14:55+03:00",
+          "tree_id": "1aa6d51ae2b4b8a04df35ee039cdd1b4308e4deb",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/d9fea8777648915a15b264aa637dd8991f21283a"
+        },
+        "date": 1766693916828,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Soak: Search Latency p95",
+            "value": 62,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Search Latency p99",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Upsert Latency p95",
+            "value": 20,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Error Rate",
+            "value": 0.009,
             "unit": "%"
           }
         ]
