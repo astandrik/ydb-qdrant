@@ -1,5 +1,6 @@
-import { TypedValues, withSession } from "../ydb/client.js";
+import { withSession } from "../ydb/client.js";
 import type { DistanceKind, VectorType } from "../types";
+import { Timestamp, Uint32, Utf8 } from "@ydbjs/value/primitive";
 
 export async function upsertCollectionMeta(
   metaKey: string,
@@ -20,15 +21,16 @@ export async function upsertCollectionMeta(
     UPSERT INTO qdr__collections (collection, table_name, vector_dimension, distance, vector_type, created_at, last_accessed_at)
     VALUES ($collection, $table, $dim, $distance, $vtype, $created, $last_accessed);
   `;
-  await withSession(async (s) => {
-    await s.executeQuery(upsertMeta, {
-      $collection: TypedValues.utf8(metaKey),
-      $table: TypedValues.utf8(tableName),
-      $dim: TypedValues.uint32(dim),
-      $distance: TypedValues.utf8(distance),
-      $vtype: TypedValues.utf8(vectorType),
-      $created: TypedValues.timestamp(now),
-      $last_accessed: TypedValues.timestamp(now),
-    });
+  await withSession(async (sql, signal) => {
+    await sql`${sql.unsafe(upsertMeta)}`
+      .idempotent(true)
+      .signal(signal)
+      .parameter("collection", new Utf8(metaKey))
+      .parameter("table", new Utf8(tableName))
+      .parameter("dim", new Uint32(dim))
+      .parameter("distance", new Utf8(distance))
+      .parameter("vtype", new Utf8(vectorType))
+      .parameter("created", new Timestamp(now))
+      .parameter("last_accessed", new Timestamp(now));
   });
 }

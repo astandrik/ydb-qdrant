@@ -1,13 +1,9 @@
 import { beforeAll, describe, it, expect } from "vitest";
 import { createYdbQdrantClient } from "../../src/package/api.js";
 import { GLOBAL_POINTS_TABLE } from "../../src/ydb/schema.js";
-import {
-  withSession,
-  TypedValues,
-  TableDescription,
-  Column,
-  Types,
-} from "../../src/ydb/client.js";
+import { withSession } from "../../src/ydb/client.js";
+import { Float, JsonDocument, Utf8 } from "@ydbjs/value/primitive";
+import { List } from "@ydbjs/value/list";
 import {
   RECALL_DIM,
   RECALL_K,
@@ -163,22 +159,27 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
       WHERE uid = $uid AND point_id = $point_id;
     `;
 
-    const res = await withSession(async (s) => {
-      return await s.executeQuery(query, {
-        $uid: TypedValues.utf8(expectedUid),
-        $point_id: TypedValues.utf8("uid_test_point"),
-      });
+    type Row = {
+      uid: string;
+      point_id: string;
+      embedding: unknown;
+      embedding_quantized: unknown;
+    };
+
+    const [rows] = await withSession(async (sql, signal) => {
+      return await sql<[Row]>`${sql.unsafe(query)}`
+        .idempotent(true)
+        .signal(signal)
+        .parameter("uid", new Utf8(expectedUid))
+        .parameter("point_id", new Utf8("uid_test_point"));
     });
 
-    const rowset = res.resultSets?.[0];
-    expect(rowset?.rows?.length).toBe(1);
-    const row = rowset?.rows?.[0];
-    // items: [uid, point_id, embedding, embedding_quantized]
-    expect(row?.items?.[0]?.textValue).toBe(expectedUid);
-    expect(row?.items?.[1]?.textValue).toBe("uid_test_point");
-    // Just verify that both binary columns are present and non-empty
-    expect(row?.items?.[2]).toBeDefined();
-    expect(row?.items?.[3]).toBeDefined();
+    expect(rows).toHaveLength(1);
+    const row = rows[0];
+    expect(row.uid).toBe(expectedUid);
+    expect(row.point_id).toBe("uid_test_point");
+    expect(row.embedding).toBeDefined();
+    expect(row.embedding_quantized).toBeDefined();
 
     // Cleanup
     try {
@@ -344,22 +345,25 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     const legacyTable = `qdrant_migration_test_${Date.now()}`;
 
     // Step 1: Create a legacy table without embedding_quantized column
-    await withSession(async (s) => {
-      const desc = new TableDescription()
-        .withColumns(
-          new Column("uid", Types.UTF8),
-          new Column("point_id", Types.UTF8),
-          new Column("embedding", Types.BYTES),
-          new Column("payload", Types.JSON_DOCUMENT)
-        )
-        .withPrimaryKeys("uid", "point_id");
-      await s.createTable(legacyTable, desc);
+    await withSession(async (sql, signal) => {
+      const createLegacy = `
+        CREATE TABLE ${legacyTable} (
+          uid Utf8,
+          point_id Utf8,
+          embedding String,
+          payload JsonDocument,
+          PRIMARY KEY (uid, point_id)
+        );
+      `;
+      await sql`${sql.unsafe(createLegacy)}`
+        .idempotent(true)
+        .signal(signal);
     });
 
     // Step 2: Insert a test row with only embedding (no embedding_quantized)
     const testUid = "migration_test_uid";
     const testVector = [1.0, 0.0, 0.0, 0.0];
-    await withSession(async (s) => {
+    await withSession(async (sql, signal) => {
       const insertQuery = `
         DECLARE $uid AS Utf8;
         DECLARE $point_id AS Utf8;
@@ -373,57 +377,58 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
           $payload
         );
       `;
-      await s.executeQuery(insertQuery, {
-        $uid: TypedValues.utf8(testUid),
-        $point_id: TypedValues.utf8("legacy_point"),
-        $vec: TypedValues.list(Types.FLOAT, testVector),
-        $payload: TypedValues.jsonDocument("{}"),
-      });
+      const vecValue = new List(...testVector.map((x) => new Float(x)));
+      await sql`${sql.unsafe(insertQuery)}`
+        .idempotent(true)
+        .signal(signal)
+        .parameter("uid", new Utf8(testUid))
+        .parameter("point_id", new Utf8("legacy_point"))
+        .parameter("vec", vecValue)
+        .parameter("payload", new JsonDocument("{}"));
     });
 
     // Step 3: Verify the table has no embedding_quantized column initially
-    const descBefore = await withSession(async (s) => {
-      return await s.describeTable(legacyTable);
-    });
-    const columnsBefore = descBefore.columns?.map((c) => c.name) ?? [];
-    expect(columnsBefore).toContain("embedding");
-    expect(columnsBefore).not.toContain("embedding_quantized");
+    let hasQuantizedBefore = true;
+    try {
+      await withSession(async (sql, signal) => {
+        await sql`SELECT embedding_quantized FROM ${sql.identifier(
+          legacyTable
+        )} LIMIT 0;`
+          .idempotent(true)
+          .signal(signal);
+      });
+    } catch {
+      hasQuantizedBefore = false;
+    }
+    expect(hasQuantizedBefore).toBe(false);
 
     // Step 4: Run migration (ALTER TABLE via schema API to add embedding_quantized)
-    await withSession(async (s) => {
+    await withSession(async (sql, signal) => {
       const alterDdl = `
         ALTER TABLE ${legacyTable}
         ADD COLUMN embedding_quantized String;
       `;
-
-      const rawSession = s as unknown as {
-        sessionId: string;
-        api: {
-          executeSchemeQuery: (req: {
-            sessionId: string;
-            yqlText: string;
-          }) => Promise<unknown>;
-        };
-      };
-
-      await rawSession.api.executeSchemeQuery({
-        sessionId: rawSession.sessionId,
-        yqlText: alterDdl,
-      });
+      await sql`${sql.unsafe(alterDdl)}`
+        .idempotent(true)
+        .signal(signal);
     });
 
     // Step 5: Verify the column was added
-    const descAfter = await withSession(async (s) => {
-      return await s.describeTable(legacyTable);
+    await withSession(async (sql, signal) => {
+      await sql`SELECT embedding_quantized FROM ${sql.identifier(
+        legacyTable
+      )} LIMIT 0;`
+        .idempotent(true)
+        .signal(signal);
     });
-    const columnsAfter = descAfter.columns?.map((c) => c.name) ?? [];
-    expect(columnsAfter).toContain("embedding_quantized");
 
     // Cleanup: drop the test table
     try {
-      await withSession(async (s) => {
+      await withSession(async (sql, signal) => {
         const dropDdl = `DROP TABLE ${legacyTable};`;
-        await s.executeQuery(dropDdl);
+        await sql`${sql.unsafe(dropDdl)}`
+          .idempotent(true)
+          .signal(signal);
       });
     } catch {
       // ignore cleanup failures

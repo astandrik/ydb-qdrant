@@ -1,74 +1,19 @@
-import type {
-  Session,
-  IAuthService,
-  ExecuteQuerySettings as YdbExecuteQuerySettings,
-} from "ydb-sdk";
-import { createRequire } from "module";
+import { Driver, type DriverOptions } from "@ydbjs/core";
+import { query, type QueryClient } from "@ydbjs/query";
+import { CredentialsProvider } from "@ydbjs/auth";
+import { AnonymousCredentialsProvider } from "@ydbjs/auth/anonymous";
+import { AccessTokenCredentialsProvider } from "@ydbjs/auth/access-token";
+import { MetadataCredentialsProvider } from "@ydbjs/auth/metadata";
+import { readFile } from "node:fs/promises";
+import crypto from "node:crypto";
 import {
   YDB_DATABASE,
   YDB_ENDPOINT,
-  SESSION_POOL_MIN_SIZE,
-  SESSION_POOL_MAX_SIZE,
-  SESSION_KEEPALIVE_PERIOD_MS,
   STARTUP_PROBE_SESSION_TIMEOUT_MS,
 } from "../config/env.js";
 import { logger } from "../logging/logger.js";
 
-const require = createRequire(import.meta.url);
-const {
-  Driver,
-  getCredentialsFromEnv,
-  Types,
-  TypedValues,
-  TableDescription,
-  Column,
-  ExecuteQuerySettings,
-  OperationParams,
-  Ydb,
-} = require("ydb-sdk") as typeof import("ydb-sdk");
-
-export {
-  Types,
-  TypedValues,
-  TableDescription,
-  Column,
-  ExecuteQuerySettings,
-  Ydb,
-};
-
-export function createExecuteQuerySettings(options?: {
-  keepInCache?: boolean;
-  idempotent?: boolean;
-}): YdbExecuteQuerySettings {
-  const { keepInCache = true, idempotent = true } = options ?? {};
-  const settings = new ExecuteQuerySettings();
-  if (keepInCache) {
-    settings.withKeepInCache(true);
-  }
-  if (idempotent) {
-    settings.withIdempotent(true);
-  }
-  return settings;
-}
-
-export function createExecuteQuerySettingsWithTimeout(options: {
-  keepInCache?: boolean;
-  idempotent?: boolean;
-  timeoutMs: number;
-}): YdbExecuteQuerySettings {
-  const settings = createExecuteQuerySettings(options);
-  const op = new OperationParams();
-  const seconds = Math.max(1, Math.ceil(options.timeoutMs / 1000));
-  // Limit both overall operation processing time and cancellation time on the
-  // server side so the probe fails fast instead of hanging for the default.
-  op.withOperationTimeoutSeconds(seconds);
-  op.withCancelAfterSeconds(seconds);
-  settings.withOperationParams(op);
-  return settings;
-}
-
 const DRIVER_READY_TIMEOUT_MS = 15000;
-const TABLE_SESSION_TIMEOUT_MS = 20000;
 const YDB_HEALTHCHECK_READY_TIMEOUT_MS = 5000;
 const DRIVER_REFRESH_COOLDOWN_MS = 30000;
 
@@ -76,18 +21,221 @@ type DriverConfig = {
   endpoint?: string;
   database?: string;
   connectionString?: string;
-  authService?: IAuthService;
+  credentialsProvider?: CredentialsProvider;
 };
 
 let overrideConfig: DriverConfig | undefined;
-let driver: InstanceType<typeof Driver> | undefined;
+let driver: Driver | undefined;
+let sqlClient: QueryClient | undefined;
 let lastDriverRefreshAt = 0;
 let driverRefreshInFlight: Promise<void> | null = null;
 
-// Test-only: allows injecting a mock Driver factory
+// Test-only: allows injecting a mock Driver factory.
 let driverFactoryOverride:
-  | ((config: unknown) => InstanceType<typeof Driver>)
+  | ((connectionString: string, options?: DriverOptions) => Driver)
   | undefined;
+
+const IAM_TOKEN_URL = "https://iam.api.cloud.yandex.net/iam/v1/tokens";
+const SA_JWT_MAX_AGE_SECONDS = 3600;
+const SA_TOKEN_REFRESH_SKEW_MS = 60_000;
+
+function parseTruthyEnv(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === "" ||
+    normalized === "0" ||
+    normalized === "false" ||
+    normalized === "no" ||
+    normalized === "off"
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function toBase64Url(input: Buffer | Uint8Array): string {
+  const buf = Buffer.isBuffer(input) ? input : Buffer.from(input);
+  return buf
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function jsonToBase64Url(obj: unknown): string {
+  return toBase64Url(Buffer.from(JSON.stringify(obj), "utf8"));
+}
+
+function normalizeServiceAccountPrivateKeyPem(raw: string): string {
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("PLEASE DO NOT REMOVE THIS LINE!")) {
+    return trimmed.split("\n").slice(1).join("\n").trim();
+  }
+  return trimmed;
+}
+
+type ServiceAccountKeyFile = {
+  id: string;
+  service_account_id: string;
+  private_key: string;
+};
+
+async function readServiceAccountKeyFile(
+  absPath: string
+): Promise<ServiceAccountKeyFile> {
+  const raw = await readFile(absPath, "utf8");
+  const parsed = JSON.parse(raw) as Partial<ServiceAccountKeyFile>;
+  if (
+    typeof parsed.id !== "string" ||
+    typeof parsed.service_account_id !== "string" ||
+    typeof parsed.private_key !== "string"
+  ) {
+    throw new Error(
+      "Invalid service account key JSON: expected fields id, service_account_id, private_key"
+    );
+  }
+  return {
+    id: parsed.id,
+    service_account_id: parsed.service_account_id,
+    private_key: parsed.private_key,
+  };
+}
+
+function createServiceAccountJwt(args: {
+  keyId: string;
+  serviceAccountId: string;
+  privateKeyPem: string;
+  nowSec: number;
+}): string {
+  // Per Yandex Cloud IAM docs, the service account JWT must be PS256 with kid
+  // and audience set to the IAM token endpoint.
+  const header = { typ: "JWT", alg: "PS256", kid: args.keyId };
+  const payload = {
+    iss: args.serviceAccountId,
+    aud: IAM_TOKEN_URL,
+    iat: args.nowSec,
+    exp: args.nowSec + SA_JWT_MAX_AGE_SECONDS,
+  };
+
+  const encodedHeader = jsonToBase64Url(header);
+  const encodedPayload = jsonToBase64Url(payload);
+  const signingInput = `${encodedHeader}.${encodedPayload}`;
+
+  const signature = crypto.sign("RSA-SHA256", Buffer.from(signingInput), {
+    key: normalizeServiceAccountPrivateKeyPem(args.privateKeyPem),
+    padding: crypto.constants.RSA_PKCS1_PSS_PADDING,
+    saltLength: 32,
+  });
+
+  return `${signingInput}.${toBase64Url(signature)}`;
+}
+
+async function exchangeJwtForIamToken(args: {
+  jwt: string;
+  signal?: AbortSignal;
+}): Promise<{ iamToken: string; expiresAtMs: number | null }> {
+  const res = await fetch(IAM_TOKEN_URL, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jwt: args.jwt }),
+    signal: args.signal,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `Failed to exchange JWT for IAM token: HTTP ${res.status}${
+        text ? `: ${text}` : ""
+      }`
+    );
+  }
+  const body = (await res.json()) as Partial<{
+    iamToken: string;
+    expiresAt: string;
+    expires_at: string;
+  }>;
+  const token = body.iamToken;
+  if (typeof token !== "string" || token.length === 0) {
+    throw new Error("IAM token exchange response is missing iamToken");
+  }
+
+  const expiresAtRaw = body.expiresAt ?? body.expires_at;
+  const expiresAtMs =
+    typeof expiresAtRaw === "string" ? Date.parse(expiresAtRaw) : NaN;
+  return {
+    iamToken: token,
+    expiresAtMs: Number.isFinite(expiresAtMs) ? expiresAtMs : null,
+  };
+}
+
+class ServiceAccountKeyFileCredentialsProvider extends CredentialsProvider {
+  private cached: {
+    token: string;
+    expiresAtMs: number | null;
+    cachedAtMs: number;
+  } | null = null;
+
+  constructor(private readonly keyFilePath: string) {
+    super();
+  }
+
+  async getToken(force = false, signal?: AbortSignal): Promise<string> {
+    const nowMs = Date.now();
+    if (!force && this.cached) {
+      const { token, expiresAtMs, cachedAtMs } = this.cached;
+      if (expiresAtMs !== null) {
+        if (nowMs + SA_TOKEN_REFRESH_SKEW_MS < expiresAtMs) {
+          return token;
+        }
+      } else {
+        // If the API doesn't provide expiresAt, refresh hourly (best-effort).
+        if (nowMs - cachedAtMs < 55 * 60_000) {
+          return token;
+        }
+      }
+    }
+
+    const key = await readServiceAccountKeyFile(this.keyFilePath);
+    const nowSec = Math.floor(nowMs / 1000);
+    const jwt = createServiceAccountJwt({
+      keyId: key.id,
+      serviceAccountId: key.service_account_id,
+      privateKeyPem: key.private_key,
+      nowSec,
+    });
+    const { iamToken, expiresAtMs } = await exchangeJwtForIamToken({
+      jwt,
+      signal,
+    });
+    this.cached = { token: iamToken, expiresAtMs, cachedAtMs: nowMs };
+    return iamToken;
+  }
+}
+
+function resolveCredentialsProviderFromEnv(): CredentialsProvider {
+  if (parseTruthyEnv(process.env.YDB_ANONYMOUS_CREDENTIALS)) {
+    return new AnonymousCredentialsProvider();
+  }
+
+  const accessToken = process.env.YDB_ACCESS_TOKEN_CREDENTIALS?.trim();
+  if (accessToken) {
+    return new AccessTokenCredentialsProvider({ token: accessToken });
+  }
+
+  if (parseTruthyEnv(process.env.YDB_METADATA_CREDENTIALS)) {
+    return new MetadataCredentialsProvider();
+  }
+
+  const saKeyPath =
+    process.env.YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS?.trim();
+  if (saKeyPath) {
+    return new ServiceAccountKeyFileCredentialsProvider(saKeyPath);
+  }
+
+  throw new Error(
+    "No YDB credentials configured. Set one of: YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS, YDB_METADATA_CREDENTIALS=1, YDB_ACCESS_TOKEN_CREDENTIALS, YDB_ANONYMOUS_CREDENTIALS=1"
+  );
+}
 
 export function isCompilationTimeoutError(error: unknown): boolean {
   if (!(error instanceof Error)) {
@@ -126,9 +274,8 @@ function shouldTriggerDriverRefresh(error: unknown): boolean {
   if (/SessionExpired|SESSION_EXPIRED|session.*expired/i.test(msg)) {
     return true;
   }
-  // YDB query compilation timeout (TIMEOUT code 400090) – treat as a signal
-  // to refresh the driver/session pool so that subsequent attempts use a
-  // fresh connection state.
+  // Compilation timeout is treated as a signal to refresh the driver so that
+  // subsequent attempts use a fresh connection state.
   if (isCompilationTimeoutError(error)) {
     return true;
   }
@@ -177,13 +324,16 @@ async function maybeRefreshDriverOnSessionError(error: unknown): Promise<void> {
 }
 
 export function __setDriverForTests(fake: unknown): void {
-  driver = fake as InstanceType<typeof Driver> | undefined;
+  driver = fake as Driver | undefined;
+  sqlClient = undefined;
 }
 
 export function __setDriverFactoryForTests(
-  factory: ((config: unknown) => unknown) | undefined
+  factory:
+    | ((connectionString: string, options?: DriverOptions) => Driver)
+    | undefined
 ): void {
-  driverFactoryOverride = factory as typeof driverFactoryOverride;
+  driverFactoryOverride = factory;
 }
 
 export function __resetRefreshStateForTests(): void {
@@ -199,63 +349,91 @@ export function configureDriver(config: DriverConfig): void {
   overrideConfig = config;
 }
 
-function getOrCreateDriver(): InstanceType<typeof Driver> {
+function buildConnectionString(args: {
+  endpoint: string;
+  database: string;
+}): string {
+  const endpoint = args.endpoint.trim();
+  const database = args.database.trim();
+  if (!endpoint) {
+    throw new Error("YDB endpoint is empty; set YDB_ENDPOINT");
+  }
+  if (!database) {
+    throw new Error("YDB database is empty; set YDB_DATABASE");
+  }
+  const url = new URL(endpoint);
+  const dbPath = database.startsWith("/") ? database : `/${database}`;
+  url.pathname = dbPath;
+  return url.toString();
+}
+
+function getOrCreateDriver(): Driver {
   if (driver) {
     return driver;
   }
 
-  const base =
-    overrideConfig?.connectionString != null
-      ? { connectionString: overrideConfig.connectionString }
-      : {
-          endpoint: overrideConfig?.endpoint ?? YDB_ENDPOINT,
-          database: overrideConfig?.database ?? YDB_DATABASE,
-        };
+  const connectionString =
+    overrideConfig?.connectionString ??
+    buildConnectionString({
+      endpoint: overrideConfig?.endpoint ?? YDB_ENDPOINT,
+      database: overrideConfig?.database ?? YDB_DATABASE,
+    });
 
-  const driverConfig = {
-    ...base,
-    authService: overrideConfig?.authService ?? getCredentialsFromEnv(),
-    poolSettings: {
-      minLimit: SESSION_POOL_MIN_SIZE,
-      maxLimit: SESSION_POOL_MAX_SIZE,
-      keepAlivePeriod: SESSION_KEEPALIVE_PERIOD_MS,
-    },
+  const credentialsProvider =
+    overrideConfig?.credentialsProvider ?? resolveCredentialsProviderFromEnv();
+
+  const driverOptions: DriverOptions = {
+    credentialsProvider,
+    "ydb.sdk.ready_timeout_ms": DRIVER_READY_TIMEOUT_MS,
   };
 
   driver = driverFactoryOverride
-    ? driverFactoryOverride(driverConfig)
-    : new Driver(driverConfig);
+    ? driverFactoryOverride(connectionString, driverOptions)
+    : new Driver(connectionString, driverOptions);
 
   logger.info(
-    {
-      poolMinSize: SESSION_POOL_MIN_SIZE,
-      poolMaxSize: SESSION_POOL_MAX_SIZE,
-      keepAlivePeriodMs: SESSION_KEEPALIVE_PERIOD_MS,
-    },
-    "YDB driver created with session pool settings"
+    { hasCredentialsProvider: true, connectionStringMasked: true },
+    "YDB driver created"
   );
 
   return driver;
 }
 
-export async function readyOrThrow(): Promise<void> {
+function getOrCreateQueryClient(): QueryClient {
+  if (sqlClient) {
+    return sqlClient;
+  }
   const d = getOrCreateDriver();
-  const ok = await d.ready(DRIVER_READY_TIMEOUT_MS);
-  if (!ok) {
-    throw new Error(
-      `YDB driver is not ready in ${
-        DRIVER_READY_TIMEOUT_MS / 1000
-      }s. Check connectivity and credentials.`
-    );
+  sqlClient = query(d);
+  return sqlClient;
+}
+
+async function withTimeoutSignal<T>(
+  timeoutMs: number,
+  fn: (signal: AbortSignal) => Promise<T>
+): Promise<T> {
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), timeoutMs);
+  try {
+    return await fn(ac.signal);
+  } finally {
+    clearTimeout(t);
   }
 }
 
-export async function withSession<T>(
-  fn: (s: Session) => Promise<T>
-): Promise<T> {
+export async function readyOrThrow(): Promise<void> {
   const d = getOrCreateDriver();
+  await withTimeoutSignal(DRIVER_READY_TIMEOUT_MS, async (signal) => {
+    await d.ready(signal);
+  });
+}
+
+export async function withSession<T>(
+  fn: (sql: QueryClient, signal: AbortSignal) => Promise<T>
+): Promise<T> {
+  const sql = getOrCreateQueryClient();
   try {
-    return await d.tableClient.withSession(fn, TABLE_SESSION_TIMEOUT_MS);
+    return await sql.do(async (signal) => await fn(sql, signal));
   } catch (err) {
     void maybeRefreshDriverOnSessionError(err);
     throw err;
@@ -263,14 +441,18 @@ export async function withSession<T>(
 }
 
 export async function withStartupProbeSession<T>(
-  fn: (s: Session) => Promise<T>
+  fn: (sql: QueryClient, signal: AbortSignal) => Promise<T>
 ): Promise<T> {
-  const d = getOrCreateDriver();
   try {
-    return await d.tableClient.withSession(
-      fn,
-      STARTUP_PROBE_SESSION_TIMEOUT_MS
-    );
+    return await withSession(async (sql) => {
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), STARTUP_PROBE_SESSION_TIMEOUT_MS);
+      try {
+        return await fn(sql, ac.signal);
+      } finally {
+        clearTimeout(t);
+      }
+    });
   } catch (err) {
     void maybeRefreshDriverOnSessionError(err);
     throw err;
@@ -282,7 +464,10 @@ export async function isYdbAvailable(
 ): Promise<boolean> {
   const d = getOrCreateDriver();
   try {
-    return await d.ready(timeoutMs);
+    await withTimeoutSignal(timeoutMs, async (signal) => {
+      await d.ready(signal);
+    });
+    return true;
   } catch {
     return false;
   }
@@ -296,9 +481,17 @@ export async function destroyDriver(): Promise<void> {
   if (!driver) {
     return;
   }
-  logger.info("Destroying YDB driver and session pool");
+  logger.info("Destroying YDB driver");
   try {
-    await driver.destroy();
+    if (sqlClient) {
+      try {
+        await sqlClient[Symbol.asyncDispose]();
+      } catch (err) {
+        logger.warn({ err }, "Error during query client disposal (ignored)");
+      }
+      sqlClient = undefined;
+    }
+    driver.close();
   } catch (err) {
     logger.warn({ err }, "Error during driver destruction (ignored)");
   }

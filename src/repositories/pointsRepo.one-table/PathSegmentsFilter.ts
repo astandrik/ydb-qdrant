@@ -1,7 +1,7 @@
-import { TypedValues } from "../../ydb/client.js";
-import type { Ydb } from "ydb-sdk";
+import type { Value } from "@ydbjs/value";
+import { Utf8 } from "@ydbjs/value/primitive";
 
-type QueryParams = { [key: string]: Ydb.ITypedValue };
+type QueryParams = Record<string, Value>;
 
 export function buildPathSegmentsWhereClause(paths: Array<Array<string>>): {
   whereSql: string;
@@ -22,7 +22,7 @@ export function buildPathSegmentsWhereClause(paths: Array<Array<string>>): {
       andParts.push(
         `JSON_VALUE(payload, '$.pathSegments."${sIdx}"') = ${paramName}`
       );
-      params[paramName] = TypedValues.utf8(segs[sIdx]);
+      params[paramName] = new Utf8(segs[sIdx]);
     }
     orGroups.push(`(${andParts.join(" AND ")})`);
   }

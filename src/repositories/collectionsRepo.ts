@@ -1,10 +1,4 @@
-import {
-  TypedValues,
-  withSession,
-  createExecuteQuerySettings,
-  withStartupProbeSession,
-  createExecuteQuerySettingsWithTimeout,
-} from "../ydb/client.js";
+import { withSession, withStartupProbeSession } from "../ydb/client.js";
 import {
   STARTUP_PROBE_SESSION_TIMEOUT_MS,
   LAST_ACCESS_MIN_WRITE_INTERVAL_MS,
@@ -16,7 +10,7 @@ import {
   createCollectionOneTable,
   deleteCollectionOneTable,
 } from "./collectionsRepo.one-table.js";
-import { withRetry, isTransientYdbError } from "../utils/retry.js";
+import { Timestamp, Utf8 } from "@ydbjs/value/primitive";
 
 const lastAccessWriteCache = new Map<string, number>();
 const LAST_ACCESS_CACHE_MAX_SIZE = 10000;
@@ -62,36 +56,28 @@ export async function getCollectionMeta(
     FROM qdr__collections
     WHERE collection = $collection;
   `;
-  const res = await withSession(async (s) => {
-    const settings = createExecuteQuerySettings();
-    return await s.executeQuery(
-      qry,
-      {
-        $collection: TypedValues.utf8(metaKey),
-      },
-      undefined,
-      settings
-    );
-  });
-  const rowset = res.resultSets?.[0];
-  if (!rowset || rowset.rows?.length !== 1) return null;
-  const row = rowset.rows[0] as {
-    items?: Array<
-      | {
-          textValue?: string;
-          uint32Value?: number;
-        }
-      | undefined
-    >;
+  type Row = {
+    table_name: string;
+    vector_dimension: number;
+    distance: string;
+    vector_type: string;
+    last_accessed_at?: string;
   };
-  const table = row.items?.[0]?.textValue as string;
-  const dimension = Number(
-    row.items?.[1]?.uint32Value ?? row.items?.[1]?.textValue
-  );
-  const distance =
-    (row.items?.[2]?.textValue as DistanceKind) ?? ("Cosine" as DistanceKind);
-  const vectorType = (row.items?.[3]?.textValue as VectorType) ?? "float";
-  const lastAccessRaw = row.items?.[4]?.textValue;
+
+  const [rows] = await withSession(async (sql, signal) => {
+    return await sql<[Row]>`${sql.unsafe(qry)}`
+      .idempotent(true)
+      .signal(signal)
+      .parameter("collection", new Utf8(metaKey));
+  });
+
+  if (rows.length !== 1) return null;
+  const row = rows[0];
+  const table = row.table_name;
+  const dimension = Number(row.vector_dimension);
+  const distance = (row.distance as DistanceKind) ?? ("Cosine" as DistanceKind);
+  const vectorType = (row.vector_type as VectorType) ?? "float";
+  const lastAccessRaw = row.last_accessed_at;
   const lastAccessedAt =
     typeof lastAccessRaw === "string" && lastAccessRaw.length > 0
       ? new Date(lastAccessRaw)
@@ -124,31 +110,13 @@ export async function verifyCollectionsQueryCompilationForStartup(): Promise<voi
     FROM qdr__collections
     WHERE collection = $collection;
   `;
-  await withRetry(
-    async () => {
-      await withStartupProbeSession(async (s) => {
-        const settings = createExecuteQuerySettingsWithTimeout({
-          keepInCache: true,
-          idempotent: true,
-          timeoutMs: STARTUP_PROBE_SESSION_TIMEOUT_MS,
-        });
-        await s.executeQuery(
-          qry,
-          {
-            $collection: TypedValues.utf8(probeKey),
-          },
-          undefined,
-          settings
-        );
-      });
-    },
-    {
-      isTransient: isTransientYdbError,
-      maxRetries: 2,
-      baseDelayMs: 200,
-      context: { probe: "collections_startup_compilation" },
-    }
-  );
+  await withStartupProbeSession(async (sql, signal) => {
+    await sql`${sql.unsafe(qry)}`
+      .idempotent(true)
+      .timeout(STARTUP_PROBE_SESSION_TIMEOUT_MS)
+      .signal(signal)
+      .parameter("collection", new Utf8(probeKey));
+  });
 }
 
 export async function deleteCollection(
@@ -197,17 +165,12 @@ export async function touchCollectionLastAccess(
   `;
 
   try {
-    await withSession(async (s) => {
-      const settings = createExecuteQuerySettings();
-      await s.executeQuery(
-        qry,
-        {
-          $collection: TypedValues.utf8(metaKey),
-          $last_accessed: TypedValues.timestamp(now),
-        },
-        undefined,
-        settings
-      );
+    await withSession(async (sql, signal) => {
+      await sql`${sql.unsafe(qry)}`
+        .idempotent(true)
+        .signal(signal)
+        .parameter("collection", new Utf8(metaKey))
+        .parameter("last_accessed", new Timestamp(now));
     });
 
     evictOldestLastAccessEntry();

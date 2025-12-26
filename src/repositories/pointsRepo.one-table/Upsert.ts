@@ -1,17 +1,19 @@
-import {
-  TypedValues,
-  Types,
-  withSession,
-  createExecuteQuerySettingsWithTimeout,
-} from "../../ydb/client.js";
+import { withSession } from "../../ydb/client.js";
 import { buildVectorBinaryParams } from "../../ydb/helpers.js";
-import { withRetry, isTransientYdbError } from "../../utils/retry.js";
 import { UPSERT_BATCH_SIZE } from "../../ydb/schema.js";
 import { UPSERT_OPERATION_TIMEOUT_MS } from "../../config/env.js";
 import { logger } from "../../logging/logger.js";
-import type { Ydb } from "ydb-sdk";
+import { Bytes, JsonDocument, Utf8 } from "@ydbjs/value/primitive";
+import { List } from "@ydbjs/value/list";
+import { Struct } from "@ydbjs/value/struct";
 
-type QueryParams = { [key: string]: Ydb.ITypedValue };
+type UpsertRow = {
+  uid: Utf8;
+  point_id: Utf8;
+  embedding: Bytes;
+  embedding_quantized: Bytes;
+  payload: JsonDocument;
+};
 
 function assertPointVectorsDimension(args: {
   tableName: string;
@@ -55,51 +57,52 @@ function buildUpsertQueryAndParams(args: {
     vector: number[];
     payload?: Record<string, unknown>;
   }>;
-}): { ddl: string; params: QueryParams; debugMode: string } {
-  const ddl = `
-          DECLARE $rows AS List<Struct<
-            uid: Utf8,
-            point_id: Utf8,
-            embedding: String,
-            embedding_quantized: String,
-            payload: JsonDocument
-          >>;
+}): {
+  yql: string;
+  rowsValue: List;
+  debugMode: string;
+} {
+  const yql = `
+    DECLARE $rows AS List<Struct<
+      uid: Utf8,
+      point_id: Utf8,
+      embedding: String,
+      embedding_quantized: String,
+      payload: JsonDocument
+    >>;
 
-          UPSERT INTO ${args.tableName} (uid, point_id, embedding, embedding_quantized, payload)
-          SELECT
-            uid,
-            point_id,
-            embedding,
-            embedding_quantized,
-            payload
-          FROM AS_TABLE($rows);
-        `;
+    UPSERT INTO ${args.tableName} (uid, point_id, embedding, embedding_quantized, payload)
+    SELECT uid, point_id, embedding, embedding_quantized, payload
+    FROM AS_TABLE($rows);
+  `;
 
-  const rowType = Types.struct({
-    uid: Types.UTF8,
-    point_id: Types.UTF8,
-    embedding: Types.BYTES,
-    embedding_quantized: Types.BYTES,
-    payload: Types.JSON_DOCUMENT,
+  const rows: UpsertRow[] = args.batch.map((p) => {
+    const binaries = buildVectorBinaryParams(p.vector);
+    return {
+      uid: new Utf8(args.uid),
+      point_id: new Utf8(String(p.id)),
+      embedding: new Bytes(binaries.float),
+      embedding_quantized: new Bytes(binaries.bit),
+      payload: new JsonDocument(JSON.stringify(p.payload ?? {})),
+    };
   });
 
-  const rowsValue = TypedValues.list(
-    rowType,
-    args.batch.map((p) => {
-      const binaries = buildVectorBinaryParams(p.vector);
-      return {
-        uid: args.uid,
-        point_id: String(p.id),
-        embedding: binaries.float,
-        embedding_quantized: binaries.bit,
-        payload: JSON.stringify(p.payload ?? {}),
-      };
-    })
+  const rowsValue = new List(
+    ...rows.map(
+      (row) =>
+        new Struct({
+          uid: row.uid,
+          point_id: row.point_id,
+          embedding: row.embedding,
+          embedding_quantized: row.embedding_quantized,
+          payload: row.payload,
+        })
+    )
   );
 
   return {
-    ddl,
-    params: { $rows: rowsValue },
+    yql,
+    rowsValue,
     debugMode: "one_table_upsert_client_side_serialization",
   };
 }
@@ -118,16 +121,11 @@ export async function upsertPointsOneTable(
 
   let upserted = 0;
 
-  await withSession(async (s) => {
-    const settings = createExecuteQuerySettingsWithTimeout({
-      keepInCache: true,
-      idempotent: true,
-      timeoutMs: UPSERT_OPERATION_TIMEOUT_MS,
-    });
+  await withSession(async (sql, signal) => {
     for (let i = 0; i < points.length; i += UPSERT_BATCH_SIZE) {
       const batch = points.slice(i, i + UPSERT_BATCH_SIZE);
 
-      const { ddl, params, debugMode } = buildUpsertQueryAndParams({
+      const { yql, rowsValue, debugMode } = buildUpsertQueryAndParams({
         tableName,
         uid,
         batch,
@@ -139,10 +137,10 @@ export async function upsertPointsOneTable(
             tableName,
             mode: debugMode,
             batchSize: batch.length,
-            yql: ddl,
+            yql,
             params: {
+              uid,
               rows: batch.map((p) => ({
-                uid,
                 point_id: String(p.id),
                 vectorLength: p.vector.length,
                 vectorPreview: p.vector.slice(0, 3),
@@ -154,10 +152,11 @@ export async function upsertPointsOneTable(
         );
       }
 
-      await withRetry(() => s.executeQuery(ddl, params, undefined, settings), {
-        isTransient: isTransientYdbError,
-        context: { tableName, batchSize: batch.length },
-      });
+      await sql`${sql.unsafe(yql)}`
+        .parameter("rows", rowsValue)
+        .idempotent(true)
+        .timeout(UPSERT_OPERATION_TIMEOUT_MS)
+        .signal(signal);
       upserted += batch.length;
     }
   });

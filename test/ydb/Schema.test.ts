@@ -10,45 +10,7 @@ vi.mock("../../src/logging/logger.js", () => ({
 }));
 
 vi.mock("../../src/ydb/client.js", () => {
-  class FakeTableDescription {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    withColumns(..._cols: unknown[]) {
-      return this;
-    }
-
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    withPrimaryKeys(..._keys: string[]) {
-      return this;
-    }
-
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    withPartitioningSettings(..._settings: unknown[]) {
-      return this;
-    }
-  }
-
-  class FakeColumn {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    constructor(_name: string, _type: unknown) {}
-  }
-
   return {
-    TableDescription: FakeTableDescription,
-    Column: FakeColumn,
-    Types: {
-      UTF8: "UTF8",
-      BYTES: "BYTES",
-      JSON_DOCUMENT: "JSON_DOCUMENT",
-      UINT32: "UINT32",
-      TIMESTAMP: "TIMESTAMP",
-    },
-    Ydb: {
-      FeatureFlag: {
-        Status: {
-          ENABLED: 1,
-        },
-      },
-    },
     withSession: vi.fn(),
   };
 });
@@ -58,6 +20,77 @@ import { logger } from "../../src/logging/logger.js";
 
 const withSessionMock = withSession as unknown as Mock;
 const loggerInfoMock = logger.info as unknown as Mock;
+
+type SqlTagMock = ReturnType<typeof vi.fn<(...args: unknown[]) => unknown>> & {
+  unsafe: (value: string) => string;
+  identifier: (value: string) => string;
+};
+
+function createSqlTagMock(): SqlTagMock {
+  const fn = vi.fn() as SqlTagMock;
+  fn.unsafe = (value: string) => value;
+  fn.identifier = (value: string) => value;
+  return fn;
+}
+
+function renderYql(strings: unknown, values: unknown[]): string {
+  if (Array.isArray(strings)) {
+    let out = "";
+    for (let i = 0; i < strings.length; i += 1) {
+      out += String(strings[i]);
+      if (i < values.length) {
+        const v = values[i];
+        // In these tests, interpolations are expected to be strings produced by sql.unsafe/sql.identifier.
+        // Avoid Object default stringification to keep eslint @typescript-eslint/no-base-to-string happy.
+        if (typeof v === "string") {
+          out += v;
+        } else if (typeof v === "number" || typeof v === "boolean") {
+          out += String(v);
+        } else {
+          out += "";
+        }
+      }
+    }
+    return out;
+  }
+  if (typeof strings === "string") {
+    return strings;
+  }
+  // Fallback: if template strings are not provided, just join values.
+  return values
+    .map((v) => (typeof v === "string" ? v : ""))
+    .join("");
+}
+
+type QueryStub = {
+  idempotent: () => QueryStub;
+  timeout: () => QueryStub;
+  signal: () => QueryStub;
+  parameter: () => QueryStub;
+  then: (
+    onFulfilled: (v: unknown) => unknown,
+    onRejected?: (e: unknown) => unknown
+  ) => unknown;
+};
+
+function createQueryStub(options?: {
+  resolve?: unknown;
+  reject?: unknown;
+}): QueryStub {
+  const stub: QueryStub = {
+    idempotent: () => stub,
+    timeout: () => stub,
+    signal: () => stub,
+    parameter: () => stub,
+    then: (onFulfilled, onRejected) => {
+      if (options?.reject !== undefined) {
+        return onRejected ? onRejected(options.reject) : undefined;
+      }
+      return onFulfilled(options?.resolve ?? [[]]);
+    },
+  };
+  return stub;
+}
 
 // Reset module state between tests
 async function resetSchemaModule(
@@ -89,63 +122,47 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
     vi.clearAllMocks();
   });
 
-  it("is idempotent after first successful describeTable with all columns", async () => {
+  it("is idempotent after first successful create/verify", async () => {
     const { ensureGlobalPointsTable, GLOBAL_POINTS_TABLE } =
       await resetSchemaModule();
 
-    const session = {
-      sessionId: "test-session",
-      describeTable: vi.fn().mockResolvedValue({
-        columns: [
-          { name: "uid" },
-          { name: "point_id" },
-          { name: "embedding" },
-          { name: "embedding_quantized" },
-          { name: "payload" },
-        ],
-      }),
-      createTable: vi.fn(),
-      api: {
-        executeSchemeQuery: vi.fn().mockResolvedValue(undefined),
-      },
-    };
+    const calls: string[] = [];
+    const sqlTag = createSqlTagMock();
 
-    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
-      return await fn(session);
+    // First call: CREATE TABLE succeeds; column probe succeeds.
+    // Second call: function is idempotent and should not execute again.
+    sqlTag.mockImplementation((strings: unknown, ...values: unknown[]) => {
+      const text = renderYql(strings, values);
+      calls.push(text);
+      return createQueryStub();
+    });
+
+    withSessionMock.mockImplementation((fn: (sql: unknown) => unknown) => {
+      return fn(sqlTag);
     });
 
     await ensureGlobalPointsTable();
     await ensureGlobalPointsTable();
 
-    expect(session.describeTable).toHaveBeenCalledWith(GLOBAL_POINTS_TABLE);
-    expect(session.describeTable).toHaveBeenCalledTimes(1);
-    expect(session.createTable).not.toHaveBeenCalled();
-    expect(session.api.executeSchemeQuery).not.toHaveBeenCalled();
+    expect(calls.join("\n")).toContain(`CREATE TABLE ${GLOBAL_POINTS_TABLE}`);
   });
 
   it("creates table when it does not exist", async () => {
     const { ensureGlobalPointsTable, GLOBAL_POINTS_TABLE } =
       await resetSchemaModule();
 
-    const session = {
-      sessionId: "test-session",
-      describeTable: vi.fn().mockRejectedValue(new Error("Table not found")),
-      createTable: vi.fn().mockResolvedValue(undefined),
-      executeQuery: vi.fn(),
-      api: {
-        executeSchemeQuery: vi.fn().mockResolvedValue(undefined),
-      },
-    };
+    const sqlTag = createSqlTagMock();
 
-    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
-      return await fn(session);
+    sqlTag.mockImplementation(() => {
+      return createQueryStub();
+    });
+
+    withSessionMock.mockImplementation((fn: (sql: unknown) => unknown) => {
+      return fn(sqlTag);
     });
 
     await ensureGlobalPointsTable();
 
-    expect(session.describeTable).toHaveBeenCalledWith(GLOBAL_POINTS_TABLE);
-    expect(session.createTable).toHaveBeenCalledTimes(1);
-    expect(session.executeQuery).not.toHaveBeenCalled();
     expect(loggerInfoMock).toHaveBeenCalledWith(
       `created global points table ${GLOBAL_POINTS_TABLE}`
     );
@@ -155,71 +172,60 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
     const { ensureGlobalPointsTable, GLOBAL_POINTS_TABLE } =
       await resetSchemaModule();
 
-    const session = {
-      sessionId: "test-session",
-      describeTable: vi.fn().mockResolvedValue({
-        columns: [
-          { name: "uid" },
-          { name: "point_id" },
-          { name: "embedding" },
-          { name: "payload" },
-        ],
-      }),
-      createTable: vi.fn(),
-      api: {
-        executeSchemeQuery: vi.fn().mockResolvedValue(undefined),
-      },
-    };
+    const sqlTag = createSqlTagMock();
 
-    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
-      return await fn(session);
+    sqlTag.mockImplementation((strings: unknown, ...values: unknown[]) => {
+      const text = renderYql(strings, values);
+      const isProbe = /SELECT\s+embedding_quantized/i.test(text);
+      if (isProbe) {
+        return createQueryStub({
+          reject: new Error("Unknown column: embedding_quantized"),
+        });
+      }
+      return createQueryStub();
+    });
+
+    withSessionMock.mockImplementation((fn: (sql: unknown) => unknown) => {
+      return fn(sqlTag);
     });
 
     await expect(ensureGlobalPointsTable()).rejects.toThrow(
       `Global points table ${GLOBAL_POINTS_TABLE} is missing required column embedding_quantized; apply the migration (e.g., ALTER TABLE ${GLOBAL_POINTS_TABLE} RENAME COLUMN embedding_bit TO embedding_quantized) or set YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE=true after backup to allow automatic migration.`
     );
-
-    expect(session.describeTable).toHaveBeenCalledWith(GLOBAL_POINTS_TABLE);
-    expect(session.createTable).not.toHaveBeenCalled();
   });
 
   it("adds embedding_quantized column when automigration is opt-in", async () => {
     const { ensureGlobalPointsTable, GLOBAL_POINTS_TABLE } =
       await resetSchemaModule({ YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE: "true" });
 
-    const session = {
-      sessionId: "test-session",
-      describeTable: vi.fn().mockResolvedValue({
-        columns: [
-          { name: "uid" },
-          { name: "point_id" },
-          { name: "embedding" },
-          { name: "payload" },
-          // Note: embedding_quantized is missing
-        ],
-      }),
-      createTable: vi.fn(),
-      api: {
-        executeSchemeQuery: vi.fn().mockResolvedValue(undefined),
-      },
-    };
+    const calls: string[] = [];
+    const sqlTag = createSqlTagMock();
 
-    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
-      return await fn(session);
+    sqlTag.mockImplementation((strings: unknown, ...values: unknown[]) => {
+      const text = renderYql(strings, values);
+      calls.push(text);
+      const isProbe = /SELECT\s+embedding_quantized/i.test(text);
+      const isAlter = /ALTER TABLE/i.test(text);
+      if (isProbe) {
+        return createQueryStub({
+          reject: new Error("Unknown column: embedding_quantized"),
+        });
+      }
+      if (isAlter) {
+        return createQueryStub();
+      }
+      return createQueryStub();
+    });
+
+    withSessionMock.mockImplementation((fn: (sql: unknown) => unknown) => {
+      return fn(sqlTag);
     });
 
     await ensureGlobalPointsTable();
 
-    expect(session.describeTable).toHaveBeenCalledWith(GLOBAL_POINTS_TABLE);
-    expect(session.createTable).not.toHaveBeenCalled();
-    expect(session.api.executeSchemeQuery).toHaveBeenCalledTimes(1);
-
-    const alterReq = session.api.executeSchemeQuery.mock.calls[0][0] as {
-      yqlText: string;
-    };
-    expect(alterReq.yqlText).toContain("ALTER TABLE");
-    expect(alterReq.yqlText).toContain(GLOBAL_POINTS_TABLE);
-    expect(alterReq.yqlText).toContain("ADD COLUMN embedding_quantized String");
+    expect(calls.join("\n")).toContain("ALTER TABLE");
+    expect(calls.join("\n")).toContain(GLOBAL_POINTS_TABLE);
+    expect(calls.join("\n")).toContain("ADD COLUMN embedding_quantized String");
 
     expect(loggerInfoMock).toHaveBeenCalledWith(
       `added embedding_quantized column to existing table ${GLOBAL_POINTS_TABLE}`

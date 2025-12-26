@@ -1,15 +1,39 @@
-import { withSession, TableDescription, Column, Types, Ydb } from "./client.js";
+import { withSession } from "./client.js";
 import { logger } from "../logging/logger.js";
-import { GLOBAL_POINTS_AUTOMIGRATE_ENABLED } from "../config/env.js";
+import {
+  GLOBAL_POINTS_AUTOMIGRATE_ENABLED,
+  STARTUP_PROBE_SESSION_TIMEOUT_MS,
+} from "../config/env.js";
 
 export const GLOBAL_POINTS_TABLE = "qdrant_all_points";
 // Shared YDB-related constants for repositories.
 export { UPSERT_BATCH_SIZE } from "../config/env.js";
 
+const SCHEMA_DDL_TIMEOUT_MS = 5000;
+
 let metaTableReady = false;
 let metaTableReadyInFlight: Promise<void> | null = null;
 
 let globalPointsTableReady = false;
+
+function isAlreadyExistsError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /already exists/i.test(msg) || /path exists/i.test(msg);
+}
+
+function isUnknownColumnError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    /unknown column/i.test(msg) ||
+    /cannot resolve/i.test(msg) ||
+    /member not found/i.test(msg)
+  );
+}
+
+function isMissingTableError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /scheme error/i.test(msg) || /path does not exist/i.test(msg);
+}
 
 function throwMigrationRequired(message: string): never {
   logger.error(message);
@@ -18,63 +42,56 @@ function throwMigrationRequired(message: string): never {
 
 async function ensureMetaTableOnce(): Promise<void> {
   try {
-    await withSession(async (s) => {
-      // If table exists, describeTable will succeed
-      try {
-        const tableDescription = await s.describeTable("qdr__collections");
-        const columns = tableDescription.columns ?? [];
-        const hasLastAccessedAt = columns.some(
-          (col) => col.name === "last_accessed_at"
+    await withSession(async (sql, signal) => {
+      const createTableYql = `
+        CREATE TABLE qdr__collections (
+          collection Utf8,
+          table_name Utf8,
+          vector_dimension Uint32,
+          distance Utf8,
+          vector_type Utf8,
+          created_at Timestamp,
+          last_accessed_at Timestamp,
+          PRIMARY KEY (collection)
         );
+      `;
 
-        if (!hasLastAccessedAt) {
-          const alterDdl = `
-            ALTER TABLE qdr__collections
-            ADD COLUMN last_accessed_at Timestamp;
-          `;
-
-          // NOTE: ydb-sdk's public TableSession type does not surface executeSchemeQuery,
-          // but the underlying implementation provides it. This cast relies on the
-          // current ydb-sdk internals (tested with ydb-sdk v5.11.1) to run ALTER TABLE
-          // as a scheme query. If the SDK changes its internal API, this may need to be
-          // revisited or replaced with an officially supported migration mechanism.
-          const rawSession = s as unknown as {
-            sessionId: string;
-            api: {
-              executeSchemeQuery: (req: {
-                sessionId: string;
-                yqlText: string;
-              }) => Promise<unknown>;
-            };
-          };
-
-          await rawSession.api.executeSchemeQuery({
-            sessionId: rawSession.sessionId,
-            yqlText: alterDdl,
-          });
-
-          logger.info(
-            "added last_accessed_at column to metadata table qdr__collections"
-          );
-        }
-        return;
-      } catch {
-        // create via schema API
-        const desc = new TableDescription()
-          .withColumns(
-            new Column("collection", Types.UTF8),
-            new Column("table_name", Types.UTF8),
-            new Column("vector_dimension", Types.UINT32),
-            new Column("distance", Types.UTF8),
-            new Column("vector_type", Types.UTF8),
-            new Column("created_at", Types.TIMESTAMP),
-            new Column("last_accessed_at", Types.TIMESTAMP)
-          )
-          .withPrimaryKey("collection");
-        await s.createTable("qdr__collections", desc);
+      try {
+        await sql`${sql.unsafe(createTableYql)}`
+          .idempotent(true)
+          .timeout(SCHEMA_DDL_TIMEOUT_MS)
+          .signal(signal);
         logger.info("created metadata table qdr__collections");
+      } catch (err) {
+        if (!isAlreadyExistsError(err)) {
+          throw err;
+        }
+      }
+
+      // Best-effort schema migration: add last_accessed_at if it is missing.
+      try {
+        await sql`SELECT last_accessed_at FROM qdr__collections LIMIT 0;`
+          .idempotent(true)
+          .timeout(STARTUP_PROBE_SESSION_TIMEOUT_MS)
+          .signal(signal);
+      } catch (err) {
+        if (!isUnknownColumnError(err)) {
+          throw err;
+        }
+        const alter = `
+          ALTER TABLE qdr__collections
+          ADD COLUMN last_accessed_at Timestamp;
+        `;
+        await sql`${sql.unsafe(alter)}`
+          .idempotent(true)
+          .timeout(SCHEMA_DDL_TIMEOUT_MS)
+          .signal(signal);
+        logger.info(
+          "added last_accessed_at column to metadata table qdr__collections"
+        );
       }
     });
+
     metaTableReady = true;
   } catch (err: unknown) {
     logger.warn(
@@ -106,79 +123,72 @@ export async function ensureGlobalPointsTable(): Promise<void> {
     return;
   }
 
-  await withSession(async (s) => {
-    let tableDescription: Awaited<ReturnType<typeof s.describeTable>> | null =
-      null;
+  await withSession(async (sql, signal) => {
+    const createTableYql = `
+      CREATE TABLE ${GLOBAL_POINTS_TABLE} (
+        uid Utf8,
+        point_id Utf8,
+        embedding String,
+        embedding_quantized String,
+        payload JsonDocument,
+        PRIMARY KEY (uid, point_id)
+      )
+      WITH (
+        AUTO_PARTITIONING_BY_LOAD = ENABLED,
+        AUTO_PARTITIONING_BY_SIZE = ENABLED,
+        AUTO_PARTITIONING_PARTITION_SIZE_MB = 100
+      );
+    `;
+
     try {
-      tableDescription = await s.describeTable(GLOBAL_POINTS_TABLE);
-    } catch {
-      // Table doesn't exist, create it with all columns using the new schema and
-      // auto-partitioning enabled.
-      const desc = new TableDescription()
-        .withColumns(
-          new Column("uid", Types.UTF8),
-          new Column("point_id", Types.UTF8),
-          new Column("embedding", Types.BYTES),
-          new Column("embedding_quantized", Types.BYTES),
-          new Column("payload", Types.JSON_DOCUMENT)
-        )
-        .withPrimaryKeys("uid", "point_id");
-
-      desc.withPartitioningSettings({
-        partitioningByLoad: Ydb.FeatureFlag.Status.ENABLED,
-        partitioningBySize: Ydb.FeatureFlag.Status.ENABLED,
-        partitionSizeMb: 100,
-      });
-
-      await s.createTable(GLOBAL_POINTS_TABLE, desc);
-      globalPointsTableReady = true;
+      await sql`${sql.unsafe(createTableYql)}`
+        .idempotent(true)
+        .timeout(SCHEMA_DDL_TIMEOUT_MS)
+        .signal(signal);
       logger.info(`created global points table ${GLOBAL_POINTS_TABLE}`);
-      return;
+    } catch (err) {
+      if (!isAlreadyExistsError(err)) {
+        // If the table doesn't exist but CREATE TABLE failed for another reason,
+        // let the error surface; callers depend on the table being present.
+        throw err;
+      }
     }
 
-    // Table exists, require the new embedding_quantized column.
-    const columns = tableDescription.columns ?? [];
-    const hasEmbeddingQuantized = columns.some(
-      (col) => col.name === "embedding_quantized"
-    );
+    // Require the embedding_quantized column.
+    try {
+      await sql`SELECT embedding_quantized FROM ${sql.identifier(
+        GLOBAL_POINTS_TABLE
+      )} LIMIT 0;`
+        .idempotent(true)
+        .timeout(STARTUP_PROBE_SESSION_TIMEOUT_MS)
+        .signal(signal);
+    } catch (err) {
+      if (!isUnknownColumnError(err)) {
+        if (isMissingTableError(err)) {
+          throw err;
+        }
+        throw err;
+      }
 
-    if (!hasEmbeddingQuantized) {
       if (!GLOBAL_POINTS_AUTOMIGRATE_ENABLED) {
         throwMigrationRequired(
           `Global points table ${GLOBAL_POINTS_TABLE} is missing required column embedding_quantized; apply the migration (e.g., ALTER TABLE ${GLOBAL_POINTS_TABLE} RENAME COLUMN embedding_bit TO embedding_quantized) or set YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE=true after backup to allow automatic migration.`
         );
       }
 
-      const alterDdl = `
-          ALTER TABLE ${GLOBAL_POINTS_TABLE}
-          ADD COLUMN embedding_quantized String;
-        `;
-
-      // NOTE: Same rationale as in ensureMetaTable: executeSchemeQuery is not part of
-      // the public TableSession TypeScript surface, so we reach into the underlying
-      // ydb-sdk implementation (verified with ydb-sdk v5.11.1) to apply schema changes.
-      // If future SDK versions alter this shape, this cast and migration path must be
-      // updated accordingly.
-      const rawSession = s as unknown as {
-        sessionId: string;
-        api: {
-          executeSchemeQuery: (req: {
-            sessionId: string;
-            yqlText: string;
-          }) => Promise<unknown>;
-        };
-      };
-
-      await rawSession.api.executeSchemeQuery({
-        sessionId: rawSession.sessionId,
-        yqlText: alterDdl,
-      });
-
+      const alter = `
+        ALTER TABLE ${GLOBAL_POINTS_TABLE}
+        ADD COLUMN embedding_quantized String;
+      `;
+      await sql`${sql.unsafe(alter)}`
+        .idempotent(true)
+        .timeout(SCHEMA_DDL_TIMEOUT_MS)
+        .signal(signal);
       logger.info(
         `added embedding_quantized column to existing table ${GLOBAL_POINTS_TABLE}`
       );
     }
-    // Mark table ready after schema checks/migrations succeed.
+
     globalPointsTableReady = true;
   });
 }

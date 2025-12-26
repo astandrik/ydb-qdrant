@@ -8,30 +8,39 @@ import {
   __resetRefreshStateForTests,
 } from "../../src/ydb/client.js";
 
+vi.mock("@ydbjs/query", () => {
+  return {
+    query: vi.fn(() => sqlClientMock),
+  };
+});
+
 // Mocks for driver methods
-const destroyMock = vi.fn();
+const closeMock = vi.fn();
 const readyMock = vi.fn();
-const withSessionMock = vi.fn();
+
+const sqlClientMock = {
+  do: vi.fn(async (fn: (signal: AbortSignal) => Promise<unknown>) => {
+    return await fn(new AbortController().signal);
+  }),
+  [Symbol.asyncDispose]: vi.fn(async () => {}),
+};
 
 function createMockDriver() {
   return {
-    destroy: destroyMock,
     ready: readyMock,
-    tableClient: {
-      withSession: withSessionMock,
-    },
+    close: closeMock,
   };
 }
 
 describe("ydb/client: destroyDriver, refreshDriver, and session error handling", () => {
   beforeEach(() => {
     // Reset all mocks
-    destroyMock.mockReset();
+    closeMock.mockReset();
     readyMock.mockReset();
-    withSessionMock.mockReset();
+    sqlClientMock.do.mockClear();
 
     // Default ready() to resolve successfully
-    readyMock.mockResolvedValue(true);
+    readyMock.mockResolvedValue(undefined);
 
     // Clear internal state
     __setDriverForTests(undefined);
@@ -51,35 +60,35 @@ describe("ydb/client: destroyDriver, refreshDriver, and session error handling",
       await expect(destroyDriver()).resolves.toBeUndefined();
     });
 
-    it("calls destroy on the current driver and clears it", async () => {
-      destroyMock.mockResolvedValueOnce(undefined);
+    it("calls close on the current driver and clears it", async () => {
       __setDriverForTests(createMockDriver());
 
       await destroyDriver();
-      expect(destroyMock).toHaveBeenCalledTimes(1);
+      expect(closeMock).toHaveBeenCalledTimes(1);
 
-      // second call should see no driver and not call destroy again
-      destroyMock.mockClear();
+      // second call should see no driver and not call close again
+      closeMock.mockClear();
       await destroyDriver();
-      expect(destroyMock).not.toHaveBeenCalled();
+      expect(closeMock).not.toHaveBeenCalled();
     });
 
-    it("swallows errors thrown by driver.destroy()", async () => {
-      destroyMock.mockRejectedValueOnce(new Error("boom"));
+    it("swallows errors thrown by driver.close()", async () => {
+      closeMock.mockImplementationOnce(() => {
+        throw new Error("boom");
+      });
       __setDriverForTests(createMockDriver());
 
       await expect(destroyDriver()).resolves.toBeUndefined();
 
-      // driver should still be cleared even if destroy failed
-      destroyMock.mockClear();
+      // driver should still be cleared even if close failed
+      closeMock.mockClear();
       await destroyDriver();
-      expect(destroyMock).not.toHaveBeenCalled();
+      expect(closeMock).not.toHaveBeenCalled();
     });
   });
 
   describe("refreshDriver", () => {
     it("destroys existing driver and then waits for ready()", async () => {
-      destroyMock.mockResolvedValueOnce(undefined);
       __setDriverForTests(createMockDriver());
 
       // Set up factory to return a new mock driver when getOrCreateDriver is called
@@ -87,11 +96,11 @@ describe("ydb/client: destroyDriver, refreshDriver, and session error handling",
 
       await expect(refreshDriver()).resolves.toBeUndefined();
 
-      // destroy was called once for the existing driver
-      expect(destroyMock).toHaveBeenCalledTimes(1);
+      // close was called once for the existing driver
+      expect(closeMock).toHaveBeenCalledTimes(1);
       // ready() was called once on the new Driver instance created by readyOrThrow
       expect(readyMock).toHaveBeenCalledTimes(1);
-      expect(readyMock).toHaveBeenCalledWith(expect.any(Number));
+      expect(readyMock).toHaveBeenCalledWith(expect.any(Object));
     });
   });
 
@@ -103,8 +112,8 @@ describe("ydb/client: destroyDriver, refreshDriver, and session error handling",
       // Factory returns a fresh mock when refresh creates a new driver
       __setDriverFactoryForTests(() => createMockDriver());
 
-      // Make withSession throw a session-related error
-      withSessionMock.mockImplementationOnce(() => {
+      // Make QueryClient.do throw a session-related error
+      sqlClientMock.do.mockImplementationOnce(() => {
         throw new Error(
           "No session became available within timeout of 15000 ms"
         );
@@ -117,8 +126,9 @@ describe("ydb/client: destroyDriver, refreshDriver, and session error handling",
         })
       ).rejects.toThrow(/No session became available within timeout/);
 
-      // destroy and ready should have been called (refresh triggered)
-      expect(destroyMock).toHaveBeenCalledTimes(1);
+      // refresh is async (fire-and-forget); allow microtasks to run
+      await Promise.resolve();
+      expect(closeMock).toHaveBeenCalledTimes(1);
       expect(readyMock).toHaveBeenCalledTimes(1);
     });
 
@@ -126,7 +136,7 @@ describe("ydb/client: destroyDriver, refreshDriver, and session error handling",
       __setDriverForTests(createMockDriver());
       __setDriverFactoryForTests(() => createMockDriver());
 
-      withSessionMock.mockImplementationOnce(() => {
+      sqlClientMock.do.mockImplementationOnce(() => {
         throw new Error("Some other error");
       });
 
@@ -137,7 +147,8 @@ describe("ydb/client: destroyDriver, refreshDriver, and session error handling",
         })
       ).rejects.toThrow(/Some other error/);
 
-      expect(destroyMock).not.toHaveBeenCalled();
+      await Promise.resolve();
+      expect(closeMock).not.toHaveBeenCalled();
       expect(readyMock).not.toHaveBeenCalled();
     });
 
@@ -146,7 +157,7 @@ describe("ydb/client: destroyDriver, refreshDriver, and session error handling",
       __setDriverFactoryForTests(() => createMockDriver());
 
       // All withSession calls will throw session-related errors
-      withSessionMock.mockImplementation(() => {
+      sqlClientMock.do.mockImplementation(() => {
         throw new Error(
           "No session became available within timeout of 15000 ms"
         );
@@ -169,7 +180,8 @@ describe("ydb/client: destroyDriver, refreshDriver, and session error handling",
       ).rejects.toThrow();
 
       // Only one refresh should have occurred
-      expect(destroyMock).toHaveBeenCalledTimes(1);
+      await Promise.resolve();
+      expect(closeMock).toHaveBeenCalledTimes(1);
       expect(readyMock).toHaveBeenCalledTimes(1);
     });
 
@@ -180,7 +192,7 @@ describe("ydb/client: destroyDriver, refreshDriver, and session error handling",
       // ready() will reject when refresh tries to create new driver
       readyMock.mockRejectedValueOnce(new Error("ready failed"));
 
-      withSessionMock.mockImplementationOnce(() => {
+      sqlClientMock.do.mockImplementationOnce(() => {
         throw new Error(
           "No session became available within timeout of 15000 ms"
         );
@@ -194,7 +206,8 @@ describe("ydb/client: destroyDriver, refreshDriver, and session error handling",
       ).rejects.toThrow(/No session became available within timeout/);
 
       // refresh was attempted (destroy + ready called)
-      expect(destroyMock).toHaveBeenCalledTimes(1);
+      await Promise.resolve();
+      expect(closeMock).toHaveBeenCalledTimes(1);
       expect(readyMock).toHaveBeenCalledTimes(1);
     });
 
@@ -202,7 +215,7 @@ describe("ydb/client: destroyDriver, refreshDriver, and session error handling",
       __setDriverForTests(createMockDriver());
       __setDriverFactoryForTests(() => createMockDriver());
 
-      withSessionMock.mockImplementationOnce(() => {
+      sqlClientMock.do.mockImplementationOnce(() => {
         throw new Error("SESSION_POOL_EMPTY: no sessions available");
       });
 
@@ -213,7 +226,8 @@ describe("ydb/client: destroyDriver, refreshDriver, and session error handling",
         })
       ).rejects.toThrow(/SESSION_POOL_EMPTY/);
 
-      expect(destroyMock).toHaveBeenCalledTimes(1);
+      await Promise.resolve();
+      expect(closeMock).toHaveBeenCalledTimes(1);
       expect(readyMock).toHaveBeenCalledTimes(1);
     });
 
@@ -222,7 +236,7 @@ describe("ydb/client: destroyDriver, refreshDriver, and session error handling",
       __setDriverFactoryForTests(() => createMockDriver());
       __resetRefreshStateForTests(); // reset cooldown
 
-      withSessionMock.mockImplementationOnce(() => {
+      sqlClientMock.do.mockImplementationOnce(() => {
         throw new Error("SessionExpired: session has expired");
       });
 
@@ -233,7 +247,8 @@ describe("ydb/client: destroyDriver, refreshDriver, and session error handling",
         })
       ).rejects.toThrow(/SessionExpired/);
 
-      expect(destroyMock).toHaveBeenCalledTimes(1);
+      await Promise.resolve();
+      expect(closeMock).toHaveBeenCalledTimes(1);
       expect(readyMock).toHaveBeenCalledTimes(1);
     });
   });
