@@ -1,10 +1,8 @@
-import {
-  TypedValues,
-  withSession,
-  createExecuteQuerySettingsWithTimeout,
-} from "../../ydb/client.js";
-import type { Ydb } from "ydb-sdk";
+import { withSession } from "../../ydb/client.js";
 import { buildVectorBinaryParams } from "../../ydb/helpers.js";
+import type { Query } from "@ydbjs/query";
+import type { Value } from "@ydbjs/value";
+import { Bytes, Uint32, Utf8 } from "@ydbjs/value/primitive";
 import type { DistanceKind } from "../../types";
 import {
   mapDistanceToKnnFn,
@@ -14,7 +12,9 @@ import { logger } from "../../logging/logger.js";
 import { SearchMode, SEARCH_OPERATION_TIMEOUT_MS } from "../../config/env.js";
 import { buildPathSegmentsFilter } from "./PathSegmentsFilter.js";
 
-type QueryParams = { [key: string]: Ydb.ITypedValue };
+type QueryParams = Record<string, Value>;
+
+type SearchRow = { point_id: string; score: number; payload?: string };
 
 function assertVectorDimension(
   vector: number[],
@@ -28,47 +28,17 @@ function assertVectorDimension(
   }
 }
 
-function typedBytesOrFallback(value: Buffer): Ydb.ITypedValue {
-  return typeof TypedValues.bytes === "function"
-    ? TypedValues.bytes(value)
-    : (value as unknown as Ydb.ITypedValue);
-}
-
-function parseSearchRows(
-  rows: Array<{
-    items?: Array<
-      | {
-          textValue?: string;
-          floatValue?: number;
-        }
-      | undefined
-    >;
-  }>,
-  withPayload: boolean | undefined
-): Array<{ id: string; score: number; payload?: Record<string, unknown> }> {
-  return rows.map((row) => {
-    const id = row.items?.[0]?.textValue;
-    if (typeof id !== "string") {
-      throw new Error("point_id is missing in YDB search result");
-    }
-    let payload: Record<string, unknown> | undefined;
-    let scoreIdx = 1;
-    if (withPayload) {
-      const payloadText = row.items?.[1]?.textValue;
-      if (payloadText) {
-        try {
-          payload = JSON.parse(payloadText) as Record<string, unknown>;
-        } catch {
-          payload = undefined;
-        }
-      }
-      scoreIdx = 2;
-    }
-    const score = Number(
-      row.items?.[scoreIdx]?.floatValue ?? row.items?.[scoreIdx]?.textValue
-    );
-    return { id, score, ...(payload ? { payload } : {}) };
-  });
+function parsePayloadJson(
+  payloadText: unknown
+): Record<string, unknown> | undefined {
+  if (typeof payloadText !== "string" || payloadText.length === 0) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(payloadText) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
 }
 
 function buildExactSearchQueryAndParams(args: {
@@ -101,9 +71,9 @@ function buildExactSearchQueryAndParams(args: {
 
   const params: QueryParams = {
     ...(filter?.whereParams ?? {}),
-    $qbinf: typedBytesOrFallback(binaries.float),
-    $k: TypedValues.uint32(args.top),
-    $uid: TypedValues.utf8(args.uid),
+    $qbinf: new Bytes(binaries.float),
+    $k: new Uint32(args.top),
+    $uid: new Utf8(args.uid),
   };
 
   return { yql, params, modeLog: "one_table_exact_client_side_serialization" };
@@ -166,11 +136,11 @@ function buildApproxSearchQueryAndParams(args: {
 
   const params: QueryParams = {
     ...(filter?.whereParams ?? {}),
-    $qbin_bit: typedBytesOrFallback(binaries.bit),
-    $qbinf: typedBytesOrFallback(binaries.float),
-    $candidateLimit: TypedValues.uint32(candidateLimit),
-    $safeTop: TypedValues.uint32(safeTop),
-    $uid: TypedValues.utf8(args.uid),
+    $qbin_bit: new Bytes(binaries.bit),
+    $qbinf: new Bytes(binaries.float),
+    $candidateLimit: new Uint32(candidateLimit),
+    $safeTop: new Uint32(safeTop),
+    $uid: new Utf8(args.uid),
   };
 
   return {
@@ -196,7 +166,7 @@ async function searchPointsOneTableExact(
 > {
   assertVectorDimension(queryVector, dimension);
 
-  const results = await withSession(async (s) => {
+  const results = await withSession(async (sql, signal) => {
     const { yql, params, modeLog } = buildExactSearchQueryAndParams({
       tableName,
       queryVector,
@@ -227,24 +197,28 @@ async function searchPointsOneTableExact(
       );
     }
 
-    const settings = createExecuteQuerySettingsWithTimeout({
-      keepInCache: true,
-      idempotent: true,
-      timeoutMs: SEARCH_OPERATION_TIMEOUT_MS,
-    });
-    const rs = await s.executeQuery(yql, params, undefined, settings);
-    const rowset = rs.resultSets?.[0];
-    const rows = (rowset?.rows ?? []) as Array<{
-      items?: Array<
-        | {
-            textValue?: string;
-            floatValue?: number;
-          }
-        | undefined
-      >;
-    }>;
+    type ResultSets = [SearchRow];
+    let q: Query<ResultSets> = sql<ResultSets>`${sql.unsafe(yql)}`
+      .idempotent(true)
+      .timeout(SEARCH_OPERATION_TIMEOUT_MS)
+      .signal(signal);
+    for (const [key, value] of Object.entries(params)) {
+      q = q.parameter(key, value);
+    }
 
-    return parseSearchRows(rows, withPayload);
+    const [rows] = await q;
+
+    return rows.map((r) => {
+      if (!r.point_id) {
+        throw new Error("point_id is missing in YDB search result");
+      }
+      const payload = withPayload ? parsePayloadJson(r.payload) : undefined;
+      return {
+        id: r.point_id,
+        score: Number(r.score),
+        ...(payload ? { payload } : {}),
+      };
+    });
   });
 
   return results;
@@ -265,7 +239,7 @@ async function searchPointsOneTableApproximate(
 > {
   assertVectorDimension(queryVector, dimension);
 
-  const results = await withSession(async (s) => {
+  const results = await withSession(async (sql, signal) => {
     const { yql, params, safeTop, candidateLimit, modeLog } =
       buildApproxSearchQueryAndParams({
         tableName,
@@ -300,24 +274,27 @@ async function searchPointsOneTableApproximate(
       );
     }
 
-    const settings = createExecuteQuerySettingsWithTimeout({
-      keepInCache: true,
-      idempotent: true,
-      timeoutMs: SEARCH_OPERATION_TIMEOUT_MS,
-    });
-    const rs = await s.executeQuery(yql, params, undefined, settings);
-    const rowset = rs.resultSets?.[0];
-    const rows = (rowset?.rows ?? []) as Array<{
-      items?: Array<
-        | {
-            textValue?: string;
-            floatValue?: number;
-          }
-        | undefined
-      >;
-    }>;
+    type ResultSets = [SearchRow];
+    let q: Query<ResultSets> = sql<ResultSets>`${sql.unsafe(yql)}`
+      .idempotent(true)
+      .timeout(SEARCH_OPERATION_TIMEOUT_MS)
+      .signal(signal);
+    for (const [key, value] of Object.entries(params)) {
+      q = q.parameter(key, value);
+    }
 
-    return parseSearchRows(rows, withPayload);
+    const [rows] = await q;
+    return rows.map((r) => {
+      if (!r.point_id) {
+        throw new Error("point_id is missing in YDB search result");
+      }
+      const payload = withPayload ? parsePayloadJson(r.payload) : undefined;
+      return {
+        id: r.point_id,
+        score: Number(r.score),
+        ...(payload ? { payload } : {}),
+      };
+    });
   });
 
   return results;
