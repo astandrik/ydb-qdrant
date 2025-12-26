@@ -2,9 +2,9 @@ import { describe, it, expect, vi, type Mock } from "vitest";
 import { createSqlHarness } from "../helpers/ydbjsQueryMock.js";
 
 vi.mock("@ydbjs/value/primitive", async () => {
-  const actual = await vi.importActual<
-    typeof import("@ydbjs/value/primitive")
-  >("@ydbjs/value/primitive");
+  const actual = await vi.importActual<typeof import("@ydbjs/value/primitive")>(
+    "@ydbjs/value/primitive"
+  );
 
   // We only need to verify that Timestamp is constructed with the provided Date.
   // Use a constructor-friendly spy.
@@ -92,7 +92,7 @@ describe("collectionsRepo/touchCollectionLastAccess (with mocked YDB)", () => {
       customNow
     );
 
-    expect((Timestamp as unknown as Mock)).toHaveBeenCalledWith(customNow);
+    expect(Timestamp as unknown as Mock).toHaveBeenCalledWith(customNow);
   });
 
   it("logs and swallows YDB errors during last_access update", async () => {

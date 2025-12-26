@@ -57,9 +57,7 @@ function renderYql(strings: unknown, values: unknown[]): string {
     return strings;
   }
   // Fallback: if template strings are not provided, just join values.
-  return values
-    .map((v) => (typeof v === "string" ? v : ""))
-    .join("");
+  return values.map((v) => (typeof v === "string" ? v : "")).join("");
 }
 
 type QueryStub = {

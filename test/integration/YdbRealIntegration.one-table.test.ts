@@ -355,9 +355,7 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
           PRIMARY KEY (uid, point_id)
         );
       `;
-      await sql`${sql.unsafe(createLegacy)}`
-        .idempotent(true)
-        .signal(signal);
+      await sql`${sql.unsafe(createLegacy)}`.idempotent(true).signal(signal);
     });
 
     // Step 2: Insert a test row with only embedding (no embedding_quantized)
@@ -408,9 +406,7 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
         ALTER TABLE ${legacyTable}
         ADD COLUMN embedding_quantized String;
       `;
-      await sql`${sql.unsafe(alterDdl)}`
-        .idempotent(true)
-        .signal(signal);
+      await sql`${sql.unsafe(alterDdl)}`.idempotent(true).signal(signal);
     });
 
     // Step 5: Verify the column was added
@@ -426,9 +422,7 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     try {
       await withSession(async (sql, signal) => {
         const dropDdl = `DROP TABLE ${legacyTable};`;
-        await sql`${sql.unsafe(dropDdl)}`
-          .idempotent(true)
-          .signal(signal);
+        await sql`${sql.unsafe(dropDdl)}`.idempotent(true).signal(signal);
       });
     } catch {
       // ignore cleanup failures
