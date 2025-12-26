@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type { Driver, DriverOptions } from "@ydbjs/core";
 import {
   destroyDriver,
   refreshDriver,
@@ -25,11 +26,21 @@ const sqlClientMock = {
   [Symbol.asyncDispose]: vi.fn(async () => {}),
 };
 
-function createMockDriver() {
+function createMockDriver(): Driver {
   return {
     ready: readyMock,
     close: closeMock,
-  };
+  } as unknown as Driver;
+}
+
+function setMockDriverFactory(): void {
+  __setDriverFactoryForTests(
+    (connectionString: string, options?: DriverOptions) => {
+      void connectionString;
+      void options;
+      return createMockDriver();
+    }
+  );
 }
 
 describe("ydb/client: destroyDriver, refreshDriver, and session error handling", () => {
@@ -92,7 +103,7 @@ describe("ydb/client: destroyDriver, refreshDriver, and session error handling",
       __setDriverForTests(createMockDriver());
 
       // Set up factory to return a new mock driver when getOrCreateDriver is called
-      __setDriverFactoryForTests(() => createMockDriver());
+      setMockDriverFactory();
 
       await expect(refreshDriver()).resolves.toBeUndefined();
 
@@ -110,64 +121,58 @@ describe("ydb/client: destroyDriver, refreshDriver, and session error handling",
       __setDriverForTests(createMockDriver());
 
       // Factory returns a fresh mock when refresh creates a new driver
-      __setDriverFactoryForTests(() => createMockDriver());
+      setMockDriverFactory();
 
-      // Make QueryClient.do throw a session-related error
-      sqlClientMock.do.mockImplementationOnce(() => {
-        throw new Error(
-          "No session became available within timeout of 15000 ms"
-        );
-      });
+      const err = new Error(
+        "No session became available within timeout of 15000 ms"
+      );
 
       await expect(
         withSession(async () => {
           await Promise.resolve();
-          return 42;
+          throw err;
         })
       ).rejects.toThrow(/No session became available within timeout/);
 
       // refresh is async (fire-and-forget); allow microtasks to run
       await Promise.resolve();
       expect(closeMock).toHaveBeenCalledTimes(1);
-      expect(readyMock).toHaveBeenCalledTimes(1);
+      // withSession() calls ready() once, refresh calls it again on the new driver
+      expect(readyMock).toHaveBeenCalledTimes(2);
     });
 
     it("does not refresh driver for non-session-related errors", async () => {
       __setDriverForTests(createMockDriver());
-      __setDriverFactoryForTests(() => createMockDriver());
+      setMockDriverFactory();
 
-      sqlClientMock.do.mockImplementationOnce(() => {
-        throw new Error("Some other error");
-      });
+      const err = new Error("Some other error");
 
       await expect(
         withSession(async () => {
           await Promise.resolve();
-          return 7;
+          throw err;
         })
       ).rejects.toThrow(/Some other error/);
 
       await Promise.resolve();
       expect(closeMock).not.toHaveBeenCalled();
-      expect(readyMock).not.toHaveBeenCalled();
+      // Still called once by withSession() itself.
+      expect(readyMock).toHaveBeenCalledTimes(1);
     });
 
     it("refreshes driver only once within cooldown window", async () => {
       __setDriverForTests(createMockDriver());
-      __setDriverFactoryForTests(() => createMockDriver());
+      setMockDriverFactory();
 
-      // All withSession calls will throw session-related errors
-      sqlClientMock.do.mockImplementation(() => {
-        throw new Error(
-          "No session became available within timeout of 15000 ms"
-        );
-      });
+      const err = new Error(
+        "No session became available within timeout of 15000 ms"
+      );
 
       // First call triggers refresh
       await expect(
         withSession(async () => {
           await Promise.resolve();
-          return 1;
+          throw err;
         })
       ).rejects.toThrow();
 
@@ -175,81 +180,79 @@ describe("ydb/client: destroyDriver, refreshDriver, and session error handling",
       await expect(
         withSession(async () => {
           await Promise.resolve();
-          return 2;
+          throw err;
         })
       ).rejects.toThrow();
 
       // Only one refresh should have occurred
       await Promise.resolve();
       expect(closeMock).toHaveBeenCalledTimes(1);
-      expect(readyMock).toHaveBeenCalledTimes(1);
+      // 2x from withSession calls + 1x from refresh
+      expect(readyMock).toHaveBeenCalledTimes(3);
     });
 
     it("continues to rethrow original error even if refreshDriver fails", async () => {
       __setDriverForTests(createMockDriver());
-      __setDriverFactoryForTests(() => createMockDriver());
+      setMockDriverFactory();
 
-      // ready() will reject when refresh tries to create new driver
+      // withSession calls ready() before running the callback; refresh calls ready() again.
+      // Make the first ready() succeed and the second (refresh) fail.
+      readyMock.mockReset();
+      readyMock.mockResolvedValueOnce(undefined);
       readyMock.mockRejectedValueOnce(new Error("ready failed"));
 
-      sqlClientMock.do.mockImplementationOnce(() => {
-        throw new Error(
-          "No session became available within timeout of 15000 ms"
-        );
-      });
+      const err = new Error(
+        "No session became available within timeout of 15000 ms"
+      );
 
       await expect(
         withSession(async () => {
           await Promise.resolve();
-          return 3;
+          throw err;
         })
       ).rejects.toThrow(/No session became available within timeout/);
 
       // refresh was attempted (destroy + ready called)
       await Promise.resolve();
       expect(closeMock).toHaveBeenCalledTimes(1);
-      expect(readyMock).toHaveBeenCalledTimes(1);
+      expect(readyMock).toHaveBeenCalledTimes(2);
     });
 
     it("triggers refresh for SESSION_POOL_EMPTY error", async () => {
       __setDriverForTests(createMockDriver());
-      __setDriverFactoryForTests(() => createMockDriver());
+      setMockDriverFactory();
 
-      sqlClientMock.do.mockImplementationOnce(() => {
-        throw new Error("SESSION_POOL_EMPTY: no sessions available");
-      });
+      const err = new Error("SESSION_POOL_EMPTY: no sessions available");
 
       await expect(
         withSession(async () => {
           await Promise.resolve();
-          return 99;
+          throw err;
         })
       ).rejects.toThrow(/SESSION_POOL_EMPTY/);
 
       await Promise.resolve();
       expect(closeMock).toHaveBeenCalledTimes(1);
-      expect(readyMock).toHaveBeenCalledTimes(1);
+      expect(readyMock).toHaveBeenCalledTimes(2);
     });
 
     it("triggers refresh for SessionExpired error", async () => {
       __setDriverForTests(createMockDriver());
-      __setDriverFactoryForTests(() => createMockDriver());
+      setMockDriverFactory();
       __resetRefreshStateForTests(); // reset cooldown
 
-      sqlClientMock.do.mockImplementationOnce(() => {
-        throw new Error("SessionExpired: session has expired");
-      });
+      const err = new Error("SessionExpired: session has expired");
 
       await expect(
         withSession(async () => {
           await Promise.resolve();
-          return 100;
+          throw err;
         })
       ).rejects.toThrow(/SessionExpired/);
 
       await Promise.resolve();
       expect(closeMock).toHaveBeenCalledTimes(1);
-      expect(readyMock).toHaveBeenCalledTimes(1);
+      expect(readyMock).toHaveBeenCalledTimes(2);
     });
   });
 });

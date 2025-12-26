@@ -432,11 +432,18 @@ export async function withSession<T>(
   fn: (sql: QueryClient, signal: AbortSignal) => Promise<T>
 ): Promise<T> {
   const sql = getOrCreateQueryClient();
+  const d = getOrCreateDriver();
+  const ac = new AbortController();
   try {
-    return await sql.do(async (signal) => await fn(sql, signal));
+    // @ydbjs/query QueryClient.do() is not implemented in the currently published builds.
+    // Queries already manage sessions internally; we just provide a shared AbortSignal.
+    await d.ready(ac.signal);
+    return await fn(sql, ac.signal);
   } catch (err) {
     void maybeRefreshDriverOnSessionError(err);
     throw err;
+  } finally {
+    ac.abort();
   }
 }
 

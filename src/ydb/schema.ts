@@ -16,9 +16,50 @@ let metaTableReadyInFlight: Promise<void> | null = null;
 
 let globalPointsTableReady = false;
 
+function collectIssueMessages(err: unknown): string[] {
+  const out: string[] = [];
+  const seen = new Set<unknown>();
+
+  const walk = (v: unknown): void => {
+    if (v === null || typeof v !== "object") {
+      return;
+    }
+    if (seen.has(v)) {
+      return;
+    }
+    seen.add(v);
+
+    const maybeMessage = (v as { message?: unknown }).message;
+    if (typeof maybeMessage === "string" && maybeMessage.length > 0) {
+      out.push(maybeMessage);
+    }
+
+    const maybeIssues = (v as { issues?: unknown }).issues;
+    if (Array.isArray(maybeIssues)) {
+      for (const child of maybeIssues) {
+        walk(child);
+      }
+    }
+  };
+
+  walk(err);
+  return out;
+}
+
 function isAlreadyExistsError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
-  return /already exists/i.test(msg) || /path exists/i.test(msg);
+  if (/already exists/i.test(msg) || /path exists/i.test(msg)) {
+    return true;
+  }
+
+  // YDBError often carries the useful text in nested `issues`, while `message`
+  // is a generic wrapper like "Type annotation".
+  const issueMsgs = collectIssueMessages(err).join("\n");
+  return (
+    /already exists/i.test(issueMsgs) ||
+    /path exists/i.test(issueMsgs) ||
+    /table name conflict/i.test(issueMsgs)
+  );
 }
 
 function isUnknownColumnError(err: unknown): boolean {
