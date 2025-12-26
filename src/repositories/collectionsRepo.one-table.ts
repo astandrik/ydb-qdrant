@@ -2,7 +2,10 @@ import { withSession } from "../ydb/client.js";
 import type { DistanceKind, VectorType } from "../types";
 import { GLOBAL_POINTS_TABLE, ensureGlobalPointsTable } from "../ydb/schema.js";
 import { upsertCollectionMeta } from "./collectionsRepo.shared.js";
-import { USE_BATCH_DELETE_FOR_COLLECTIONS } from "../config/env.js";
+import {
+  UPSERT_OPERATION_TIMEOUT_MS,
+  USE_BATCH_DELETE_FOR_COLLECTIONS,
+} from "../config/env.js";
 import type { QueryClient, Query } from "@ydbjs/query";
 import { List } from "@ydbjs/value/list";
 import { Uint32, Utf8 } from "@ydbjs/value/primitive";
@@ -59,6 +62,7 @@ async function deletePointsForUidInChunks(
     type ResultSets = [SelectRow];
     const q: Query<ResultSets> = sql<ResultSets>`${sql.unsafe(selectYql)}`
       .idempotent(true)
+      .timeout(UPSERT_OPERATION_TIMEOUT_MS)
       .signal(signal)
       .parameter("uid", new Utf8(uid))
       .parameter("limit", new Uint32(DELETE_COLLECTION_BATCH_SIZE));
@@ -76,6 +80,7 @@ async function deletePointsForUidInChunks(
 
     await sql`${sql.unsafe(deleteBatchYql)}`
       .idempotent(true)
+      .timeout(UPSERT_OPERATION_TIMEOUT_MS)
       .signal(signal)
       .parameter("uid", new Utf8(uid))
       .parameter("ids", idsValue);
@@ -113,6 +118,7 @@ export async function deleteCollectionOneTable(
       try {
         await sql`${sql.unsafe(batchDeletePointsYql)}`
           .idempotent(true)
+          .timeout(UPSERT_OPERATION_TIMEOUT_MS)
           .signal(signal)
           .parameter("uid", new Utf8(uid));
       } catch (err: unknown) {
@@ -136,6 +142,7 @@ export async function deleteCollectionOneTable(
       try {
         await sql`${sql.unsafe(deletePointsYql)}`
           .idempotent(true)
+          .timeout(UPSERT_OPERATION_TIMEOUT_MS)
           .signal(signal)
           .parameter("uid", new Utf8(uid));
       } catch (err: unknown) {
@@ -155,6 +162,7 @@ export async function deleteCollectionOneTable(
   await withSession(async (sql, signal) => {
     await sql`${sql.unsafe(delMeta)}`
       .idempotent(true)
+      .timeout(UPSERT_OPERATION_TIMEOUT_MS)
       .signal(signal)
       .parameter("collection", new Utf8(metaKey));
   });

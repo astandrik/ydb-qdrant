@@ -4,6 +4,7 @@ import type { Query } from "@ydbjs/query";
 import type { Value } from "@ydbjs/value";
 import { Uint32, Utf8 } from "@ydbjs/value/primitive";
 import { withRetry, isTransientYdbError } from "../../utils/retry.js";
+import { UPSERT_OPERATION_TIMEOUT_MS } from "../../config/env.js";
 
 const DELETE_FILTER_SELECT_BATCH_SIZE = 1000;
 
@@ -27,6 +28,7 @@ export async function deletePointsOneTable(
             .parameter("uid", new Utf8(uid))
             .parameter("id", new Utf8(String(id)))
             .idempotent(true)
+            .timeout(UPSERT_OPERATION_TIMEOUT_MS)
             .signal(signal);
         },
         {
@@ -106,6 +108,7 @@ export async function deletePointsByPathSegmentsOneTable(
             deleteBatchYql
           )}`
             .idempotent(true)
+            .timeout(UPSERT_OPERATION_TIMEOUT_MS)
             .signal(signal)
             .parameter("uid", new Utf8(uid))
             .parameter("limit", new Uint32(DELETE_FILTER_SELECT_BATCH_SIZE));

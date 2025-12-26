@@ -64,11 +64,14 @@ function isAlreadyExistsError(err: unknown): boolean {
 
 function isUnknownColumnError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
-  return (
-    /unknown column/i.test(msg) ||
-    /cannot resolve/i.test(msg) ||
-    /member not found/i.test(msg)
-  );
+  const re = /unknown column|cannot resolve|member not found/i;
+  if (re.test(msg)) {
+    return true;
+  }
+
+  // YDBError may carry the real message in nested `issues`.
+  const issueMsgs = collectIssueMessages(err).join("\n");
+  return re.test(issueMsgs);
 }
 
 function throwMigrationRequired(message: string): never {
