@@ -442,27 +442,26 @@ export async function withSession<T>(
   } catch (err) {
     void maybeRefreshDriverOnSessionError(err);
     throw err;
-  } finally {
-    ac.abort();
   }
 }
 
 export async function withStartupProbeSession<T>(
   fn: (sql: QueryClient, signal: AbortSignal) => Promise<T>
 ): Promise<T> {
+  const sql = getOrCreateQueryClient();
+  const d = getOrCreateDriver();
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), STARTUP_PROBE_SESSION_TIMEOUT_MS);
+
   try {
-    return await withSession(async (sql) => {
-      const ac = new AbortController();
-      const t = setTimeout(() => ac.abort(), STARTUP_PROBE_SESSION_TIMEOUT_MS);
-      try {
-        return await fn(sql, ac.signal);
-      } finally {
-        clearTimeout(t);
-      }
-    });
+    // Ensure the startup probe timeout also applies to driver readiness.
+    await d.ready(ac.signal);
+    return await fn(sql, ac.signal);
   } catch (err) {
     void maybeRefreshDriverOnSessionError(err);
     throw err;
+  } finally {
+    clearTimeout(t);
   }
 }
 

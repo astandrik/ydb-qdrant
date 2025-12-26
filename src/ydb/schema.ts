@@ -71,11 +71,6 @@ function isUnknownColumnError(err: unknown): boolean {
   );
 }
 
-function isMissingTableError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
-  return /scheme error/i.test(msg) || /path does not exist/i.test(msg);
-}
-
 function throwMigrationRequired(message: string): never {
   logger.error(message);
   throw new Error(message);
@@ -189,9 +184,24 @@ export async function ensureGlobalPointsTable(): Promise<void> {
       logger.info(`created global points table ${GLOBAL_POINTS_TABLE}`);
     } catch (err) {
       if (!isAlreadyExistsError(err)) {
-        // If the table doesn't exist but CREATE TABLE failed for another reason,
-        // let the error surface; callers depend on the table being present.
-        throw err;
+        // YDB may return non-"already exists" errors for concurrent CREATE TABLE attempts
+        // or name resolution conflicts. Probe existence before failing startup.
+        try {
+          await sql`SELECT uid FROM ${sql.identifier(
+            GLOBAL_POINTS_TABLE
+          )} LIMIT 0;`
+            .idempotent(true)
+            .timeout(STARTUP_PROBE_SESSION_TIMEOUT_MS)
+            .signal(signal);
+          logger.warn(
+            { err },
+            `CREATE TABLE ${GLOBAL_POINTS_TABLE} failed, but the table appears to exist; continuing`
+          );
+        } catch {
+          // If the table doesn't exist but CREATE TABLE failed for another reason,
+          // let the error surface; callers depend on the table being present.
+          throw err;
+        }
       }
     }
 
@@ -205,9 +215,6 @@ export async function ensureGlobalPointsTable(): Promise<void> {
         .signal(signal);
     } catch (err) {
       if (!isUnknownColumnError(err)) {
-        if (isMissingTableError(err)) {
-          throw err;
-        }
         throw err;
       }
 
