@@ -2,8 +2,7 @@ import { beforeAll, describe, it, expect } from "vitest";
 import { createYdbQdrantClient } from "../../src/package/api.js";
 import { GLOBAL_POINTS_TABLE } from "../../src/ydb/schema.js";
 import { withSession } from "../../src/ydb/client.js";
-import { Float, JsonDocument, Utf8 } from "@ydbjs/value/primitive";
-import { List } from "@ydbjs/value/list";
+import { Utf8 } from "@ydbjs/value/primitive";
 import {
   RECALL_DIM,
   RECALL_K,
@@ -338,94 +337,6 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     }
   });
 
-  it("migrates existing table by adding embedding_quantized column for legacy layouts", async () => {
-    // This test simulates the migration scenario for existing deployments
-    // We create a legacy table without embedding_quantized, insert data, then run migration
-
-    const legacyTable = `qdrant_migration_test_${Date.now()}`;
-
-    // Step 1: Create a legacy table without embedding_quantized column
-    await withSession(async (sql, signal) => {
-      const createLegacy = `
-        CREATE TABLE ${legacyTable} (
-          uid Utf8,
-          point_id Utf8,
-          embedding String,
-          payload JsonDocument,
-          PRIMARY KEY (uid, point_id)
-        );
-      `;
-      await sql`${sql.unsafe(createLegacy)}`.idempotent(true).signal(signal);
-    });
-
-    // Step 2: Insert a test row with only embedding (no embedding_quantized)
-    const testUid = "migration_test_uid";
-    const testVector = [1.0, 0.0, 0.0, 0.0];
-    await withSession(async (sql, signal) => {
-      const insertQuery = `
-        DECLARE $uid AS Utf8;
-        DECLARE $point_id AS Utf8;
-        DECLARE $vec AS List<Float>;
-        DECLARE $payload AS JsonDocument;
-        UPSERT INTO ${legacyTable} (uid, point_id, embedding, payload)
-        VALUES (
-          $uid,
-          $point_id,
-          Untag(Knn::ToBinaryStringFloat($vec), "FloatVector"),
-          $payload
-        );
-      `;
-      const vecValue = new List(...testVector.map((x) => new Float(x)));
-      await sql`${sql.unsafe(insertQuery)}`
-        .idempotent(true)
-        .signal(signal)
-        .parameter("uid", new Utf8(testUid))
-        .parameter("point_id", new Utf8("legacy_point"))
-        .parameter("vec", vecValue)
-        .parameter("payload", new JsonDocument("{}"));
-    });
-
-    // Step 3: Verify the table has no embedding_quantized column initially
-    let hasQuantizedBefore = true;
-    try {
-      await withSession(async (sql, signal) => {
-        await sql`SELECT embedding_quantized FROM ${sql.identifier(
-          legacyTable
-        )} LIMIT 0;`
-          .idempotent(true)
-          .signal(signal);
-      });
-    } catch {
-      hasQuantizedBefore = false;
-    }
-    expect(hasQuantizedBefore).toBe(false);
-
-    // Step 4: Run migration (ALTER TABLE via schema API to add embedding_quantized)
-    await withSession(async (sql, signal) => {
-      const alterDdl = `
-        ALTER TABLE ${legacyTable}
-        ADD COLUMN embedding_quantized String;
-      `;
-      await sql`${sql.unsafe(alterDdl)}`.idempotent(true).signal(signal);
-    });
-
-    // Step 5: Verify the column was added
-    await withSession(async (sql, signal) => {
-      await sql`SELECT embedding_quantized FROM ${sql.identifier(
-        legacyTable
-      )} LIMIT 0;`
-        .idempotent(true)
-        .signal(signal);
-    });
-
-    // Cleanup: drop the test table
-    try {
-      await withSession(async (sql, signal) => {
-        const dropDdl = `DROP TABLE ${legacyTable};`;
-        await sql`${sql.unsafe(dropDdl)}`.idempotent(true).signal(signal);
-      });
-    } catch {
-      // ignore cleanup failures
-    }
-  });
+  // No schema auto-migration is performed by the service. If an existing deployment has
+  // older tables, operators must apply manual migrations or recreate tables.
 });

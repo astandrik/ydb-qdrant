@@ -106,7 +106,20 @@ async function ensureMetaTableOnce(): Promise<void> {
       logger.info("created metadata table qdr__collections");
     } catch (err) {
       if (!isAlreadyExistsError(err)) {
-        throw err;
+        // YDB may return non-"already exists" errors for concurrent CREATE TABLE attempts
+        // or name resolution conflicts. Probe existence before failing startup.
+        try {
+          await sql`SELECT collection FROM qdr__collections LIMIT 0;`
+            .idempotent(true)
+            .timeout(STARTUP_PROBE_SESSION_TIMEOUT_MS)
+            .signal(signal);
+          logger.warn(
+            { err },
+            "CREATE TABLE qdr__collections failed, but the table appears to exist; continuing"
+          );
+        } catch {
+          throw err;
+        }
       }
     }
 

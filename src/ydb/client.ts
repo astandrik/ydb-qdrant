@@ -21,6 +21,9 @@ import { SessionPool, type PooledQuerySession } from "./SessionPool.js";
 const DRIVER_READY_TIMEOUT_MS = 15000;
 const YDB_HEALTHCHECK_READY_TIMEOUT_MS = 5000;
 const DRIVER_REFRESH_COOLDOWN_MS = 30000;
+// Bound `withSession()` so `d.ready()` / session acquire can't hang forever under YDB stalls.
+// Matches historical table client session timeout behavior (~20s).
+const WITH_SESSION_TIMEOUT_MS = 20000;
 
 type DriverConfig = {
   endpoint?: string;
@@ -497,48 +500,52 @@ export async function withSession<T>(
   const sql = getOrCreateQueryClient();
   const d = getOrCreateDriver();
   const pool = getOrCreateSessionPool();
-  const ac = new AbortController();
   try {
-    // @ydbjs/query QueryClient.do() is not implemented in the currently published builds.
-    // Queries already manage sessions internally; we just provide a shared AbortSignal.
-    await d.ready(ac.signal);
-    // Ensure we have a few sessions ready to reduce cold-start session churn.
-    void pool.warmup(ac.signal);
+    return await withTimeoutSignal(WITH_SESSION_TIMEOUT_MS, async (signal) => {
+      // @ydbjs/query QueryClient.do() is not implemented in the currently published builds.
+      // Cancellation is cooperative: we provide the same AbortSignal to `fn()` and to the
+      // @ydbjs/query async-local context so query operations can observe it via `.signal(...)`.
+      await d.ready(signal);
 
-    const ctxMod = await getQueryCtx();
-    let leased: PooledQuerySession | null = null;
+      // Ensure we have a few sessions ready to reduce cold-start session churn.
+      // Best-effort: ignore failures/timeouts.
+      void Promise.resolve(pool.warmup(signal)).catch(() => undefined);
 
-    const MAX_ATTEMPTS = 3;
-    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-      leased = await pool.acquire(ac.signal);
-      try {
-        const store = {
-          nodeId: leased.nodeId,
-          sessionId: leased.sessionId,
-          signal: ac.signal,
-        };
-        const result = await ctxMod.ctx.run(store, async () => {
-          return await fn(sql, ac.signal);
-        });
-        pool.release(leased);
-        return result;
-      } catch (err) {
-        const shouldRetryWithFreshSession =
-          err instanceof Error &&
-          /BAD_SESSION|SESSION_EXPIRED|SessionExpired|No session became available/i.test(
-            err.message ?? ""
-          );
-        if (!shouldRetryWithFreshSession || attempt === MAX_ATTEMPTS - 1) {
+      const ctxMod = await getQueryCtx();
+      let leased: PooledQuerySession | null = null;
+
+      const MAX_ATTEMPTS = 3;
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+        leased = await pool.acquire(signal);
+        try {
+          const store = {
+            nodeId: leased.nodeId,
+            sessionId: leased.sessionId,
+            signal,
+          };
+          const result = await ctxMod.ctx.run(store, async () => {
+            return await fn(sql, signal);
+          });
           pool.release(leased);
-          throw err;
+          return result;
+        } catch (err) {
+          const shouldRetryWithFreshSession =
+            err instanceof Error &&
+            /BAD_SESSION|SESSION_EXPIRED|SessionExpired|No session became available/i.test(
+              err.message ?? ""
+            );
+          if (!shouldRetryWithFreshSession || attempt === MAX_ATTEMPTS - 1) {
+            pool.release(leased);
+            throw err;
+          }
+          await pool.discard(leased);
+          leased = null;
         }
-        await pool.discard(leased);
-        leased = null;
       }
-    }
-    throw new Error(
-      "withSession: exhausted attempts to acquire a healthy session"
-    );
+      throw new Error(
+        "withSession: exhausted attempts to acquire a healthy session"
+      );
+    });
   } catch (err) {
     void maybeRefreshDriverOnSessionError(err);
     throw err;
