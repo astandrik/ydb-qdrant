@@ -372,18 +372,33 @@ function getOrCreateDriver(): Driver {
     return driver;
   }
 
-  const connectionString =
-    overrideConfig?.connectionString ??
-    buildConnectionString({
-      endpoint: overrideConfig?.endpoint ?? YDB_ENDPOINT,
-      database: overrideConfig?.database ?? YDB_DATABASE,
-    });
+  const endpoint = overrideConfig?.endpoint ?? YDB_ENDPOINT;
+  const database = overrideConfig?.database ?? YDB_DATABASE;
 
-  const credentialsProvider =
-    overrideConfig?.credentialsProvider ?? resolveCredentialsProviderFromEnv();
+  let connectionString: string;
+  if (overrideConfig?.connectionString) {
+    connectionString = overrideConfig.connectionString;
+  } else if (driverFactoryOverride) {
+    // Tests may inject a driver factory without setting env vars.
+    // If endpoint/database are available, still build a real connection string.
+    const hasEndpoint = endpoint.trim().length > 0;
+    const hasDatabase = database.trim().length > 0;
+    connectionString =
+      hasEndpoint && hasDatabase
+        ? buildConnectionString({ endpoint, database })
+        : "";
+  } else {
+    connectionString = buildConnectionString({ endpoint, database });
+  }
+
+  const credentialsProvider = overrideConfig?.credentialsProvider
+    ? overrideConfig.credentialsProvider
+    : driverFactoryOverride
+    ? undefined
+    : resolveCredentialsProviderFromEnv();
 
   const driverOptions: DriverOptions = {
-    credentialsProvider,
+    ...(credentialsProvider ? { credentialsProvider } : {}),
     "ydb.sdk.ready_timeout_ms": DRIVER_READY_TIMEOUT_MS,
   };
 
