@@ -68,6 +68,11 @@ async function getQueryCtx(): Promise<QueryCtxModule> {
 const IAM_TOKEN_URL = "https://iam.api.cloud.yandex.net/iam/v1/tokens";
 const SA_JWT_MAX_AGE_SECONDS = 3600;
 const SA_TOKEN_REFRESH_SKEW_MS = 60_000;
+// Yandex Cloud IAM tokens: lifetime does not exceed 12 hours, but the docs recommend
+// requesting a token more often (e.g., every hour). We refresh a bit earlier as a
+// best-effort fallback when the API response doesn't include expiresAt.
+// Source: https://cloud.yandex.com/en/docs/iam/operations/iam-token/create-for-sa
+const SA_TOKEN_REFRESH_FALLBACK_MS = 55 * 60_000;
 
 function parseTruthyEnv(value: string | undefined): boolean {
   if (value === undefined) return false;
@@ -219,7 +224,7 @@ class ServiceAccountKeyFileCredentialsProvider extends CredentialsProvider {
         }
       } else {
         // If the API doesn't provide expiresAt, refresh hourly (best-effort).
-        if (nowMs - cachedAtMs < 55 * 60_000) {
+        if (nowMs - cachedAtMs < SA_TOKEN_REFRESH_FALLBACK_MS) {
           return token;
         }
       }

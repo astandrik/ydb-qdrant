@@ -85,12 +85,12 @@ note top of ydb_schema
     * collection (PK)
     * table_name, vector_dimension
     * distance, vector_type, created_at, last_accessed_at
-  - Auto-migrate: add last_accessed_at column if missing
+  - Fail fast if required columns are missing (manual migration required)
   
   **ensureGlobalPointsTable():**
   - Check if qdrant_all_points exists
   - If not: create with auto-partitioning (100MB)
-  - Auto-migrate embedding_quantized if missing (requires YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE)
+  - Fail fast if required columns are missing (manual migration required)
 end note
 
 @enduml

@@ -41,16 +41,14 @@ describe("ydb/SessionPool", () => {
     const { SessionPool } = await import("../../src/ydb/SessionPool.js");
 
     let seq = 0;
-    const createSessionMock = vi.fn(
-      (): Promise<CreateSessionResponse> => {
-        seq += 1;
-        return Promise.resolve({
-          status: StatusIds_StatusCode.SUCCESS,
-          nodeId: 1n,
-          sessionId: `s${seq}`,
-        });
-      }
-    );
+    const createSessionMock = vi.fn((): Promise<CreateSessionResponse> => {
+      seq += 1;
+      return Promise.resolve({
+        status: StatusIds_StatusCode.SUCCESS,
+        nodeId: 1n,
+        sessionId: `s${seq}`,
+      });
+    });
     const attachSessionMock = vi.fn(() => okAttachIterable());
     const deleteSessionMock = vi.fn(() => Promise.resolve());
 
@@ -81,16 +79,14 @@ describe("ydb/SessionPool", () => {
     const { SessionPool } = await import("../../src/ydb/SessionPool.js");
 
     let seq = 0;
-    const createSessionMock = vi.fn(
-      (): Promise<CreateSessionResponse> => {
-        seq += 1;
-        return Promise.resolve({
-          status: StatusIds_StatusCode.SUCCESS,
-          nodeId: 1n,
-          sessionId: `s${seq}`,
-        });
-      }
-    );
+    const createSessionMock = vi.fn((): Promise<CreateSessionResponse> => {
+      seq += 1;
+      return Promise.resolve({
+        status: StatusIds_StatusCode.SUCCESS,
+        nodeId: 1n,
+        sessionId: `s${seq}`,
+      });
+    });
     const attachSessionMock = vi.fn(() => okAttachIterable());
     const deleteSessionMock = vi.fn(() => Promise.resolve());
 
@@ -109,6 +105,51 @@ describe("ydb/SessionPool", () => {
 
     const s2 = await pool.acquire(new AbortController().signal);
     expect(s2.sessionId).not.toBe(s1.sessionId);
+    expect(deleteSessionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects pending acquire() waiters on close()", async () => {
+    process.env.YDB_SESSION_POOL_MIN_SIZE = "0";
+    process.env.YDB_SESSION_POOL_MAX_SIZE = "1";
+    process.env.YDB_SESSION_KEEPALIVE_PERIOD_MS = "60000";
+
+    const { SessionPool } = await import("../../src/ydb/SessionPool.js");
+
+    let seq = 0;
+    const createSessionMock = vi.fn((): Promise<CreateSessionResponse> => {
+      seq += 1;
+      return Promise.resolve({
+        status: StatusIds_StatusCode.SUCCESS,
+        nodeId: 1n,
+        sessionId: `s${seq}`,
+      });
+    });
+    const attachSessionMock = vi.fn(() => okAttachIterable());
+    const deleteSessionMock = vi.fn(() => Promise.resolve());
+
+    const driver = {
+      ready: vi.fn(async () => {}),
+      createClient: vi.fn(() => ({
+        createSession: createSessionMock,
+        attachSession: attachSessionMock,
+        deleteSession: deleteSessionMock,
+      })),
+    };
+
+    const pool = new SessionPool(driver as never);
+
+    // Exhaust pool capacity by acquiring and holding the only session.
+    const s1 = await pool.acquire(new AbortController().signal);
+
+    // Start a second acquire which will wait.
+    const pending = pool.acquire(new AbortController().signal);
+
+    // Closing the pool should reject the pending acquire instead of hanging.
+    await pool.close();
+    await expect(pending).rejects.toThrow(/SessionPool is closed/i);
+
+    // Cleanup: releasing after close should delete session best-effort.
+    pool.release(s1);
     expect(deleteSessionMock).toHaveBeenCalledTimes(1);
   });
 });

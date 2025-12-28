@@ -50,7 +50,11 @@ function nowMs(): number {
 export class SessionPool {
   private readonly available: InternalSession[] = [];
   private readonly inUse = new Set<string>();
-  private readonly waiters: Array<(s: InternalSession) => void> = [];
+  private readonly waiters: Array<{
+    fulfill: (s: InternalSession) => void;
+    reject: (err: Error) => void;
+    cleanup: () => void;
+  }> = [];
 
   private keepaliveTimer: NodeJS.Timeout | null = null;
   private isClosed = false;
@@ -73,9 +77,7 @@ export class SessionPool {
       this.keepaliveTimer = null;
     }
     for (const w of this.waiters.splice(0)) {
-      // Unblock waiters with a fresh session if possible; otherwise they will fail on use.
-      // Best-effort: ignore.
-      void w as unknown;
+      w.reject(new Error("SessionPool is closed"));
     }
     const toDelete = this.available.splice(0);
     for (const s of toDelete) {
@@ -124,34 +126,47 @@ export class SessionPool {
 
     // Otherwise, wait for a release.
     return await new Promise<PooledQuerySession>((resolve, reject) => {
-      const onAbort = () => {
-        cleanup();
-        reject(new Error("SessionPool acquire aborted"));
-      };
       const cleanup = () => {
         signal.removeEventListener("abort", onAbort);
       };
+      const waiter = {
+        fulfill: (s: InternalSession) => {
+          cleanup();
+          this.inUse.add(s.sessionId);
+          s.lastUsedAtMs = nowMs();
+          resolve({ nodeId: s.nodeId, sessionId: s.sessionId });
+        },
+        reject: (err: Error) => {
+          cleanup();
+          reject(err);
+        },
+        cleanup,
+      };
+
+      const onAbort = () => {
+        const idx = this.waiters.indexOf(waiter);
+        if (idx >= 0) {
+          this.waiters.splice(idx, 1);
+        }
+        waiter.reject(new Error("SessionPool acquire aborted"));
+      };
+
       if (signal.aborted) return onAbort();
       signal.addEventListener("abort", onAbort);
-      this.waiters.push((s) => {
-        cleanup();
-        this.inUse.add(s.sessionId);
-        s.lastUsedAtMs = nowMs();
-        resolve({ nodeId: s.nodeId, sessionId: s.sessionId });
-      });
+      this.waiters.push(waiter);
     });
   }
 
   release(session: PooledQuerySession): void {
+    if (this.isClosed) {
+      this.inUse.delete(session.sessionId);
+      void this.deleteSessionBestEffort(session);
+      return;
+    }
     if (!this.inUse.has(session.sessionId)) {
       return;
     }
     this.inUse.delete(session.sessionId);
-
-    if (this.isClosed) {
-      void this.deleteSessionBestEffort(session);
-      return;
-    }
 
     const internal: InternalSession = {
       ...session,
@@ -161,7 +176,7 @@ export class SessionPool {
 
     const waiter = this.waiters.shift();
     if (waiter) {
-      waiter(internal);
+      waiter.fulfill(internal);
       return;
     }
 

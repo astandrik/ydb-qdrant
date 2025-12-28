@@ -87,7 +87,7 @@ describe("collectionsRepo (with mocked YDB)", () => {
               vector_dimension: 128,
               distance: "Euclid",
               vector_type: "float",
-              last_accessed_at: "",
+              last_accessed_at: "2025-01-01T00:00:00.000Z",
             },
           ],
         ],
@@ -106,6 +106,7 @@ describe("collectionsRepo (with mocked YDB)", () => {
       dimension: 128,
       distance: "Euclid",
       vectorType: "float",
+      lastAccessedAt: new Date("2025-01-01T00:00:00.000Z"),
     });
   });
 

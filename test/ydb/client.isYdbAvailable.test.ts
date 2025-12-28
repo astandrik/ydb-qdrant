@@ -13,7 +13,7 @@ describe("ydb/client:isYdbAvailable", () => {
     __setDriverForTests(undefined);
   });
 
-  it("returns true when driver.ready resolves true", async () => {
+  it("returns true when driver.ready resolves", async () => {
     readyMock.mockResolvedValueOnce(undefined);
     await expect(isYdbAvailable()).resolves.toBe(true);
   });

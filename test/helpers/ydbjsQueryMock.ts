@@ -118,19 +118,33 @@ export function getQueryParam(
 }
 
 function maybeEncode(value: unknown): unknown {
-  if (typeof value === "object" && value !== null && "encode" in value) {
-    const enc = (value as { encode?: () => unknown }).encode;
-    if (typeof enc === "function") {
-      try {
-        return enc.call(value);
-      } catch {
-        return value;
-      }
-    }
+  if (typeof value !== "object" || value === null) {
+    return value;
   }
-  return value;
+
+  // Only call encode() for values that structurally look like real @ydbjs/value
+  // instances (encode() + type.encode()). If encode() throws, that's unexpected
+  // and should fail the test instead of being silently swallowed.
+  const v = value as { encode?: unknown; type?: unknown };
+  if (typeof v.encode !== "function") {
+    return value;
+  }
+  const t = v.type as { encode?: unknown } | undefined;
+  if (!t || typeof t !== "object" || typeof t.encode !== "function") {
+    return value;
+  }
+
+  return (v.encode as () => unknown).call(value);
 }
 
+/**
+ * Extract a protobuf "text-like" leaf value (Utf8/Bytes) from various `@ydbjs/value`
+ * / `@bufbuild/protobuf` initialization shapes used in our mocks.
+ *
+ * @param depth - Internal recursion depth guard; limits nesting to avoid infinite
+ * loops on unexpected/cyclic structures. The limit (4) matches the deepest
+ * nesting we see in practice: `{ value: { value: { case, value } } }`.
+ */
 function extractTextValue(value: unknown, depth = 0): string | undefined {
   if (depth > 4) return undefined;
   if (typeof value !== "object" || value === null) return undefined;

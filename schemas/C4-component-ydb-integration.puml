@@ -56,7 +56,7 @@ note bottom of schema_mgr
   **ensureMetaTable():**
   1. CREATE TABLE qdr__collections (ignore exists errors)
   2. Probe required columns via SELECT ... LIMIT 0
-  3. If missing column and automigrate enabled: ALTER TABLE ... ADD COLUMN ...
+  3. If missing required columns: fail fast (manual migration required)
 end note
 
 note top of env_config
@@ -83,7 +83,6 @@ note top of env_config
   - YDB_SESSION_KEEPALIVE_PERIOD_MS (default 5000)
   
   **Optional (Migration):**
-  - YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE (default false)
   - YDB_QDRANT_USE_BATCH_DELETE (default false)
   
   **Optional (Tracking):**

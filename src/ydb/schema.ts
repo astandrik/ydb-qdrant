@@ -1,9 +1,6 @@
 import { withSession } from "./client.js";
 import { logger } from "../logging/logger.js";
-import {
-  GLOBAL_POINTS_AUTOMIGRATE_ENABLED,
-  STARTUP_PROBE_SESSION_TIMEOUT_MS,
-} from "../config/env.js";
+import { STARTUP_PROBE_SESSION_TIMEOUT_MS } from "../config/env.js";
 
 export const GLOBAL_POINTS_TABLE = "qdrant_all_points";
 // Shared YDB-related constants for repositories.
@@ -89,61 +86,47 @@ function throwMigrationRequired(message: string): never {
 }
 
 async function ensureMetaTableOnce(): Promise<void> {
-  try {
-    await withSession(async (sql, signal) => {
-      try {
-        await sql`
-          CREATE TABLE qdr__collections (
-            collection Utf8,
-            table_name Utf8,
-            vector_dimension Uint32,
-            distance Utf8,
-            vector_type Utf8,
-            created_at Timestamp,
-            last_accessed_at Timestamp,
-            PRIMARY KEY (collection)
-          );
-        `
-          .idempotent(true)
-          .timeout(SCHEMA_DDL_TIMEOUT_MS)
-          .signal(signal);
-        logger.info("created metadata table qdr__collections");
-      } catch (err) {
-        if (!isAlreadyExistsError(err)) {
-          throw err;
-        }
-      }
-
-      // Best-effort schema migration: add last_accessed_at if it is missing.
-      try {
-        await sql`SELECT last_accessed_at FROM qdr__collections LIMIT 0;`
-          .idempotent(true)
-          .timeout(STARTUP_PROBE_SESSION_TIMEOUT_MS)
-          .signal(signal);
-      } catch (err) {
-        if (!isUnknownColumnError(err)) {
-          throw err;
-        }
-        await sql`
-          ALTER TABLE qdr__collections
-          ADD COLUMN last_accessed_at Timestamp;
-        `
-          .idempotent(true)
-          .timeout(SCHEMA_DDL_TIMEOUT_MS)
-          .signal(signal);
-        logger.info(
-          "added last_accessed_at column to metadata table qdr__collections"
+  await withSession(async (sql, signal) => {
+    try {
+      await sql`
+        CREATE TABLE qdr__collections (
+          collection Utf8,
+          table_name Utf8,
+          vector_dimension Uint32,
+          distance Utf8,
+          vector_type Utf8,
+          created_at Timestamp,
+          last_accessed_at Timestamp,
+          PRIMARY KEY (collection)
         );
+      `
+        .idempotent(true)
+        .timeout(SCHEMA_DDL_TIMEOUT_MS)
+        .signal(signal);
+      logger.info("created metadata table qdr__collections");
+    } catch (err) {
+      if (!isAlreadyExistsError(err)) {
+        throw err;
       }
-    });
+    }
 
-    metaTableReady = true;
-  } catch (err: unknown) {
-    logger.warn(
-      { err },
-      "ensureMetaTable: failed to verify or migrate qdr__collections; subsequent operations may fail if schema is incomplete"
-    );
-  }
+    // Fail fast if schema is old/mismatched: we do not auto-migrate tables.
+    try {
+      await sql`SELECT last_accessed_at FROM qdr__collections LIMIT 0;`
+        .idempotent(true)
+        .timeout(STARTUP_PROBE_SESSION_TIMEOUT_MS)
+        .signal(signal);
+    } catch (err) {
+      if (!isUnknownColumnError(err)) {
+        throw err;
+      }
+      throwMigrationRequired(
+        "Metadata table qdr__collections is missing required column last_accessed_at; apply a manual migration (ALTER TABLE qdr__collections ADD COLUMN last_accessed_at Timestamp)."
+      );
+    }
+  });
+
+  metaTableReady = true;
 }
 
 export async function ensureMetaTable(): Promise<void> {
@@ -212,7 +195,7 @@ export async function ensureGlobalPointsTable(): Promise<void> {
       }
     }
 
-    // Require the embedding_quantized column.
+    // Fail fast if schema is old/mismatched: we do not auto-migrate tables.
     try {
       await sql`SELECT embedding_quantized FROM ${sql.identifier(
         GLOBAL_POINTS_TABLE
@@ -224,22 +207,8 @@ export async function ensureGlobalPointsTable(): Promise<void> {
       if (!isUnknownColumnError(err)) {
         throw err;
       }
-
-      if (!GLOBAL_POINTS_AUTOMIGRATE_ENABLED) {
-        throwMigrationRequired(
-          `Global points table ${GLOBAL_POINTS_TABLE} is missing required column embedding_quantized; apply the migration (e.g., ALTER TABLE ${GLOBAL_POINTS_TABLE} RENAME COLUMN embedding_bit TO embedding_quantized) or set YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE=true after backup to allow automatic migration.`
-        );
-      }
-
-      await sql`
-        ALTER TABLE ${sql.identifier(GLOBAL_POINTS_TABLE)}
-        ADD COLUMN embedding_quantized String;
-      `
-        .idempotent(true)
-        .timeout(SCHEMA_DDL_TIMEOUT_MS)
-        .signal(signal);
-      logger.info(
-        `added embedding_quantized column to existing table ${GLOBAL_POINTS_TABLE}`
+      throwMigrationRequired(
+        `Global points table ${GLOBAL_POINTS_TABLE} is missing required column embedding_quantized; apply a manual migration (ALTER TABLE ${GLOBAL_POINTS_TABLE} ADD COLUMN embedding_quantized String). If your legacy schema used embedding_bit, rename it or recreate the table.`
       );
     }
 

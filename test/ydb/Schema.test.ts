@@ -135,13 +135,19 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
       return createQueryStub();
     });
 
+    let withSessionCallCount = 0;
     withSessionMock.mockImplementation((fn: (sql: unknown) => unknown) => {
+      withSessionCallCount += 1;
       return fn(sqlTag);
     });
 
     await ensureGlobalPointsTable();
+    const callsAfterFirst = calls.length;
     await ensureGlobalPointsTable();
 
+    expect(withSessionMock).toHaveBeenCalledTimes(1);
+    expect(withSessionCallCount).toBe(1);
+    expect(calls).toHaveLength(callsAfterFirst);
     expect(calls.join("\n")).toContain(`CREATE TABLE ${GLOBAL_POINTS_TABLE}`);
   });
 
@@ -166,7 +172,7 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
     );
   });
 
-  it("throws when embedding_quantized column is missing and automigrate is disabled", async () => {
+  it("throws when embedding_quantized column is missing", async () => {
     const { ensureGlobalPointsTable, GLOBAL_POINTS_TABLE } =
       await resetSchemaModule();
 
@@ -188,45 +194,7 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
     });
 
     await expect(ensureGlobalPointsTable()).rejects.toThrow(
-      `Global points table ${GLOBAL_POINTS_TABLE} is missing required column embedding_quantized; apply the migration (e.g., ALTER TABLE ${GLOBAL_POINTS_TABLE} RENAME COLUMN embedding_bit TO embedding_quantized) or set YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE=true after backup to allow automatic migration.`
-    );
-  });
-
-  it("adds embedding_quantized column when automigration is opt-in", async () => {
-    const { ensureGlobalPointsTable, GLOBAL_POINTS_TABLE } =
-      await resetSchemaModule({ YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE: "true" });
-
-    const calls: string[] = [];
-    const sqlTag = createSqlTagMock();
-
-    sqlTag.mockImplementation((strings: unknown, ...values: unknown[]) => {
-      const text = renderYql(strings, values);
-      calls.push(text);
-      const isProbe = /SELECT\s+embedding_quantized/i.test(text);
-      const isAlter = /ALTER TABLE/i.test(text);
-      if (isProbe) {
-        return createQueryStub({
-          reject: new Error("Unknown column: embedding_quantized"),
-        });
-      }
-      if (isAlter) {
-        return createQueryStub();
-      }
-      return createQueryStub();
-    });
-
-    withSessionMock.mockImplementation((fn: (sql: unknown) => unknown) => {
-      return fn(sqlTag);
-    });
-
-    await ensureGlobalPointsTable();
-
-    expect(calls.join("\n")).toContain("ALTER TABLE");
-    expect(calls.join("\n")).toContain(GLOBAL_POINTS_TABLE);
-    expect(calls.join("\n")).toContain("ADD COLUMN embedding_quantized String");
-
-    expect(loggerInfoMock).toHaveBeenCalledWith(
-      `added embedding_quantized column to existing table ${GLOBAL_POINTS_TABLE}`
+      `Global points table ${GLOBAL_POINTS_TABLE} is missing required column embedding_quantized; apply a manual migration (ALTER TABLE ${GLOBAL_POINTS_TABLE} ADD COLUMN embedding_quantized String). If your legacy schema used embedding_bit, rename it or recreate the table.`
     );
   });
 });

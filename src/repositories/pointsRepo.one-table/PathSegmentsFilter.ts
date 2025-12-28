@@ -19,6 +19,9 @@ export function buildPathSegmentsWhereClause(paths: Array<Array<string>>): {
     for (let sIdx = 0; sIdx < segs.length; sIdx += 1) {
       const paramName = `$p${pIdx}_${sIdx}`;
       // payload is JsonDocument; JSON_VALUE supports JsonPath access.
+      // Security: path segment values are always bound as parameters (see `params[paramName]`)
+      // and MUST NOT be interpolated into `whereSql`. The only dynamic part in the SQL text
+      // below is the numeric segment index (sIdx) and the internal parameter name.
       andParts.push(
         `JSON_VALUE(payload, '$.pathSegments."${sIdx}"') = ${paramName}`
       );
