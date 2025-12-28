@@ -83,7 +83,7 @@ note top of env_config
   - YDB_SESSION_KEEPALIVE_PERIOD_MS (default 5000)
   
   **Optional (Migration):**
-  - YDB_QDRANT_USE_BATCH_DELETE (default false)
+  - (Collection deletion uses YQL `BATCH DELETE` in one-table mode)
   
   **Optional (Tracking):**
   - YDB_QDRANT_LAST_ACCESS_MIN_WRITE_INTERVAL_MS (default 60000)

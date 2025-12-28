@@ -9,6 +9,7 @@ import { logger } from "../logging/logger.js";
 import type { DistanceKind, VectorType, CollectionMeta } from "../types";
 import { uidFor } from "../utils/tenant.js";
 import { attachQueryDiagnostics } from "../ydb/QueryDiagnostics.js";
+import { withRetry, isTransientYdbError } from "../utils/retry.js";
 import {
   createCollectionOneTable,
   deleteCollectionOneTable,
@@ -154,22 +155,34 @@ export async function getCollectionMeta(
 
 export async function verifyCollectionsQueryCompilationForStartup(): Promise<void> {
   const probeKey = "__startup_probe__/__startup_probe__";
-  await withStartupProbeSession(async (sql, signal) => {
-    await sql`
-      SELECT
-        table_name,
-        vector_dimension,
-        distance,
-        vector_type,
-        CAST(last_accessed_at AS Utf8) AS last_accessed_at
-      FROM qdr__collections
-      WHERE collection = $collection;
-    `
-      .idempotent(true)
-      .timeout(STARTUP_PROBE_SESSION_TIMEOUT_MS)
-      .signal(signal)
-      .parameter("collection", new Utf8(probeKey));
-  });
+  await withRetry(
+    async () => {
+      await withStartupProbeSession(async (sql, signal) => {
+        await sql`
+          SELECT
+            table_name,
+            vector_dimension,
+            distance,
+            vector_type,
+            CAST(last_accessed_at AS Utf8) AS last_accessed_at
+          FROM qdr__collections
+          WHERE collection = $collection;
+        `
+          .idempotent(true)
+          .timeout(STARTUP_PROBE_SESSION_TIMEOUT_MS)
+          .signal(signal)
+          .parameter("collection", new Utf8(probeKey));
+      });
+    },
+    {
+      maxRetries: 2,
+      baseDelayMs: 200,
+      isTransient: isTransientYdbError,
+      context: {
+        operation: "verifyCollectionsQueryCompilationForStartup",
+      },
+    }
+  );
 }
 
 export async function deleteCollection(

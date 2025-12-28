@@ -256,6 +256,8 @@ export class SessionPool {
     }, 0);
     const s = this.available[idx];
     if (!s) return;
+    const sessionId = s.sessionId;
+    const nodeId = s.nodeId;
 
     const now = nowMs();
     if (now - s.lastCheckedAtMs < SESSION_KEEPALIVE_PERIOD_MS) {
@@ -279,8 +281,19 @@ export class SessionPool {
       }
     } catch {
       // Session likely dead; evict from pool and delete best-effort.
-      this.available.splice(idx, 1);
-      void this.deleteSessionBestEffort(s);
+      // Important: `this.available` may have been modified while awaiting the probe.
+      // Avoid using the pre-await index, and never delete a session that is currently leased.
+      if (this.inUse.has(sessionId)) {
+        return;
+      }
+      const availableIdx = this.available.findIndex(
+        (x) => x.sessionId === sessionId
+      );
+      if (availableIdx === -1) {
+        return;
+      }
+      this.available.splice(availableIdx, 1);
+      void this.deleteSessionBestEffort({ nodeId, sessionId });
     }
   }
 }

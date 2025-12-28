@@ -368,6 +368,10 @@ export function __setDriverForTests(fake: unknown): void {
   queryCtxPromise = null;
 }
 
+export function __setSessionPoolForTests(fake: unknown): void {
+  sessionPool = fake as SessionPool | undefined;
+}
+
 export function __setDriverFactoryForTests(
   factory:
     | ((connectionString: string, options?: DriverOptions) => Driver)
@@ -534,12 +538,16 @@ export async function withSession<T>(
             /BAD_SESSION|SESSION_EXPIRED|SessionExpired|No session became available/i.test(
               err.message ?? ""
             );
-          if (!shouldRetryWithFreshSession || attempt === MAX_ATTEMPTS - 1) {
-            pool.release(leased);
-            throw err;
+          if (shouldRetryWithFreshSession) {
+            await pool.discard(leased);
+            leased = null;
+            if (attempt === MAX_ATTEMPTS - 1) {
+              throw err;
+            }
+            continue;
           }
-          await pool.discard(leased);
-          leased = null;
+          pool.release(leased);
+          throw err;
         }
       }
       throw new Error(

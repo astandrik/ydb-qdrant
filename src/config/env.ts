@@ -48,11 +48,6 @@ function parseBooleanEnv(
   return true;
 }
 
-export const USE_BATCH_DELETE_FOR_COLLECTIONS = parseBooleanEnv(
-  process.env.YDB_QDRANT_USE_BATCH_DELETE,
-  false
-);
-
 export enum QueryStatsMode {
   None = "none",
   Basic = "basic",
