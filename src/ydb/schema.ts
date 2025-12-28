@@ -18,16 +18,26 @@ let globalPointsTableReady = false;
 
 function collectIssueMessages(err: unknown): string[] {
   const out: string[] = [];
-  const seen = new Set<unknown>();
+  const seen = new Set<object>();
 
-  const walk = (v: unknown): void => {
-    if (v === null || typeof v !== "object") {
-      return;
-    }
-    if (seen.has(v)) {
-      return;
-    }
+  // Hard guardrails to guarantee termination even for pathological error graphs.
+  const MAX_DEPTH = 8;
+  const MAX_NODES = 500;
+
+  const queue: Array<{ v: unknown; depth: number }> = [{ v: err, depth: 0 }];
+  let visited = 0;
+
+  while (queue.length > 0 && visited < MAX_NODES) {
+    const next = queue.shift();
+    if (!next) break;
+    const { v, depth } = next;
+
+    if (depth > MAX_DEPTH) continue;
+    if (v === null || typeof v !== "object") continue;
+
+    if (seen.has(v)) continue;
     seen.add(v);
+    visited++;
 
     const maybeMessage = (v as { message?: unknown }).message;
     if (typeof maybeMessage === "string" && maybeMessage.length > 0) {
@@ -37,12 +47,11 @@ function collectIssueMessages(err: unknown): string[] {
     const maybeIssues = (v as { issues?: unknown }).issues;
     if (Array.isArray(maybeIssues)) {
       for (const child of maybeIssues) {
-        walk(child);
+        queue.push({ v: child, depth: depth + 1 });
       }
     }
-  };
+  }
 
-  walk(err);
   return out;
 }
 
@@ -82,21 +91,19 @@ function throwMigrationRequired(message: string): never {
 async function ensureMetaTableOnce(): Promise<void> {
   try {
     await withSession(async (sql, signal) => {
-      const createTableYql = `
-        CREATE TABLE qdr__collections (
-          collection Utf8,
-          table_name Utf8,
-          vector_dimension Uint32,
-          distance Utf8,
-          vector_type Utf8,
-          created_at Timestamp,
-          last_accessed_at Timestamp,
-          PRIMARY KEY (collection)
-        );
-      `;
-
       try {
-        await sql`${sql.unsafe(createTableYql)}`
+        await sql`
+          CREATE TABLE qdr__collections (
+            collection Utf8,
+            table_name Utf8,
+            vector_dimension Uint32,
+            distance Utf8,
+            vector_type Utf8,
+            created_at Timestamp,
+            last_accessed_at Timestamp,
+            PRIMARY KEY (collection)
+          );
+        `
           .idempotent(true)
           .timeout(SCHEMA_DDL_TIMEOUT_MS)
           .signal(signal);
@@ -117,11 +124,10 @@ async function ensureMetaTableOnce(): Promise<void> {
         if (!isUnknownColumnError(err)) {
           throw err;
         }
-        const alter = `
+        await sql`
           ALTER TABLE qdr__collections
           ADD COLUMN last_accessed_at Timestamp;
-        `;
-        await sql`${sql.unsafe(alter)}`
+        `
           .idempotent(true)
           .timeout(SCHEMA_DDL_TIMEOUT_MS)
           .signal(signal);
@@ -163,24 +169,22 @@ export async function ensureGlobalPointsTable(): Promise<void> {
   }
 
   await withSession(async (sql, signal) => {
-    const createTableYql = `
-      CREATE TABLE ${GLOBAL_POINTS_TABLE} (
-        uid Utf8,
-        point_id Utf8,
-        embedding String,
-        embedding_quantized String,
-        payload JsonDocument,
-        PRIMARY KEY (uid, point_id)
-      )
-      WITH (
-        AUTO_PARTITIONING_BY_LOAD = ENABLED,
-        AUTO_PARTITIONING_BY_SIZE = ENABLED,
-        AUTO_PARTITIONING_PARTITION_SIZE_MB = 100
-      );
-    `;
-
     try {
-      await sql`${sql.unsafe(createTableYql)}`
+      await sql`
+        CREATE TABLE ${sql.identifier(GLOBAL_POINTS_TABLE)} (
+          uid Utf8,
+          point_id Utf8,
+          embedding String,
+          embedding_quantized String,
+          payload JsonDocument,
+          PRIMARY KEY (uid, point_id)
+        )
+        WITH (
+          AUTO_PARTITIONING_BY_LOAD = ENABLED,
+          AUTO_PARTITIONING_BY_SIZE = ENABLED,
+          AUTO_PARTITIONING_PARTITION_SIZE_MB = 100
+        );
+      `
         .idempotent(true)
         .timeout(SCHEMA_DDL_TIMEOUT_MS)
         .signal(signal);
@@ -227,11 +231,10 @@ export async function ensureGlobalPointsTable(): Promise<void> {
         );
       }
 
-      const alter = `
-        ALTER TABLE ${GLOBAL_POINTS_TABLE}
+      await sql`
+        ALTER TABLE ${sql.identifier(GLOBAL_POINTS_TABLE)}
         ADD COLUMN embedding_quantized String;
-      `;
-      await sql`${sql.unsafe(alter)}`
+      `
         .idempotent(true)
         .timeout(SCHEMA_DDL_TIMEOUT_MS)
         .signal(signal);

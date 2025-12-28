@@ -1,16 +1,49 @@
 import { withSession } from "../ydb/client.js";
 import type { DistanceKind, VectorType } from "../types";
 import { GLOBAL_POINTS_TABLE, ensureGlobalPointsTable } from "../ydb/schema.js";
-import { upsertCollectionMeta } from "./collectionsRepo.shared.js";
 import {
   UPSERT_OPERATION_TIMEOUT_MS,
   USE_BATCH_DELETE_FOR_COLLECTIONS,
 } from "../config/env.js";
 import type { QueryClient, Query } from "@ydbjs/query";
 import { List } from "@ydbjs/value/list";
-import { Uint32, Utf8 } from "@ydbjs/value/primitive";
+import { Timestamp, Uint32, Utf8 } from "@ydbjs/value/primitive";
 
 const DELETE_COLLECTION_BATCH_SIZE = 10000;
+
+async function upsertCollectionMeta(
+  metaKey: string,
+  dim: number,
+  distance: DistanceKind,
+  vectorType: VectorType,
+  tableName: string
+): Promise<void> {
+  const now = new Date();
+  await withSession(async (sql, signal) => {
+    await sql`
+      UPSERT INTO qdr__collections (
+        collection,
+        table_name,
+        vector_dimension,
+        distance,
+        vector_type,
+        created_at,
+        last_accessed_at
+      )
+      VALUES ($collection, $table, $dim, $distance, $vtype, $created, $last_accessed);
+    `
+      .idempotent(true)
+      .timeout(UPSERT_OPERATION_TIMEOUT_MS)
+      .signal(signal)
+      .parameter("collection", new Utf8(metaKey))
+      .parameter("table", new Utf8(tableName))
+      .parameter("dim", new Uint32(dim))
+      .parameter("distance", new Utf8(distance))
+      .parameter("vtype", new Utf8(vectorType))
+      .parameter("created", new Timestamp(now))
+      .parameter("last_accessed", new Timestamp(now));
+  });
+}
 
 function isOutOfBufferMemoryYdbError(error: unknown): boolean {
   const msg = error instanceof Error ? error.message : String(error);
@@ -35,18 +68,6 @@ async function deletePointsForUidInChunks(
   signal: AbortSignal,
   uid: string
 ): Promise<void> {
-  const selectYql = `
-    SELECT point_id
-    FROM ${GLOBAL_POINTS_TABLE}
-    WHERE uid = $uid
-    LIMIT $limit;
-  `;
-
-  const deleteBatchYql = `
-    DELETE FROM ${GLOBAL_POINTS_TABLE}
-    WHERE uid = $uid AND point_id IN $ids;
-  `;
-
   // Best‑effort loop: stop when there are no more rows for this uid.
   // Each iteration only touches a limited number of rows to avoid
   // hitting YDB's per‑operation buffer limits.
@@ -56,7 +77,12 @@ async function deletePointsForUidInChunks(
   while (iterations++ < MAX_ITERATIONS) {
     type SelectRow = { point_id: string };
     type ResultSets = [SelectRow];
-    const q: Query<ResultSets> = sql<ResultSets>`${sql.unsafe(selectYql)}`
+    const q: Query<ResultSets> = sql<ResultSets>`
+      SELECT point_id
+      FROM ${sql.identifier(GLOBAL_POINTS_TABLE)}
+      WHERE uid = $uid
+      LIMIT $limit;
+    `
       .idempotent(true)
       .timeout(UPSERT_OPERATION_TIMEOUT_MS)
       .signal(signal)
@@ -74,7 +100,10 @@ async function deletePointsForUidInChunks(
 
     const idsValue = new List(...ids.map((id) => new Utf8(id)));
 
-    await sql`${sql.unsafe(deleteBatchYql)}`
+    await sql`
+      DELETE FROM ${sql.identifier(GLOBAL_POINTS_TABLE)}
+      WHERE uid = $uid AND point_id IN $ids;
+    `
       .idempotent(true)
       .timeout(UPSERT_OPERATION_TIMEOUT_MS)
       .signal(signal)
@@ -104,14 +133,12 @@ export async function deleteCollectionOneTable(
 ): Promise<void> {
   await ensureGlobalPointsTable();
   if (USE_BATCH_DELETE_FOR_COLLECTIONS) {
-    const batchDeletePointsYql = `
-      BATCH DELETE FROM ${GLOBAL_POINTS_TABLE}
-      WHERE uid = $uid;
-    `;
-
     await withSession(async (sql, signal) => {
       try {
-        await sql`${sql.unsafe(batchDeletePointsYql)}`
+        await sql`
+          BATCH DELETE FROM ${sql.identifier(GLOBAL_POINTS_TABLE)}
+          WHERE uid = $uid;
+        `
           .idempotent(true)
           .timeout(UPSERT_OPERATION_TIMEOUT_MS)
           .signal(signal)
@@ -128,13 +155,12 @@ export async function deleteCollectionOneTable(
       }
     });
   } else {
-    const deletePointsYql = `
-      DELETE FROM ${GLOBAL_POINTS_TABLE} WHERE uid = $uid;
-    `;
-
     await withSession(async (sql, signal) => {
       try {
-        await sql`${sql.unsafe(deletePointsYql)}`
+        await sql`
+          DELETE FROM ${sql.identifier(GLOBAL_POINTS_TABLE)}
+          WHERE uid = $uid;
+        `
           .idempotent(true)
           .timeout(UPSERT_OPERATION_TIMEOUT_MS)
           .signal(signal)
@@ -149,11 +175,11 @@ export async function deleteCollectionOneTable(
     });
   }
 
-  const delMeta = `
-    DELETE FROM qdr__collections WHERE collection = $collection;
-  `;
   await withSession(async (sql, signal) => {
-    await sql`${sql.unsafe(delMeta)}`
+    await sql`
+      DELETE FROM qdr__collections
+      WHERE collection = $collection;
+    `
       .idempotent(true)
       .timeout(UPSERT_OPERATION_TIMEOUT_MS)
       .signal(signal)

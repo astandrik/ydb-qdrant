@@ -16,13 +16,12 @@ export async function deletePointsOneTable(
   let deleted = 0;
   await withSession(async (sql, signal) => {
     for (const id of ids) {
-      const yql = `
-        DELETE FROM ${tableName} WHERE uid = $uid AND point_id = $id;
-      `;
-
       await withRetry(
         async () => {
-          await sql`${sql.unsafe(yql)}`
+          await sql`
+            DELETE FROM ${sql.identifier(tableName)}
+            WHERE uid = $uid AND point_id = $id;
+          `
             .parameter("uid", new Utf8(uid))
             .parameter("id", new Utf8(String(id)))
             .idempotent(true)
@@ -69,20 +68,6 @@ export async function deletePointsByPathSegmentsOneTable(
 
   const { whereSql, params: whereParams } = buildPathSegmentsWhereClause(paths);
 
-  const deleteBatchYql = `
-    $to_delete = (
-      SELECT uid, point_id
-      FROM ${tableName}
-      WHERE uid = $uid AND ${whereSql}
-      LIMIT $limit
-    );
-
-    DELETE FROM ${tableName} ON
-    SELECT uid, point_id FROM $to_delete;
-
-    SELECT COUNT(*) AS deleted FROM $to_delete;
-  `;
-
   let deleted = 0;
   await withSession(async (sql, signal) => {
     type DeleteCountRow = { deleted: unknown };
@@ -93,9 +78,19 @@ export async function deletePointsByPathSegmentsOneTable(
     while (true) {
       const [rows] = await withRetry(
         async () => {
-          let q: Query<ResultSets> = sql<ResultSets>`${sql.unsafe(
-            deleteBatchYql
-          )}`
+          let q: Query<ResultSets> = sql<ResultSets>`
+            $to_delete = (
+              SELECT uid, point_id
+              FROM ${sql.identifier(tableName)}
+              WHERE uid = $uid AND ${sql.unsafe(whereSql)}
+              LIMIT $limit
+            );
+
+            DELETE FROM ${sql.identifier(tableName)} ON
+            SELECT uid, point_id FROM $to_delete;
+
+            SELECT COUNT(*) AS deleted FROM $to_delete;
+          `
             .idempotent(true)
             .timeout(UPSERT_OPERATION_TIMEOUT_MS)
             .signal(signal)

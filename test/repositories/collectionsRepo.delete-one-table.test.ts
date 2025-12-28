@@ -86,7 +86,8 @@ describe("collectionsRepo/deleteCollection one-table (with mocked YDB)", () => {
 
     expect(h.calls).toHaveLength(3);
     expect(h.calls[0].yql).toContain("FROM qdr__collections");
-    expect(h.calls[1].yql).toContain("DELETE FROM qdrant_all_points WHERE uid");
+    expect(h.calls[1].yql).toContain("DELETE FROM qdrant_all_points");
+    expect(h.calls[1].yql).toContain("WHERE uid = $uid");
     expect(h.calls[2].yql).toContain("DELETE FROM qdr__collections");
   });
 
@@ -191,7 +192,8 @@ describe("collectionsRepo/deleteCollection one-table (with mocked YDB)", () => {
 
     await deleteCollection("tenant_a/my_collection", "qdr_tenant_a__my_collection");
 
-    expect(h.calls[1].yql).toContain("DELETE FROM qdrant_all_points WHERE uid");
+    expect(h.calls[1].yql).toContain("DELETE FROM qdrant_all_points");
+    expect(h.calls[1].yql).toContain("WHERE uid = $uid");
     expect(h.calls.some((c) => c.yql.includes("SELECT point_id"))).toBe(true);
     expect(
       h.calls.some(

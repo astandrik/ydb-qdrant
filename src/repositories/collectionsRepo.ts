@@ -47,16 +47,6 @@ export async function createCollection(
 export async function getCollectionMeta(
   metaKey: string
 ): Promise<CollectionMeta | null> {
-  const qry = `
-    SELECT
-      table_name,
-      vector_dimension,
-      distance,
-      vector_type,
-      CAST(last_accessed_at AS Utf8) AS last_accessed_at
-    FROM qdr__collections
-    WHERE collection = $collection;
-  `;
   type Row = {
     table_name: string;
     vector_dimension: number;
@@ -66,7 +56,16 @@ export async function getCollectionMeta(
   };
 
   const [rows] = await withSession(async (sql, signal) => {
-    return await sql<[Row]>`${sql.unsafe(qry)}`
+    return await sql<[Row]>`
+      SELECT
+        table_name,
+        vector_dimension,
+        distance,
+        vector_type,
+        CAST(last_accessed_at AS Utf8) AS last_accessed_at
+      FROM qdr__collections
+      WHERE collection = $collection;
+    `
       .idempotent(true)
       .timeout(SEARCH_OPERATION_TIMEOUT_MS)
       .signal(signal)
@@ -101,18 +100,17 @@ export async function getCollectionMeta(
 
 export async function verifyCollectionsQueryCompilationForStartup(): Promise<void> {
   const probeKey = "__startup_probe__/__startup_probe__";
-  const qry = `
-    SELECT
-      table_name,
-      vector_dimension,
-      distance,
-      vector_type,
-      CAST(last_accessed_at AS Utf8) AS last_accessed_at
-    FROM qdr__collections
-    WHERE collection = $collection;
-  `;
   await withStartupProbeSession(async (sql, signal) => {
-    await sql`${sql.unsafe(qry)}`
+    await sql`
+      SELECT
+        table_name,
+        vector_dimension,
+        distance,
+        vector_type,
+        CAST(last_accessed_at AS Utf8) AS last_accessed_at
+      FROM qdr__collections
+      WHERE collection = $collection;
+    `
       .idempotent(true)
       .timeout(STARTUP_PROBE_SESSION_TIMEOUT_MS)
       .signal(signal)
@@ -157,15 +155,13 @@ export async function touchCollectionLastAccess(
     return;
   }
 
-  const qry = `
-    UPDATE qdr__collections
-    SET last_accessed_at = $last_accessed
-    WHERE collection = $collection;
-  `;
-
   try {
     await withSession(async (sql, signal) => {
-      await sql`${sql.unsafe(qry)}`
+      await sql`
+        UPDATE qdr__collections
+        SET last_accessed_at = $last_accessed
+        WHERE collection = $collection;
+      `
         .idempotent(true)
         .timeout(UPSERT_OPERATION_TIMEOUT_MS)
         .signal(signal)

@@ -58,16 +58,8 @@ function buildUpsertQueryAndParams(args: {
     payload?: Record<string, unknown>;
   }>;
 }): {
-  yql: string;
   rowsValue: List;
-  debugMode: string;
 } {
-  const yql = `
-    UPSERT INTO ${args.tableName} (uid, point_id, embedding, embedding_quantized, payload)
-    SELECT uid, point_id, embedding, embedding_quantized, payload
-    FROM AS_TABLE($rows);
-  `;
-
   const rows: UpsertRow[] = args.batch.map((p) => {
     const binaries = buildVectorBinaryParams(p.vector);
     return {
@@ -93,9 +85,7 @@ function buildUpsertQueryAndParams(args: {
   );
 
   return {
-    yql,
     rowsValue,
-    debugMode: "one_table_upsert_client_side_serialization",
   };
 }
 
@@ -117,34 +107,23 @@ export async function upsertPointsOneTable(
     for (let i = 0; i < points.length; i += UPSERT_BATCH_SIZE) {
       const batch = points.slice(i, i + UPSERT_BATCH_SIZE);
 
-      const { yql, rowsValue, debugMode } = buildUpsertQueryAndParams({
+      const { rowsValue } = buildUpsertQueryAndParams({
         tableName,
         uid,
         batch,
       });
 
-      if (logger.isLevelEnabled("debug")) {
-        logger.debug(
-          {
-            tableName,
-            mode: debugMode,
-            batchSize: batch.length,
-            yql,
-            params: {
-              uid,
-              rows: batch.map((p) => ({
-                point_id: String(p.id),
-                vectorLength: p.vector.length,
-                vectorPreview: p.vector.slice(0, 3),
-                payload: p.payload ?? {},
-              })),
-            },
-          },
-          "one_table upsert: executing YQL"
-        );
-      }
-
-      await sql`${sql.unsafe(yql)}`
+      await sql`
+        UPSERT INTO ${sql.identifier(tableName)} (
+          uid,
+          point_id,
+          embedding,
+          embedding_quantized,
+          payload
+        )
+        SELECT uid, point_id, embedding, embedding_quantized, payload
+        FROM AS_TABLE($rows);
+      `
         .parameter("rows", rowsValue)
         .idempotent(true)
         .timeout(UPSERT_OPERATION_TIMEOUT_MS)

@@ -53,12 +53,19 @@ export function createSqlHarness(): {
   const calls: Array<{ yql: string; query: QueryMock<unknown> }> = [];
   const plannedQueries: Array<Array<PlannedRun<unknown>>> = [];
 
+  function renderYql(strings: TemplateStringsArray, values: unknown[]): string {
+    // Normal tagged templates provide SQL in `strings`, with interpolations in `values`.
+    // Some code uses: sql`${sql.unsafe(yql)}` which becomes strings=["", ""] and values=[yql].
+    let out = strings[0] ?? "";
+    for (let i = 0; i < values.length; i += 1) {
+      out += String(values[i]);
+      out += strings[i + 1] ?? "";
+    }
+    return out;
+  }
+
   const sql = ((strings: TemplateStringsArray, ...values: unknown[]) => {
-    // Most code uses: sql`${sql.unsafe(yql)}`
-    const yql =
-      values.length === 1 && typeof values[0] === "string"
-        ? values[0]
-        : values.map((v) => String(v)).join("");
+    const yql = renderYql(strings, values);
 
     const runs = plannedQueries.shift() ?? [{ result: [[]] }];
     const query = createQueryMock(runs);

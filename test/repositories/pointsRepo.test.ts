@@ -158,9 +158,7 @@ describe("pointsRepo (with mocked YDB)", () => {
     expect(result).toBe(1);
     expect(h.calls).toHaveLength(1);
     const yql = h.calls[0].yql;
-    expect(yql).toContain(
-      "UPSERT INTO qdrant_all_points (uid, point_id, embedding, embedding_quantized, payload)"
-    );
+    expect(yql).toContain("UPSERT INTO qdrant_all_points");
     expect(yql).toContain("FROM AS_TABLE($rows)");
     expect(yql).not.toContain("Knn::ToBinaryStringFloat");
     expect(yql).not.toContain("Knn::ToBinaryStringBit");
