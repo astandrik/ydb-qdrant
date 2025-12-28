@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { z } from "zod";
 
 export const YDB_ENDPOINT = process.env.YDB_ENDPOINT ?? "";
 export const YDB_DATABASE = process.env.YDB_DATABASE ?? "";
@@ -49,6 +50,26 @@ function parseBooleanEnv(
 
 export const USE_BATCH_DELETE_FOR_COLLECTIONS = parseBooleanEnv(
   process.env.YDB_QDRANT_USE_BATCH_DELETE,
+  false
+);
+
+export enum QueryStatsMode {
+  None = "none",
+  Basic = "basic",
+  Full = "full",
+  Profile = "profile",
+}
+
+const QueryStatsModeSchema = z
+  .nativeEnum(QueryStatsMode)
+  .catch(QueryStatsMode.None);
+
+export const QUERY_STATS_MODE: QueryStatsMode = QueryStatsModeSchema.parse(
+  process.env.YDB_QDRANT_QUERY_STATS_MODE?.trim().toLowerCase()
+);
+
+export const QUERY_RETRY_LOG_ENABLED = parseBooleanEnv(
+  process.env.YDB_QDRANT_QUERY_RETRY_LOG,
   false
 );
 

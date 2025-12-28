@@ -5,6 +5,7 @@ import type { Value } from "@ydbjs/value";
 import { Uint32, Utf8 } from "@ydbjs/value/primitive";
 import { withRetry, isTransientYdbError } from "../../utils/retry.js";
 import { UPSERT_OPERATION_TIMEOUT_MS } from "../../config/env.js";
+import { attachQueryDiagnostics } from "../../ydb/QueryDiagnostics.js";
 
 const DELETE_FILTER_SELECT_BATCH_SIZE = 1000;
 
@@ -18,10 +19,18 @@ export async function deletePointsOneTable(
     for (const id of ids) {
       await withRetry(
         async () => {
-          await sql`
+          await attachQueryDiagnostics(
+            sql`
             DELETE FROM ${sql.identifier(tableName)}
             WHERE uid = $uid AND point_id = $id;
-          `
+          `,
+            {
+              operation: "deletePointsOneTable",
+              tableName,
+              uid,
+              pointId: String(id),
+            }
+          )
             .parameter("uid", new Utf8(uid))
             .parameter("id", new Utf8(String(id)))
             .idempotent(true)
@@ -78,7 +87,8 @@ export async function deletePointsByPathSegmentsOneTable(
     while (true) {
       const [rows] = await withRetry(
         async () => {
-          let q: Query<ResultSets> = sql<ResultSets>`
+          let q: Query<ResultSets> = attachQueryDiagnostics(
+            sql<ResultSets>`
             $to_delete = (
               SELECT uid, point_id
               FROM ${sql.identifier(tableName)}
@@ -90,7 +100,15 @@ export async function deletePointsByPathSegmentsOneTable(
             SELECT uid, point_id FROM $to_delete;
 
             SELECT COUNT(*) AS deleted FROM $to_delete;
-          `
+          `,
+            {
+              operation: "deletePointsByPathSegmentsOneTable",
+              tableName,
+              uid,
+              batchLimit: DELETE_FILTER_SELECT_BATCH_SIZE,
+              pathsCount: paths.length,
+            }
+          )
             .idempotent(true)
             .timeout(UPSERT_OPERATION_TIMEOUT_MS)
             .signal(signal)

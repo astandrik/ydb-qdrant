@@ -9,6 +9,7 @@ import {
   mapDistanceToKnnFn,
 } from "../../../utils/distance.js";
 import { buildPathSegmentsFilter } from "../PathSegmentsFilter.js";
+import { attachQueryDiagnostics } from "../../../ydb/QueryDiagnostics.js";
 
 type QueryParams = Record<string, Value>;
 
@@ -143,7 +144,14 @@ export async function searchPointsOneTableApproximate(args: {
       LIMIT $safeTop;
     `;
 
-    let q: Query<ResultSets> = baseQuery
+    let q: Query<ResultSets> = attachQueryDiagnostics(baseQuery, {
+      operation: "searchPointsOneTableApproximate",
+      tableName: args.tableName,
+      uid: args.uid,
+      distance: args.distance,
+      withPayload: Boolean(args.withPayload),
+      overfetchMultiplier: args.overfetchMultiplier,
+    })
       .idempotent(true)
       .timeout(args.timeoutMs)
       .signal(signal);

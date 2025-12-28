@@ -70,6 +70,7 @@
     "@ydbjs/auth": "^6.0.5",
     "@ydbjs/core": "^6.0.7",
     "@ydbjs/query": "^6.0.7",
+    "@ydbjs/retry": "^6.0.5",
     "@ydbjs/value": "^6.0.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",

@@ -8,6 +8,7 @@ import {
 import { logger } from "../logging/logger.js";
 import type { DistanceKind, VectorType, CollectionMeta } from "../types";
 import { uidFor } from "../utils/tenant.js";
+import { attachQueryDiagnostics } from "../ydb/QueryDiagnostics.js";
 import {
   createCollectionOneTable,
   deleteCollectionOneTable,
@@ -104,7 +105,8 @@ export async function getCollectionMeta(
   };
 
   const [rows] = await withSession(async (sql, signal) => {
-    return await sql<[Row]>`
+    const q = attachQueryDiagnostics(
+      sql<[Row]>`
       SELECT
         table_name,
         vector_dimension,
@@ -113,11 +115,14 @@ export async function getCollectionMeta(
         CAST(last_accessed_at AS Utf8) AS last_accessed_at
       FROM qdr__collections
       WHERE collection = $collection;
-    `
+    `,
+      { operation: "getCollectionMeta", metaKey }
+    )
       .idempotent(true)
       .timeout(SEARCH_OPERATION_TIMEOUT_MS)
       .signal(signal)
       .parameter("collection", new Utf8(metaKey));
+    return await q;
   });
 
   if (rows.length !== 1) return null;

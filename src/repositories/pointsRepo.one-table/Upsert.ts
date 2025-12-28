@@ -3,6 +3,8 @@ import { buildVectorBinaryParams } from "../../ydb/helpers.js";
 import { UPSERT_BATCH_SIZE } from "../../ydb/schema.js";
 import { UPSERT_OPERATION_TIMEOUT_MS } from "../../config/env.js";
 import { logger } from "../../logging/logger.js";
+import { withRetry, isTransientYdbError } from "../../utils/retry.js";
+import { attachQueryDiagnostics } from "../../ydb/QueryDiagnostics.js";
 import { Bytes, JsonDocument, Utf8 } from "@ydbjs/value/primitive";
 import { List } from "@ydbjs/value/list";
 import { Struct } from "@ydbjs/value/struct";
@@ -113,21 +115,44 @@ export async function upsertPointsOneTable(
         batch,
       });
 
-      await sql`
-        UPSERT INTO ${sql.identifier(tableName)} (
-          uid,
-          point_id,
-          embedding,
-          embedding_quantized,
-          payload
-        )
-        SELECT uid, point_id, embedding, embedding_quantized, payload
-        FROM AS_TABLE($rows);
-      `
-        .parameter("rows", rowsValue)
-        .idempotent(true)
-        .timeout(UPSERT_OPERATION_TIMEOUT_MS)
-        .signal(signal);
+      await withRetry(
+        async () => {
+          await attachQueryDiagnostics(
+            sql`
+              UPSERT INTO ${sql.identifier(tableName)} (
+                uid,
+                point_id,
+                embedding,
+                embedding_quantized,
+                payload
+              )
+              SELECT uid, point_id, embedding, embedding_quantized, payload
+              FROM AS_TABLE($rows);
+            `,
+            {
+              operation: "upsertPointsOneTable",
+              tableName,
+              uid,
+              batchStart: i,
+              batchSize: batch.length,
+            }
+          )
+            .parameter("rows", rowsValue)
+            .idempotent(true)
+            .timeout(UPSERT_OPERATION_TIMEOUT_MS)
+            .signal(signal);
+        },
+        {
+          isTransient: isTransientYdbError,
+          context: {
+            operation: "upsertPointsOneTable",
+            tableName,
+            uid,
+            batchStart: i,
+            batchSize: batch.length,
+          },
+        }
+      );
       upserted += batch.length;
     }
   });

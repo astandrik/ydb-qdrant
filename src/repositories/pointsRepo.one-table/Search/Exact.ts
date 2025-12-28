@@ -6,6 +6,7 @@ import { Bytes, Uint32, Utf8 } from "@ydbjs/value/primitive";
 import type { DistanceKind } from "../../../types";
 import { mapDistanceToKnnFn } from "../../../utils/distance.js";
 import { buildPathSegmentsFilter } from "../PathSegmentsFilter.js";
+import { attachQueryDiagnostics } from "../../../ydb/QueryDiagnostics.js";
 
 type QueryParams = Record<string, Value>;
 
@@ -115,7 +116,13 @@ export async function searchPointsOneTableExact(args: {
       LIMIT $k;
     `;
 
-    let q: Query<ResultSets> = baseQuery
+    let q: Query<ResultSets> = attachQueryDiagnostics(baseQuery, {
+      operation: "searchPointsOneTableExact",
+      tableName: args.tableName,
+      uid: args.uid,
+      distance: args.distance,
+      withPayload: Boolean(args.withPayload),
+    })
       .idempotent(true)
       .timeout(args.timeoutMs)
       .signal(signal);
