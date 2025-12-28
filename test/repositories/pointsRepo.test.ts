@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, type Mock } from "vitest";
-import { createSqlHarness } from "../helpers/ydbjsQueryMock.js";
+import { createSqlHarness, getQueryParam } from "../helpers/ydbjsQueryMock.js";
 
 vi.mock("../../src/ydb/client.js", () => {
   return {
@@ -158,14 +158,17 @@ describe("pointsRepo (with mocked YDB)", () => {
     expect(result).toBe(1);
     expect(h.calls).toHaveLength(1);
     const yql = h.calls[0].yql;
-    expect(yql).toContain("DECLARE $rows AS List<Struct<");
     expect(yql).toContain(
       "UPSERT INTO qdrant_all_points (uid, point_id, embedding, embedding_quantized, payload)"
     );
-    expect(yql).toContain("embedding: String");
-    expect(yql).toContain("embedding_quantized: String");
+    expect(yql).toContain("FROM AS_TABLE($rows)");
     expect(yql).not.toContain("Knn::ToBinaryStringFloat");
     expect(yql).not.toContain("Knn::ToBinaryStringBit");
+
+    // In v6, @ydbjs/query injects DECLARE statements automatically based on .parameter() calls.
+    // Assert parameters were bound instead of asserting explicit DECLARE text.
+    const rowsParam = getQueryParam(h.calls[0].query, "rows");
+    expect(rowsParam).toBeDefined();
   });
 
   it("upserts more than UPSERT_BATCH_SIZE points in multiple batches (one_table)", async () => {
@@ -222,10 +225,11 @@ describe("pointsRepo (with mocked YDB)", () => {
     expect(yql).toContain("ORDER BY Knn::CosineSimilarity");
     expect(yql).toContain("Knn::CosineDistance");
     expect(yql).toContain("ORDER BY score ASC");
-    expect(yql).toContain("DECLARE $p0_0 AS Utf8;");
-    expect(yql).toContain("DECLARE $p0_1 AS Utf8;");
     expect(yql).toContain("JSON_VALUE(payload, '$.pathSegments.\"0\"')");
     expect(yql).toContain("JSON_VALUE(payload, '$.pathSegments.\"1\"')");
+
+    expect(getQueryParam(h.calls[0].query, "$p0_0")).toBeDefined();
+    expect(getQueryParam(h.calls[0].query, "$p0_1")).toBeDefined();
   });
 
   it("searches points with uid parameter for one_table mode (Euclid)", async () => {
@@ -375,9 +379,6 @@ describe("pointsRepo (with mocked YDB)", () => {
     expect(deleted).toBe(1);
     expect(h.calls).toHaveLength(2);
     const yql = h.calls[0].yql;
-    expect(yql).toContain("DECLARE $p0_0 AS Utf8;");
-    expect(yql).toContain("DECLARE $p0_1 AS Utf8;");
-    expect(yql).toContain("DECLARE $p0_2 AS Utf8;");
     expect(yql).toContain("JSON_VALUE(payload, '$.pathSegments.\"0\"')");
     expect(yql).toContain("JSON_VALUE(payload, '$.pathSegments.\"1\"')");
     expect(yql).toContain("JSON_VALUE(payload, '$.pathSegments.\"2\"')");
@@ -385,6 +386,10 @@ describe("pointsRepo (with mocked YDB)", () => {
     expect(yql).toContain("SELECT uid, point_id");
     expect(yql).toContain("DELETE FROM qdrant_all_points ON");
     expect(yql).toContain("SELECT COUNT(*) AS deleted FROM $to_delete");
+
+    expect(getQueryParam(h.calls[0].query, "$p0_0")).toBeDefined();
+    expect(getQueryParam(h.calls[0].query, "$p0_1")).toBeDefined();
+    expect(getQueryParam(h.calls[0].query, "$p0_2")).toBeDefined();
   });
 
   it("retries transient OVERLOADED errors for deletePointsByPathSegments (one_table)", async () => {

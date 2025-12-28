@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, type Mock } from "vitest";
-import { createSqlHarness } from "../helpers/ydbjsQueryMock.js";
+import { createSqlHarness, getQueryParam } from "../helpers/ydbjsQueryMock.js";
 
 vi.mock("../../src/ydb/client.js", () => {
   return {
@@ -54,8 +54,9 @@ describe("pointsRepo one_table with client-side serialization", () => {
     expect(result).toEqual([{ id: "p1", score: 0.9 }]);
     expect(h.calls).toHaveLength(1);
     const yql = h.calls[0].yql;
-    expect(yql).toContain("DECLARE $qbinf AS String;");
-    expect(yql).not.toContain("DECLARE $qf AS List<Float>;");
+    // @ydbjs/query auto-injects DECLAREs; assert bound params instead.
+    expect(getQueryParam(h.calls[0].query, "$qbinf")).toBeDefined();
+    expect(getQueryParam(h.calls[0].query, "$qf")).toBeUndefined();
     expect(yql).not.toContain("Knn::ToBinaryStringFloat");
 
     expect(buildVectorBinaryParamsMock).toHaveBeenCalledWith([0, 0, 0, 1]);
@@ -86,8 +87,9 @@ describe("pointsRepo one_table with client-side serialization", () => {
     expect(h.calls).toHaveLength(1);
     const yql = h.calls[0].yql;
 
-    expect(yql).toContain("DECLARE $qbin_bit AS String;");
-    expect(yql).toContain("DECLARE $qbinf AS String;");
+    // @ydbjs/query auto-injects DECLAREs; assert bound params instead.
+    expect(getQueryParam(h.calls[0].query, "$qbin_bit")).toBeDefined();
+    expect(getQueryParam(h.calls[0].query, "$qbinf")).toBeDefined();
     expect(yql).not.toContain("Knn::ToBinaryStringBit");
     expect(yql).not.toContain("Knn::ToBinaryStringFloat");
     expect(yql).toContain("embedding_quantized IS NOT NULL");

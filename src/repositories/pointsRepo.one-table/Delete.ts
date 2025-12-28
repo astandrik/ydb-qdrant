@@ -17,8 +17,6 @@ export async function deletePointsOneTable(
   await withSession(async (sql, signal) => {
     for (const id of ids) {
       const yql = `
-        DECLARE $uid AS Utf8;
-        DECLARE $id AS Utf8;
         DELETE FROM ${tableName} WHERE uid = $uid AND point_id = $id;
       `;
 
@@ -71,16 +69,7 @@ export async function deletePointsByPathSegmentsOneTable(
 
   const { whereSql, params: whereParams } = buildPathSegmentsWhereClause(paths);
 
-  const whereParamDeclarations = Object.keys(whereParams)
-    .sort()
-    .map((key) => `DECLARE ${key} AS Utf8;`)
-    .join("\n    ");
-
   const deleteBatchYql = `
-    DECLARE $uid AS Utf8;
-    DECLARE $limit AS Uint32;
-    ${whereParamDeclarations}
-
     $to_delete = (
       SELECT uid, point_id
       FROM ${tableName}

@@ -1,6 +1,8 @@
 import { withSession, withStartupProbeSession } from "../ydb/client.js";
 import {
+  SEARCH_OPERATION_TIMEOUT_MS,
   STARTUP_PROBE_SESSION_TIMEOUT_MS,
+  UPSERT_OPERATION_TIMEOUT_MS,
   LAST_ACCESS_MIN_WRITE_INTERVAL_MS,
 } from "../config/env.js";
 import { logger } from "../logging/logger.js";
@@ -46,7 +48,6 @@ export async function getCollectionMeta(
   metaKey: string
 ): Promise<CollectionMeta | null> {
   const qry = `
-    DECLARE $collection AS Utf8;
     SELECT
       table_name,
       vector_dimension,
@@ -67,6 +68,7 @@ export async function getCollectionMeta(
   const [rows] = await withSession(async (sql, signal) => {
     return await sql<[Row]>`${sql.unsafe(qry)}`
       .idempotent(true)
+      .timeout(SEARCH_OPERATION_TIMEOUT_MS)
       .signal(signal)
       .parameter("collection", new Utf8(metaKey));
   });
@@ -100,7 +102,6 @@ export async function getCollectionMeta(
 export async function verifyCollectionsQueryCompilationForStartup(): Promise<void> {
   const probeKey = "__startup_probe__/__startup_probe__";
   const qry = `
-    DECLARE $collection AS Utf8;
     SELECT
       table_name,
       vector_dimension,
@@ -157,8 +158,6 @@ export async function touchCollectionLastAccess(
   }
 
   const qry = `
-    DECLARE $collection AS Utf8;
-    DECLARE $last_accessed AS Timestamp;
     UPDATE qdr__collections
     SET last_accessed_at = $last_accessed
     WHERE collection = $collection;
@@ -168,6 +167,7 @@ export async function touchCollectionLastAccess(
     await withSession(async (sql, signal) => {
       await sql`${sql.unsafe(qry)}`
         .idempotent(true)
+        .timeout(UPSERT_OPERATION_TIMEOUT_MS)
         .signal(signal)
         .parameter("collection", new Utf8(metaKey))
         .parameter("last_accessed", new Timestamp(now));

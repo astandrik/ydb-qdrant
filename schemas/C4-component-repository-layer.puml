@@ -17,7 +17,7 @@ Container_Boundary(repo_layer, "Repository Layer") {
     ComponentDb(ydb_schema, "Schema Manager", "TypeScript Module", "Ensures qdr__collections metadata table exists")
 }
 
-Container(ydb_client, "YDB Client", "ydb-sdk Driver", "Database session management")
+Container(ydb_client, "YDB Client", "@ydbjs/core + @ydbjs/query (v6)", "Driver + query client for executing YQL")
 
 Rel(collections_repo, ydb_client, "Uses", "withSession() for YQL queries")
 Rel(collections_repo, utils_tenant, "Uses", "tableNameFor(), metaKeyFor()")

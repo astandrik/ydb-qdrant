@@ -30,7 +30,7 @@ Notes
 
 ## Environment & credentials
 - Required env: `YDB_ENDPOINT`, `YDB_DATABASE`.
-- Auth (first that matches via ydb-sdk getCredentialsFromEnv):
+- Auth (first that matches; resolved in `src/ydb/client.ts` using `@ydbjs/auth` plus a custom SA key-file provider):
   - `YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS=/abs/path/sa.json`
   - `YDB_METADATA_CREDENTIALS=1` (YC VM/Functions)
   - `YDB_ACCESS_TOKEN_CREDENTIALS=<token>` (short‑lived)
@@ -99,7 +99,7 @@ Notes
 - `utils/distance.ts` — distance mapping functions (`mapDistanceToKnnFn` for exact search, `mapDistanceToBitKnnFn` for one-table phase 1 approximate search).
 - `utils/retry.ts` — generic retry wrapper (`withRetry`) with exponential backoff for transient YDB errors.
 - `types.ts` — shared types and Zod schemas (CreateCollectionReq, UpsertPointsReq, SearchReq, DeletePointsReq).
-- `ydb/client.ts` — ydb-sdk Driver init (CJS interop), `readyOrThrow`, `withSession`, `destroyDriver`, `refreshDriver`, and re‑exports `Types`, `TypedValues`. Session pool size and keepalive period are configurable via environment variables.
+- `ydb/client.ts` — `@ydbjs/core` `Driver` init + `@ydbjs/query` query client, `readyOrThrow`, `withSession`, `destroyDriver`, `refreshDriver`. Credentials resolved via `@ydbjs/auth` (plus SA key-file provider for `YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS`).
 - `ydb/schema.ts` — `ensureMetaTable()` (creates `qdr__collections` if missing) and `ensureGlobalPointsTable()` (creates/migrates `qdrant_all_points` with `embedding_quantized`).
 - `repositories/collectionsRepo.ts` — facade for collection metadata operations and delete‑collection logic over the global points table.
 - `repositories/pointsRepo.ts` — facade for point upsert/search/delete; routes calls to the one-table strategy (`pointsRepo.one-table.ts`) and uses `withRetry` for transient errors.
@@ -174,8 +174,9 @@ Collections are not auto-created: create them explicitly via `PUT /collections/{
 - Upserts: transient `Aborted`/schema metadata errors are retried with bounded backoff.
 
 ## Implementation notes for agents
-- ydb-sdk is consumed via CJS interop (`createRequire`) even in ESM TS to avoid ESM default export issues.
-- Use `withSession(fn)` for queries and declare parameters in YQL with `DECLARE`. For per-query timeouts, use `createExecuteQuerySettingsWithTimeout({ timeoutMs })` and pass it to `executeQuery`.
+- The project uses YDB JS SDK v6 modular packages (`@ydbjs/core`, `@ydbjs/query`, `@ydbjs/value`, `@ydbjs/auth`).
+- Prefer the `@ydbjs/query` tagged-template API via `withSession(fn)`; bind parameters via interpolation or `.parameter(name, value)`.
+- Always set `.timeout(ms)` on retryable operations and use `.idempotent(true)` only when safe-to-retry.
 - Prefer repository layer for YDB access; routes and services should remain thin.
 - Service layer is split by domain: `CollectionService.ts` for collection operations, `PointsService.ts` for points operations, `errors.ts` for error types.
 - Utility functions are extracted to `utils/`: `normalization.ts` (vector extraction), `distance.ts` (KNN/index mapping), `retry.ts` (transient error handling).
@@ -295,5 +296,5 @@ k6 load tests verify HTTP API performance under sustained and increasing load.
 - YQL getting started: https://ydb.tech/docs/en/getting_started/yql/
 - YQL reference (syntax, functions): https://ydb.tech/docs/en/yql/reference/
 - YQL functions index: https://ydb.tech/docs/en/yql/reference/functions/
-- ydb-sdk (Node.js): https://github.com/ydb-platform/ydb-nodejs-sdk
+- YDB JavaScript/TypeScript SDK: `https://github.com/ydb-platform/ydb-js-sdk`
 - YDB Cloud (endpoints, auth): https://cloud.yandex.com/en/docs/ydb/

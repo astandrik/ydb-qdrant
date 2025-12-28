@@ -1,6 +1,7 @@
 import { withSession } from "../ydb/client.js";
 import type { DistanceKind, VectorType } from "../types";
 import { Timestamp, Uint32, Utf8 } from "@ydbjs/value/primitive";
+import { UPSERT_OPERATION_TIMEOUT_MS } from "../config/env.js";
 
 export async function upsertCollectionMeta(
   metaKey: string,
@@ -11,19 +12,13 @@ export async function upsertCollectionMeta(
 ): Promise<void> {
   const now = new Date();
   const upsertMeta = `
-    DECLARE $collection AS Utf8;
-    DECLARE $table AS Utf8;
-    DECLARE $dim AS Uint32;
-    DECLARE $distance AS Utf8;
-    DECLARE $vtype AS Utf8;
-    DECLARE $created AS Timestamp;
-    DECLARE $last_accessed AS Timestamp;
     UPSERT INTO qdr__collections (collection, table_name, vector_dimension, distance, vector_type, created_at, last_accessed_at)
     VALUES ($collection, $table, $dim, $distance, $vtype, $created, $last_accessed);
   `;
   await withSession(async (sql, signal) => {
     await sql`${sql.unsafe(upsertMeta)}`
       .idempotent(true)
+      .timeout(UPSERT_OPERATION_TIMEOUT_MS)
       .signal(signal)
       .parameter("collection", new Utf8(metaKey))
       .parameter("table", new Utf8(tableName))

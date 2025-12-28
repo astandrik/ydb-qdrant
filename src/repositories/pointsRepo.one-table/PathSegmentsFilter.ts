@@ -39,17 +39,11 @@ export function buildPathSegmentsFilter(
 ):
   | {
       whereSql: string;
-      whereParamDeclarations: string;
       whereParams: QueryParams;
     }
   | undefined {
   if (!paths || paths.length === 0) return undefined;
 
   const { whereSql, params: whereParams } = buildPathSegmentsWhereClause(paths);
-  const whereParamDeclarations = Object.keys(whereParams)
-    .sort()
-    .map((key) => `DECLARE ${key} AS Utf8;`)
-    .join("\n        ");
-
-  return { whereSql, whereParamDeclarations, whereParams };
+  return { whereSql, whereParams };
 }

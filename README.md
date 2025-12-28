@@ -37,7 +37,7 @@ Architecture diagrams: [docs page](http://ydb-qdrant.tech/docs/)
 - **Evaluation, CI, and release process**: [docs/evaluation-and-ci.md](docs/evaluation-and-ci.md)
 
 ## Requirements
-- Node.js 18+
+- Node.js >=20.19.0
 - A YDB endpoint and database path
 - One of the supported auth methods (via environment)
 
@@ -54,7 +54,7 @@ npm install
 ```
 
 ## Configure credentials
-The server uses `getCredentialsFromEnv()` and supports these env vars (first match wins):
+The server resolves credentials via `@ydbjs/auth` (plus a service-account key-file provider) and supports these env vars (first match wins):
 
 - Service account key file (recommended)
   ```bash

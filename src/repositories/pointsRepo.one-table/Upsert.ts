@@ -63,14 +63,6 @@ function buildUpsertQueryAndParams(args: {
   debugMode: string;
 } {
   const yql = `
-    DECLARE $rows AS List<Struct<
-      uid: Utf8,
-      point_id: Utf8,
-      embedding: String,
-      embedding_quantized: String,
-      payload: JsonDocument
-    >>;
-
     UPSERT INTO ${args.tableName} (uid, point_id, embedding, embedding_quantized, payload)
     SELECT uid, point_id, embedding, embedding_quantized, payload
     FROM AS_TABLE($rows);

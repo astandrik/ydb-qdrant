@@ -73,7 +73,7 @@ Compatibility notes:
 - YQL getting started: https://ydb.tech/docs/en/getting_started/yql/
 - YQL reference (syntax, functions): https://ydb.tech/docs/en/yql/reference/
 - YQL functions index: https://ydb.tech/docs/en/yql/reference/functions/
-- ydb-sdk (Node.js): https://github.com/ydb-platform/ydb-nodejs-sdk
+- YDB JavaScript/TypeScript SDK: `https://github.com/ydb-platform/ydb-js-sdk`
 - YDB Cloud (endpoints, auth): https://cloud.yandex.com/en/docs/ydb/
 - IR evaluation (precision/recall/F1, MAP, nDCG): https://nlp.stanford.edu/IR-book/pdf/08eval.pdf
 

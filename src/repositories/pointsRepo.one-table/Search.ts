@@ -56,10 +56,6 @@ function buildExactSearchQueryAndParams(args: {
 
   const binaries = buildVectorBinaryParams(args.queryVector);
   const yql = `
-        DECLARE $qbinf AS String;
-        DECLARE $k AS Uint32;
-        DECLARE $uid AS Utf8;
-        ${filter?.whereParamDeclarations ?? ""}
         SELECT point_id, ${
           args.withPayload ? "payload, " : ""
         }${fn}(embedding, $qbinf) AS score
@@ -107,13 +103,6 @@ function buildApproxSearchQueryAndParams(args: {
 
   const binaries = buildVectorBinaryParams(args.queryVector);
   const yql = `
-        DECLARE $qbin_bit AS String;
-        DECLARE $qbinf AS String;
-        DECLARE $candidateLimit AS Uint32;
-        DECLARE $safeTop AS Uint32;
-        DECLARE $uid AS Utf8;
-        ${filter?.whereParamDeclarations ?? ""}
-
         $candidates = (
           SELECT point_id
           FROM ${args.tableName}

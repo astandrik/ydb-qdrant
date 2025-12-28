@@ -36,8 +36,6 @@ async function deletePointsForUidInChunks(
   uid: string
 ): Promise<void> {
   const selectYql = `
-    DECLARE $uid AS Utf8;
-    DECLARE $limit AS Uint32;
     SELECT point_id
     FROM ${GLOBAL_POINTS_TABLE}
     WHERE uid = $uid
@@ -45,8 +43,6 @@ async function deletePointsForUidInChunks(
   `;
 
   const deleteBatchYql = `
-    DECLARE $uid AS Utf8;
-    DECLARE $ids AS List<Utf8>;
     DELETE FROM ${GLOBAL_POINTS_TABLE}
     WHERE uid = $uid AND point_id IN $ids;
   `;
@@ -109,7 +105,6 @@ export async function deleteCollectionOneTable(
   await ensureGlobalPointsTable();
   if (USE_BATCH_DELETE_FOR_COLLECTIONS) {
     const batchDeletePointsYql = `
-      DECLARE $uid AS Utf8;
       BATCH DELETE FROM ${GLOBAL_POINTS_TABLE}
       WHERE uid = $uid;
     `;
@@ -134,7 +129,6 @@ export async function deleteCollectionOneTable(
     });
   } else {
     const deletePointsYql = `
-      DECLARE $uid AS Utf8;
       DELETE FROM ${GLOBAL_POINTS_TABLE} WHERE uid = $uid;
     `;
 
@@ -156,7 +150,6 @@ export async function deleteCollectionOneTable(
   }
 
   const delMeta = `
-    DECLARE $collection AS Utf8;
     DELETE FROM qdr__collections WHERE collection = $collection;
   `;
   await withSession(async (sql, signal) => {

@@ -12,7 +12,7 @@ System_Boundary(ydbQdrant, "YDB-Qdrant Service") {
     
     Container(repos, "Repository Layer", "TypeScript", "Business logic for collections and points operations; builds YQL queries for one-table layout")
     
-    Container(ydbClient, "YDB Client", "ydb-sdk (CJS)", "Database driver with session pooling and credential management")
+    Container(ydbClient, "YDB Client", "@ydbjs/core + @ydbjs/query (v6)", "Database driver + query client (sessions managed by query service)")
 }
 
 ContainerDb(ydb, "YDB Database", "Distributed SQL/NoSQL", "Stores collection metadata (qdr__collections) and vector data (qdrant_all_points) with auto-partitioning")
@@ -67,8 +67,8 @@ end note
 
 note right of ydbClient
   **Session management:**
-  • withSession(fn, 15000ms)
-  • Auto-pool via tableClient
+  • withSession(fn)
+  • Sessions managed by @ydbjs/query (QueryService)
   
   **Auth methods (first match):**
   1. Service account key file
