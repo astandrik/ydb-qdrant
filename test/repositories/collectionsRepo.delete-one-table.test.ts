@@ -20,9 +20,9 @@ vi.mock("../../src/ydb/schema.js", () => {
 });
 
 vi.mock("../../src/config/env.js", async () => {
-  const actual = await vi.importActual<typeof import("../../src/config/env.js")>(
-    "../../src/config/env.js"
-  );
+  const actual = await vi.importActual<
+    typeof import("../../src/config/env.js")
+  >("../../src/config/env.js");
 
   let useBatchDeleteForCollections = false;
 
@@ -82,7 +82,10 @@ describe("collectionsRepo/deleteCollection one-table (with mocked YDB)", () => {
         await fn(h.sql, new AbortController().signal)
     );
 
-    await deleteCollection("tenant_a/my_collection", "qdr_tenant_a__my_collection");
+    await deleteCollection(
+      "tenant_a/my_collection",
+      "qdr_tenant_a__my_collection"
+    );
 
     expect(h.calls).toHaveLength(3);
     expect(h.calls[0].yql).toContain("FROM qdr__collections");
@@ -104,7 +107,10 @@ describe("collectionsRepo/deleteCollection one-table (with mocked YDB)", () => {
         await fn(h.sql, new AbortController().signal)
     );
 
-    await deleteCollection("tenant_a/my_collection", "qdr_tenant_a__my_collection");
+    await deleteCollection(
+      "tenant_a/my_collection",
+      "qdr_tenant_a__my_collection"
+    );
 
     expect(h.calls).toHaveLength(3);
     expect(h.calls[1].yql).toContain("BATCH DELETE FROM qdrant_all_points");
@@ -131,16 +137,24 @@ describe("collectionsRepo/deleteCollection one-table (with mocked YDB)", () => {
         await fn(h.sql, new AbortController().signal)
     );
 
-    await deleteCollection("tenant_a/my_collection", "qdr_tenant_a__my_collection");
+    await deleteCollection(
+      "tenant_a/my_collection",
+      "qdr_tenant_a__my_collection"
+    );
 
     const deleteBatchCalls = h.calls.filter(
       (c) =>
-        c.yql.includes("DELETE FROM qdrant_all_points") && c.yql.includes("point_id IN")
+        c.yql.includes("DELETE FROM qdrant_all_points") &&
+        c.yql.includes("point_id IN")
     );
     expect(deleteBatchCalls).toHaveLength(2);
 
-    const ids1 = decodeUtf8List(getQueryParam(deleteBatchCalls[0].query, /ids/i));
-    const ids2 = decodeUtf8List(getQueryParam(deleteBatchCalls[1].query, /ids/i));
+    const ids1 = decodeUtf8List(
+      getQueryParam(deleteBatchCalls[0].query, /ids/i)
+    );
+    const ids2 = decodeUtf8List(
+      getQueryParam(deleteBatchCalls[1].query, /ids/i)
+    );
     expect(ids1).toEqual(["p1", "p2"]);
     expect(ids2).toEqual(["p3"]);
   });
@@ -161,16 +175,24 @@ describe("collectionsRepo/deleteCollection one-table (with mocked YDB)", () => {
         await fn(h.sql, new AbortController().signal)
     );
 
-    await deleteCollection("tenant_a/my_collection", "qdr_tenant_a__my_collection");
+    await deleteCollection(
+      "tenant_a/my_collection",
+      "qdr_tenant_a__my_collection"
+    );
 
     const deleteBatchCalls = h.calls.filter(
       (c) =>
-        c.yql.includes("DELETE FROM qdrant_all_points") && c.yql.includes("point_id IN")
+        c.yql.includes("DELETE FROM qdrant_all_points") &&
+        c.yql.includes("point_id IN")
     );
     expect(deleteBatchCalls).toHaveLength(2);
 
-    const ids1 = decodeUtf8List(getQueryParam(deleteBatchCalls[0].query, /ids/i));
-    const ids2 = decodeUtf8List(getQueryParam(deleteBatchCalls[1].query, /ids/i));
+    const ids1 = decodeUtf8List(
+      getQueryParam(deleteBatchCalls[0].query, /ids/i)
+    );
+    const ids2 = decodeUtf8List(
+      getQueryParam(deleteBatchCalls[1].query, /ids/i)
+    );
     expect(ids1).toEqual(["p1", "p2"]);
     expect(ids2).toEqual(["p3"]);
   });
@@ -179,7 +201,9 @@ describe("collectionsRepo/deleteCollection one-table (with mocked YDB)", () => {
     const h = createSqlHarness();
     planMetaRow(h);
 
-    const err = new Error("YDB data query failure") as Error & { issues?: string };
+    const err = new Error("YDB data query failure") as Error & {
+      issues?: string;
+    };
     err.issues = "Out of buffer memory while executing data query";
     h.plan([{ error: err }]); // bulk DELETE fails but detected via issues
     h.plan([{ result: [[]] }]); // SELECT ids -> empty
@@ -190,17 +214,24 @@ describe("collectionsRepo/deleteCollection one-table (with mocked YDB)", () => {
         await fn(h.sql, new AbortController().signal)
     );
 
-    await deleteCollection("tenant_a/my_collection", "qdr_tenant_a__my_collection");
+    await deleteCollection(
+      "tenant_a/my_collection",
+      "qdr_tenant_a__my_collection"
+    );
 
     expect(h.calls[1].yql).toContain("DELETE FROM qdrant_all_points");
     expect(h.calls[1].yql).toContain("WHERE uid = $uid");
     expect(h.calls.some((c) => c.yql.includes("SELECT point_id"))).toBe(true);
     expect(
       h.calls.some(
-        (c) => c.yql.includes("point_id IN") && c.yql.includes("DELETE FROM qdrant_all_points")
+        (c) =>
+          c.yql.includes("point_id IN") &&
+          c.yql.includes("DELETE FROM qdrant_all_points")
       )
     ).toBe(false);
-    expect(h.calls[h.calls.length - 1].yql).toContain("DELETE FROM qdr__collections");
+    expect(h.calls[h.calls.length - 1].yql).toContain(
+      "DELETE FROM qdr__collections"
+    );
   });
 
   it("rethrows errors that are not out-of-buffer-memory", async () => {
@@ -241,5 +272,3 @@ describe("collectionsRepo/deleteCollection one-table (with mocked YDB)", () => {
     expect(h.calls[1].yql).toContain("BATCH DELETE FROM qdrant_all_points");
   });
 });
-
-

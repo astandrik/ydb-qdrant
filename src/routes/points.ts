@@ -1,4 +1,5 @@
 import { Router, Request, Response } from "express";
+import type { Schemas } from "@qdrant/js-client-rest";
 import {
   upsertPoints,
   searchPoints,
@@ -11,6 +12,27 @@ import { isCompilationTimeoutError } from "../ydb/client.js";
 import { scheduleExit } from "../utils/exit.js";
 
 export const pointsRouter = Router();
+
+type QdrantScoredPoint = Schemas["ScoredPoint"];
+type QdrantQueryResponse = Schemas["QueryResponse"];
+
+function toQdrantScoredPoint(hit: {
+  id: string;
+  score: number;
+  payload?: Record<string, unknown>;
+}): QdrantScoredPoint {
+  // Qdrant's ScoredPoint includes a mandatory `version`.
+  // We don't track versions; emit a stable default.
+  return {
+    id: hit.id,
+    version: 0,
+    score: hit.score,
+    payload: hit.payload ?? null,
+    vector: null,
+    shard_key: null,
+    order_value: null,
+  };
+}
 
 // Qdrant-compatible: PUT /collections/:collection/points (upsert)
 pointsRouter.put("/:collection/points", async (req: Request, res: Response) => {
@@ -91,7 +113,12 @@ pointsRouter.post(
         },
         req.body
       );
-      res.json({ status: "ok", result });
+      // Qdrant compatibility: REST API returns `result` as an array of points.
+      // Keep service return shape internal (`{ points: [...] }`).
+      res.json({
+        status: "ok",
+        result: result.points.map(toQdrantScoredPoint),
+      });
     } catch (err: unknown) {
       if (err instanceof QdrantServiceError) {
         return res.status(err.statusCode).json(err.payload);
@@ -126,7 +153,12 @@ pointsRouter.post(
         },
         req.body
       );
-      res.json({ status: "ok", result });
+      // Qdrant compatibility: /points/query returns `result` as an object.
+      // (Unlike /points/search, where result is a list.)
+      const qdrantResult: QdrantQueryResponse = {
+        points: result.points.map(toQdrantScoredPoint),
+      };
+      res.json({ status: "ok", result: qdrantResult });
     } catch (err: unknown) {
       if (err instanceof QdrantServiceError) {
         return res.status(err.statusCode).json(err.payload);

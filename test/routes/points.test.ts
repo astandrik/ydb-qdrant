@@ -147,6 +147,16 @@ describe("pointsRouter (HTTP, mocked service)", () => {
     });
     const searchRes = createMockRes();
 
+    vi.mocked(pointsService.searchPoints).mockResolvedValueOnce({
+      points: [
+        {
+          id: "p1",
+          score: 0.85,
+          payload: { filePath: "src/test.ts" },
+        },
+      ],
+    });
+
     await searchHandler(searchReq, searchRes);
 
     expect(pointsService.searchPoints).toHaveBeenCalledWith(
@@ -155,6 +165,17 @@ describe("pointsRouter (HTTP, mocked service)", () => {
     );
     expect(searchRes.statusCode).toBe(200);
     expect(searchRes.body).toMatchObject({ status: "ok" });
+    expect(searchRes.body.result).toEqual([
+      {
+        id: "p1",
+        version: 0,
+        score: 0.85,
+        payload: { filePath: "src/test.ts" },
+        vector: null,
+        shard_key: null,
+        order_value: null,
+      },
+    ]);
 
     const queryBody = {
       query: { vector: [0, 0, 0, 1] },
@@ -168,6 +189,10 @@ describe("pointsRouter (HTTP, mocked service)", () => {
     });
     const queryRes = createMockRes();
 
+    vi.mocked(pointsService.queryPoints).mockResolvedValueOnce({
+      points: [{ id: "p2", score: 0.5 }],
+    });
+
     await queryHandler(queryReq, queryRes);
 
     expect(pointsService.queryPoints).toHaveBeenCalledWith(
@@ -176,6 +201,19 @@ describe("pointsRouter (HTTP, mocked service)", () => {
     );
     expect(queryRes.statusCode).toBe(200);
     expect(queryRes.body).toMatchObject({ status: "ok" });
+    expect(queryRes.body.result).toEqual({
+      points: [
+        {
+          id: "p2",
+          version: 0,
+          score: 0.5,
+          payload: null,
+          vector: null,
+          shard_key: null,
+          order_value: null,
+        },
+      ],
+    });
 
     const deleteBody = { points: ["p1", "p2"] };
     const deleteReq = createRequest({

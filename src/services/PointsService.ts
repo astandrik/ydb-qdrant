@@ -274,11 +274,36 @@ async function executeSearch(
           return hit.score <= threshold;
         });
 
+  const returned = filtered.length;
+
+  if (threshold !== undefined && hits.length > 0 && returned === 0) {
+    const scores = normalizedHits.map((h) => h.score).filter(Number.isFinite);
+    const minScore = scores.length > 0 ? Math.min(...scores) : undefined;
+    const maxScore = scores.length > 0 ? Math.max(...scores) : undefined;
+
+    logger.warn(
+      {
+        tenant: normalized.tenant,
+        collection: normalized.collection,
+        distance: meta.distance,
+        score_threshold: threshold,
+        hits: hits.length,
+        returned,
+        minScore,
+        maxScore,
+      },
+      `${source}: all hits were filtered out by score_threshold`
+    );
+  }
+
   logger.info(
     {
       tenant: normalized.tenant,
       collection: normalized.collection,
+      distance: meta.distance,
+      score_threshold: threshold,
       hits: hits.length,
+      returned,
     },
     `${source}: completed`
   );

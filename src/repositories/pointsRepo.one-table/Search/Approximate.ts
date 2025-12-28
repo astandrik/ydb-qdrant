@@ -12,7 +12,13 @@ import { buildPathSegmentsFilter } from "../PathSegmentsFilter.js";
 
 type QueryParams = Record<string, Value>;
 
-type SearchRow = { point_id: string; score: number; payload?: string };
+type PayloadCell = string | Record<string, unknown> | null;
+
+type SearchRow = { point_id: string; score: number; payload?: PayloadCell };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 function assertVectorDimension(
   vector: number[],
@@ -29,6 +35,9 @@ function assertVectorDimension(
 function parsePayloadJson(
   payloadText: unknown
 ): Record<string, unknown> | undefined {
+  if (isRecord(payloadText)) {
+    return payloadText;
+  }
   if (typeof payloadText !== "string" || payloadText.length === 0) {
     return undefined;
   }
