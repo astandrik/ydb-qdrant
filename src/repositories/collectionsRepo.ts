@@ -17,6 +17,48 @@ import { Timestamp, Utf8 } from "@ydbjs/value/primitive";
 const lastAccessWriteCache = new Map<string, number>();
 const LAST_ACCESS_CACHE_MAX_SIZE = 10000;
 
+type CollectionMetaCacheEntry = {
+  meta: CollectionMeta;
+  expiresAtMs: number;
+};
+
+const collectionMetaCache = new Map<string, CollectionMetaCacheEntry>();
+const COLLECTION_META_CACHE_MAX_SIZE = 10000;
+const COLLECTION_META_CACHE_TTL_MS = 10_000;
+
+function evictOldestCollectionMetaEntry(): void {
+  if (collectionMetaCache.size < COLLECTION_META_CACHE_MAX_SIZE) {
+    return;
+  }
+  const oldestKey = collectionMetaCache.keys().next().value;
+  if (oldestKey !== undefined) {
+    collectionMetaCache.delete(oldestKey);
+  }
+}
+
+function getCachedCollectionMeta(metaKey: string): CollectionMeta | null {
+  const entry = collectionMetaCache.get(metaKey);
+  if (!entry) return null;
+  if (Date.now() >= entry.expiresAtMs) {
+    collectionMetaCache.delete(metaKey);
+    return null;
+  }
+  return entry.meta;
+}
+
+function setCachedCollectionMeta(metaKey: string, meta: CollectionMeta): void {
+  evictOldestCollectionMetaEntry();
+  collectionMetaCache.set(metaKey, {
+    meta,
+    expiresAtMs: Date.now() + COLLECTION_META_CACHE_TTL_MS,
+  });
+}
+
+// Test-only: keep repository unit tests isolated since this module maintains in-memory caches.
+export function __resetCachesForTests(): void {
+  collectionMetaCache.clear();
+}
+
 function evictOldestLastAccessEntry(): void {
   if (lastAccessWriteCache.size < LAST_ACCESS_CACHE_MAX_SIZE) {
     return;
@@ -42,11 +84,17 @@ export async function createCollection(
   vectorType: VectorType
 ): Promise<void> {
   await createCollectionOneTable(metaKey, dim, distance, vectorType);
+  collectionMetaCache.delete(metaKey);
 }
 
 export async function getCollectionMeta(
   metaKey: string
 ): Promise<CollectionMeta | null> {
+  const cached = getCachedCollectionMeta(metaKey);
+  if (cached) {
+    return cached;
+  }
+
   type Row = {
     table_name: string;
     vector_dimension: number;
@@ -95,6 +143,7 @@ export async function getCollectionMeta(
     result.lastAccessedAt = lastAccessedAt;
   }
 
+  setCachedCollectionMeta(metaKey, result);
   return result;
 }
 
@@ -136,6 +185,7 @@ export async function deleteCollection(
     effectiveUid = uidFor(tenant, collection);
   }
   await deleteCollectionOneTable(metaKey, effectiveUid);
+  collectionMetaCache.delete(metaKey);
 }
 
 /**

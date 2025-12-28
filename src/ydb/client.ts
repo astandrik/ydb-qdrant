@@ -1,17 +1,22 @@
 import { Driver, type DriverOptions } from "@ydbjs/core";
 import { query, type QueryClient } from "@ydbjs/query";
+import type { AsyncLocalStorage } from "node:async_hooks";
 import { CredentialsProvider } from "@ydbjs/auth";
 import { AnonymousCredentialsProvider } from "@ydbjs/auth/anonymous";
 import { AccessTokenCredentialsProvider } from "@ydbjs/auth/access-token";
 import { MetadataCredentialsProvider } from "@ydbjs/auth/metadata";
 import { readFile } from "node:fs/promises";
 import crypto from "node:crypto";
+import path from "node:path";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 import {
   YDB_DATABASE,
   YDB_ENDPOINT,
   STARTUP_PROBE_SESSION_TIMEOUT_MS,
 } from "../config/env.js";
 import { logger } from "../logging/logger.js";
+import { SessionPool, type PooledQuerySession } from "./SessionPool.js";
 
 const DRIVER_READY_TIMEOUT_MS = 15000;
 const YDB_HEALTHCHECK_READY_TIMEOUT_MS = 5000;
@@ -27,6 +32,7 @@ type DriverConfig = {
 let overrideConfig: DriverConfig | undefined;
 let driver: Driver | undefined;
 let sqlClient: QueryClient | undefined;
+let sessionPool: SessionPool | undefined;
 let lastDriverRefreshAt = 0;
 let driverRefreshInFlight: Promise<void> | null = null;
 
@@ -34,6 +40,30 @@ let driverRefreshInFlight: Promise<void> | null = null;
 let driverFactoryOverride:
   | ((connectionString: string, options?: DriverOptions) => Driver)
   | undefined;
+
+type QueryCtxModule = {
+  ctx: AsyncLocalStorage<{
+    nodeId?: bigint;
+    sessionId?: string;
+    transactionId?: string;
+    signal?: AbortSignal;
+  }>;
+};
+
+let queryCtxPromise: Promise<QueryCtxModule> | null = null;
+
+async function getQueryCtx(): Promise<QueryCtxModule> {
+  if (queryCtxPromise) {
+    return await queryCtxPromise;
+  }
+  const require = createRequire(import.meta.url);
+  const entry = require.resolve("@ydbjs/query");
+  const ctxPath = path.join(path.dirname(entry), "ctx.js");
+  queryCtxPromise = import(
+    pathToFileURL(ctxPath).href
+  ) as Promise<QueryCtxModule>;
+  return await queryCtxPromise;
+}
 
 const IAM_TOKEN_URL = "https://iam.api.cloud.yandex.net/iam/v1/tokens";
 const SA_JWT_MAX_AGE_SECONDS = 3600;
@@ -213,8 +243,14 @@ class ServiceAccountKeyFileCredentialsProvider extends CredentialsProvider {
 }
 
 function resolveCredentialsProviderFromEnv(): CredentialsProvider {
-  if (parseTruthyEnv(process.env.YDB_ANONYMOUS_CREDENTIALS)) {
-    return new AnonymousCredentialsProvider();
+  const saKeyPath =
+    process.env.YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS?.trim();
+  if (saKeyPath) {
+    return new ServiceAccountKeyFileCredentialsProvider(saKeyPath);
+  }
+
+  if (parseTruthyEnv(process.env.YDB_METADATA_CREDENTIALS)) {
+    return new MetadataCredentialsProvider();
   }
 
   const accessToken = process.env.YDB_ACCESS_TOKEN_CREDENTIALS?.trim();
@@ -222,14 +258,8 @@ function resolveCredentialsProviderFromEnv(): CredentialsProvider {
     return new AccessTokenCredentialsProvider({ token: accessToken });
   }
 
-  if (parseTruthyEnv(process.env.YDB_METADATA_CREDENTIALS)) {
-    return new MetadataCredentialsProvider();
-  }
-
-  const saKeyPath =
-    process.env.YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS?.trim();
-  if (saKeyPath) {
-    return new ServiceAccountKeyFileCredentialsProvider(saKeyPath);
+  if (parseTruthyEnv(process.env.YDB_ANONYMOUS_CREDENTIALS)) {
+    return new AnonymousCredentialsProvider();
   }
 
   throw new Error(
@@ -326,6 +356,8 @@ async function maybeRefreshDriverOnSessionError(error: unknown): Promise<void> {
 export function __setDriverForTests(fake: unknown): void {
   driver = fake as Driver | undefined;
   sqlClient = undefined;
+  sessionPool = undefined;
+  queryCtxPromise = null;
 }
 
 export function __setDriverFactoryForTests(
@@ -423,6 +455,17 @@ function getOrCreateQueryClient(): QueryClient {
   return sqlClient;
 }
 
+function getOrCreateSessionPool(): SessionPool {
+  if (sessionPool) {
+    return sessionPool;
+  }
+  const d = getOrCreateDriver();
+  sessionPool = new SessionPool(d);
+  // Keepalive is best-effort; don't block startup.
+  sessionPool.start();
+  return sessionPool;
+}
+
 async function withTimeoutSignal<T>(
   timeoutMs: number,
   fn: (signal: AbortSignal) => Promise<T>
@@ -448,12 +491,49 @@ export async function withSession<T>(
 ): Promise<T> {
   const sql = getOrCreateQueryClient();
   const d = getOrCreateDriver();
+  const pool = getOrCreateSessionPool();
   const ac = new AbortController();
   try {
     // @ydbjs/query QueryClient.do() is not implemented in the currently published builds.
     // Queries already manage sessions internally; we just provide a shared AbortSignal.
     await d.ready(ac.signal);
-    return await fn(sql, ac.signal);
+    // Ensure we have a few sessions ready to reduce cold-start session churn.
+    void pool.warmup(ac.signal);
+
+    const ctxMod = await getQueryCtx();
+    let leased: PooledQuerySession | null = null;
+
+    const MAX_ATTEMPTS = 3;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+      leased = await pool.acquire(ac.signal);
+      try {
+        const store = {
+          nodeId: leased.nodeId,
+          sessionId: leased.sessionId,
+          signal: ac.signal,
+        };
+        const result = await ctxMod.ctx.run(store, async () => {
+          return await fn(sql, ac.signal);
+        });
+        pool.release(leased);
+        return result;
+      } catch (err) {
+        const shouldRetryWithFreshSession =
+          err instanceof Error &&
+          /BAD_SESSION|SESSION_EXPIRED|SessionExpired|No session became available/i.test(
+            err.message ?? ""
+          );
+        if (!shouldRetryWithFreshSession || attempt === MAX_ATTEMPTS - 1) {
+          pool.release(leased);
+          throw err;
+        }
+        await pool.discard(leased);
+        leased = null;
+      }
+    }
+    throw new Error(
+      "withSession: exhausted attempts to acquire a healthy session"
+    );
   } catch (err) {
     void maybeRefreshDriverOnSessionError(err);
     throw err;
@@ -465,13 +545,32 @@ export async function withStartupProbeSession<T>(
 ): Promise<T> {
   const sql = getOrCreateQueryClient();
   const d = getOrCreateDriver();
+  const pool = getOrCreateSessionPool();
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(), STARTUP_PROBE_SESSION_TIMEOUT_MS);
 
   try {
     // Ensure the startup probe timeout also applies to driver readiness.
     await d.ready(ac.signal);
-    return await fn(sql, ac.signal);
+    void pool.warmup(ac.signal);
+
+    const ctxMod = await getQueryCtx();
+    const leased = await pool.acquire(ac.signal);
+    try {
+      const store = {
+        nodeId: leased.nodeId,
+        sessionId: leased.sessionId,
+        signal: ac.signal,
+      };
+      const result = await ctxMod.ctx.run(store, async () => {
+        return await fn(sql, ac.signal);
+      });
+      pool.release(leased);
+      return result;
+    } catch (err) {
+      pool.release(leased);
+      throw err;
+    }
   } catch (err) {
     void maybeRefreshDriverOnSessionError(err);
     throw err;
@@ -504,6 +603,14 @@ export async function destroyDriver(): Promise<void> {
   }
   logger.info("Destroying YDB driver");
   try {
+    if (sessionPool) {
+      try {
+        await sessionPool.close();
+      } catch (err) {
+        logger.warn({ err }, "Error during session pool close (ignored)");
+      }
+      sessionPool = undefined;
+    }
     if (sqlClient) {
       try {
         await sqlClient[Symbol.asyncDispose]();

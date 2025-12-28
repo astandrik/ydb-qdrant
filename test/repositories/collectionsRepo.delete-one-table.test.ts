@@ -38,7 +38,10 @@ vi.mock("../../src/config/env.js", async () => {
   };
 });
 
-import { deleteCollection } from "../../src/repositories/collectionsRepo.js";
+import {
+  deleteCollection,
+  __resetCachesForTests,
+} from "../../src/repositories/collectionsRepo.js";
 import * as ydbClient from "../../src/ydb/client.js";
 import * as envConfig from "../../src/config/env.js";
 
@@ -68,6 +71,7 @@ function planMetaRow(h: ReturnType<typeof createSqlHarness>): void {
 describe("collectionsRepo/deleteCollection one-table (with mocked YDB)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    __resetCachesForTests();
     envConfigWithSetter.__setUseBatchDeleteForCollections?.(false);
   });
 
@@ -250,6 +254,7 @@ describe("collectionsRepo/deleteCollection one-table (with mocked YDB)", () => {
 
     // meta lookup + failed delete; no further calls
     expect(h.calls).toHaveLength(2);
+    expect(h.calls[1].yql).toContain("DELETE FROM qdrant_all_points");
   });
 
   it("rethrows non-out-of-buffer-memory errors for BATCH DELETE", async () => {
@@ -269,6 +274,7 @@ describe("collectionsRepo/deleteCollection one-table (with mocked YDB)", () => {
     ).rejects.toThrow("Some other YDB error");
 
     expect(h.calls).toHaveLength(2);
+    // First call is meta lookup; second call must be the failing batch delete.
     expect(h.calls[1].yql).toContain("BATCH DELETE FROM qdrant_all_points");
   });
 });

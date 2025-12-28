@@ -9,6 +9,34 @@ import {
   __resetRefreshStateForTests,
 } from "../../src/ydb/client.js";
 
+vi.mock("../../src/ydb/SessionPool.js", () => {
+  type Pooled = { nodeId: bigint; sessionId: string };
+
+  class SessionPool {
+    start(): void {}
+    warmup(signal: AbortSignal): Promise<void> {
+      void signal;
+      return Promise.resolve();
+    }
+    close(): Promise<void> {
+      return Promise.resolve();
+    }
+    acquire(signal: AbortSignal): Promise<Pooled> {
+      void signal;
+      return Promise.resolve({ nodeId: 1n, sessionId: "test-session" });
+    }
+    release(session: Pooled): void {
+      void session;
+    }
+    discard(session: Pooled): Promise<void> {
+      void session;
+      return Promise.resolve();
+    }
+  }
+
+  return { SessionPool };
+});
+
 vi.mock("@ydbjs/query", () => {
   return {
     query: vi.fn(() => sqlClientMock),
