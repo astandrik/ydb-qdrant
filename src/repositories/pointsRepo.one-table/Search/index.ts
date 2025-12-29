@@ -1,7 +1,11 @@
 import type { DistanceKind } from "../../../types";
-import { SearchMode, SEARCH_OPERATION_TIMEOUT_MS } from "../../../config/env.js";
+import {
+  SearchMode,
+  SEARCH_OPERATION_TIMEOUT_MS,
+} from "../../../config/env.js";
 import { searchPointsOneTableExact } from "./Exact.js";
 import { searchPointsOneTableApproximate } from "./Approximate.js";
+import type { QdrantPayload } from "../../../qdrant/QdrantTypes.js";
 
 export async function searchPointsOneTable(
   tableName: string,
@@ -14,9 +18,7 @@ export async function searchPointsOneTable(
   mode: SearchMode | undefined,
   overfetchMultiplier: number,
   filterPaths?: Array<Array<string>>
-): Promise<
-  Array<{ id: string; score: number; payload?: Record<string, unknown> }>
-> {
+): Promise<Array<{ id: string; score: number; payload?: QdrantPayload }>> {
   if (mode === SearchMode.Exact) {
     return await searchPointsOneTableExact({
       tableName,
@@ -44,5 +46,3 @@ export async function searchPointsOneTable(
     filterPaths,
   });
 }
-
-

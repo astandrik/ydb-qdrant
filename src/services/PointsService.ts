@@ -23,8 +23,19 @@ import {
   normalizeSearchBodyForQuery,
   type SearchNormalizationResult,
 } from "../utils/normalization.js";
+import type {
+  QdrantPayload,
+  QdrantPointStructDense,
+} from "../qdrant/QdrantTypes.js";
 
 type PointsContextInput = CollectionContextInput;
+
+type InternalScoredPoint = {
+  // We always return point ids as strings (we store point_id as Utf8).
+  id: string;
+  score: number;
+  payload?: QdrantPayload;
+};
 
 function parsePathSegmentsFilterToPaths(
   filter: unknown
@@ -107,9 +118,11 @@ export async function upsertPoints(
   const { tableName, uid } = await resolvePointsTableAndUidOneTable(normalized);
   let upserted: number;
   try {
+    // Narrow Qdrant OpenAPI types to the dense-vector subset we support.
+    const points: QdrantPointStructDense[] = parsed.data.points;
     upserted = await repoUpsertPoints(
       tableName,
-      parsed.data.points,
+      points,
       meta.dimension,
       uid
     );
@@ -142,11 +155,7 @@ async function executeSearch(
   normalizedSearch: SearchNormalizationResult,
   source: "search" | "query"
 ): Promise<{
-  points: Array<{
-    id: string;
-    score: number;
-    payload?: Record<string, unknown>;
-  }>;
+  points: InternalScoredPoint[];
 }> {
   await ensureMetaTable();
   const normalized = normalizeCollectionContextShared(
@@ -290,11 +299,7 @@ export async function searchPoints(
   ctx: PointsContextInput,
   body: unknown
 ): Promise<{
-  points: Array<{
-    id: string;
-    score: number;
-    payload?: Record<string, unknown>;
-  }>;
+  points: InternalScoredPoint[];
 }> {
   const normalizedSearch = normalizeSearchBodyForSearch(body);
   return await executeSearch(ctx, normalizedSearch, "search");
@@ -304,11 +309,7 @@ export async function queryPoints(
   ctx: PointsContextInput,
   body: unknown
 ): Promise<{
-  points: Array<{
-    id: string;
-    score: number;
-    payload?: Record<string, unknown>;
-  }>;
+  points: InternalScoredPoint[];
 }> {
   const normalizedSearch = normalizeSearchBodyForQuery(body);
   return await executeSearch(ctx, normalizedSearch, "query");

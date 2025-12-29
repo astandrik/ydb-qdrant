@@ -505,55 +505,64 @@ export async function withSession<T>(
   const d = getOrCreateDriver();
   const pool = getOrCreateSessionPool();
   try {
-    return await withTimeoutSignal(WITH_SESSION_TIMEOUT_MS, async (signal) => {
-      // @ydbjs/query QueryClient.do() is not implemented in the currently published builds.
-      // Cancellation is cooperative: we provide the same AbortSignal to `fn()` and to the
-      // @ydbjs/query async-local context so query operations can observe it via `.signal(...)`.
+    // Bound only `d.ready()` and `pool.acquire()` so stalls in driver readiness or session
+    // availability can't hang forever. We intentionally do NOT abort the user callback,
+    // because request operations can legitimately exceed this bound (e.g. multi-batch upserts).
+    await withTimeoutSignal(WITH_SESSION_TIMEOUT_MS, async (signal) => {
       await d.ready(signal);
-
-      // Ensure we have a few sessions ready to reduce cold-start session churn.
-      // Best-effort: ignore failures/timeouts.
-      void Promise.resolve(pool.warmup(signal)).catch(() => undefined);
-
-      const ctxMod = await getQueryCtx();
-      let leased: PooledQuerySession | null = null;
-
-      const MAX_ATTEMPTS = 3;
-      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-        leased = await pool.acquire(signal);
-        try {
-          const store = {
-            nodeId: leased.nodeId,
-            sessionId: leased.sessionId,
-            signal,
-          };
-          const result = await ctxMod.ctx.run(store, async () => {
-            return await fn(sql, signal);
-          });
-          pool.release(leased);
-          return result;
-        } catch (err) {
-          const shouldRetryWithFreshSession =
-            err instanceof Error &&
-            /BAD_SESSION|SESSION_EXPIRED|SessionExpired|No session became available/i.test(
-              err.message ?? ""
-            );
-          if (shouldRetryWithFreshSession) {
-            await pool.discard(leased);
-            leased = null;
-            if (attempt === MAX_ATTEMPTS - 1) {
-              throw err;
-            }
-            continue;
-          }
-          pool.release(leased);
-          throw err;
-        }
-      }
-      throw new Error(
-        "withSession: exhausted attempts to acquire a healthy session"
-      );
     });
+
+    // Ensure we have a few sessions ready to reduce cold-start session churn.
+    // Best-effort: ignore failures/timeouts.
+    void withTimeoutSignal(WITH_SESSION_TIMEOUT_MS, async (signal) => {
+      await pool.warmup(signal);
+    }).catch(() => undefined);
+
+    // @ydbjs/query QueryClient.do() is not implemented in the currently published builds.
+    // Cancellation is cooperative: we provide an AbortSignal to `fn()` and also store it in
+    // the @ydbjs/query async-local context so query operations can observe it via `.signal(...)`.
+    // (Note: this signal is not auto-aborted by `withSession()`; query-level `.timeout(...)`
+    // is the primary guard for long-running YQL statements.)
+    const operationSignal = new AbortController().signal;
+
+    const ctxMod = await getQueryCtx();
+    let leased: PooledQuerySession | null = null;
+
+    const MAX_ATTEMPTS = 3;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+      leased = await withTimeoutSignal(WITH_SESSION_TIMEOUT_MS, async (signal) => {
+        return await pool.acquire(signal);
+      });
+      try {
+        const store = {
+          nodeId: leased.nodeId,
+          sessionId: leased.sessionId,
+          signal: operationSignal,
+        };
+        const result = await ctxMod.ctx.run(store, async () => {
+          return await fn(sql, operationSignal);
+        });
+        pool.release(leased);
+        return result;
+      } catch (err) {
+        const shouldRetryWithFreshSession =
+          err instanceof Error &&
+          /BAD_SESSION|SESSION_EXPIRED|SessionExpired|No session became available/i.test(
+            err.message ?? ""
+          );
+        if (shouldRetryWithFreshSession) {
+          await pool.discard(leased);
+          leased = null;
+          if (attempt === MAX_ATTEMPTS - 1) {
+            throw err;
+          }
+          continue;
+        }
+        pool.release(leased);
+        throw err;
+      }
+    }
+    throw new Error("withSession: exhausted attempts to acquire a healthy session");
   } catch (err) {
     void maybeRefreshDriverOnSessionError(err);
     throw err;

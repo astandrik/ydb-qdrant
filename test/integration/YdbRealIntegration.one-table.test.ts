@@ -3,6 +3,12 @@ import { createYdbQdrantClient } from "../../src/package/api.js";
 import { GLOBAL_POINTS_TABLE } from "../../src/ydb/schema.js";
 import { withSession } from "../../src/ydb/client.js";
 import { Utf8 } from "@ydbjs/value/primitive";
+import type {
+  QdrantDenseVector,
+  QdrantPayload,
+  QdrantPointId,
+  QdrantPointStructDense,
+} from "../../src/qdrant/QdrantTypes.js";
 import {
   RECALL_DIM,
   RECALL_K,
@@ -48,18 +54,21 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     const { points, queries } = buildRealisticDataset(RNG_SEED);
 
     await client.upsertPoints(collection, {
-      points: points.map((p) => ({
-        id: p.id,
-        vector: p.vector,
-      })),
+      points: points.map(
+        (p): QdrantPointStructDense => ({
+          id: p.id as QdrantPointId,
+          vector: p.vector as QdrantDenseVector,
+        })
+      ),
     });
 
     const recalls: number[] = [];
     const f1s: number[] = [];
 
     for (const query of queries) {
+      const queryVector: QdrantDenseVector = query.vector;
       const result = await client.searchPoints(collection, {
-        vector: query.vector,
+        vector: queryVector,
         top: RECALL_K,
         with_payload: false,
       });
@@ -108,15 +117,15 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
       },
     });
 
-    await client.upsertPoints(collection, {
-      points: [
-        { id: "p1", vector: [0, 0, 0, 1], payload: { label: "p1" } },
-        { id: "p2", vector: [0, 0, 1, 0], payload: { label: "p2" } },
-      ],
-    });
+    const points: QdrantPointStructDense[] = [
+      { id: "p1", vector: [0, 0, 0, 1], payload: { label: "p1" } },
+      { id: "p2", vector: [0, 0, 1, 0], payload: { label: "p2" } },
+    ];
+    await client.upsertPoints(collection, { points });
 
+    const queryVector: QdrantDenseVector = [0, 0, 0, 1];
     const result = await client.searchPoints(collection, {
-      vector: [0, 0, 0, 1],
+      vector: queryVector,
       top: 2,
       with_payload: true,
     });
@@ -146,9 +155,10 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
       },
     });
 
-    await client.upsertPoints(collection, {
-      points: [{ id: "uid_test_point", vector: [1, 0, 0, 0], payload: {} }],
-    });
+    const points: QdrantPointStructDense[] = [
+      { id: "uid_test_point", vector: [1, 0, 0, 0], payload: {} },
+    ];
+    await client.upsertPoints(collection, { points });
 
     // Query the global table directly to verify the uid and quantized column
     const query = `
@@ -206,21 +216,20 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     });
 
     // Upsert points for each tenant
+    const payloadA: QdrantPayload = { tenant: "a" };
     await clientA.upsertPoints(collection, {
-      points: [
-        { id: "shared_id", vector: [1, 0, 0, 0], payload: { tenant: "a" } },
-      ],
+      points: [{ id: "shared_id", vector: [1, 0, 0, 0], payload: payloadA }],
     });
 
+    const payloadB: QdrantPayload = { tenant: "b" };
     await clientB.upsertPoints(collection, {
-      points: [
-        { id: "shared_id", vector: [0, 1, 0, 0], payload: { tenant: "b" } },
-      ],
+      points: [{ id: "shared_id", vector: [0, 1, 0, 0], payload: payloadB }],
     });
 
     // Search from tenant A should only see tenant A's data
+    const queryVectorA: QdrantDenseVector = [1, 0, 0, 0];
     const resA = await clientA.searchPoints(collection, {
-      vector: [1, 0, 0, 0],
+      vector: queryVectorA,
       top: 10,
       with_payload: true,
     });
@@ -230,8 +239,9 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     expect(pointA?.payload?.tenant).toBe("a");
 
     // Search from tenant B should only see tenant B's data
+    const queryVectorB: QdrantDenseVector = [0, 1, 0, 0];
     const resB = await clientB.searchPoints(collection, {
-      vector: [0, 1, 0, 0],
+      vector: queryVectorB,
       top: 10,
       with_payload: true,
     });

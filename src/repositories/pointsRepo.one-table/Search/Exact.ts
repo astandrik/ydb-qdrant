@@ -7,10 +7,11 @@ import type { DistanceKind } from "../../../types";
 import { mapDistanceToKnnFn } from "../../../utils/distance.js";
 import { buildPathSegmentsFilter } from "../PathSegmentsFilter.js";
 import { attachQueryDiagnostics } from "../../../ydb/QueryDiagnostics.js";
+import type { QdrantPayload } from "../../../qdrant/QdrantTypes.js";
 
 type QueryParams = Record<string, Value>;
 
-type PayloadCell = string | Record<string, unknown> | null;
+type PayloadCell = string | QdrantPayload | null;
 
 type SearchRow = { point_id: string; score: number; payload?: PayloadCell };
 
@@ -32,7 +33,7 @@ function assertVectorDimension(
 
 function parsePayloadJson(
   payloadText: unknown
-): Record<string, unknown> | undefined {
+): QdrantPayload | undefined {
   if (isRecord(payloadText)) {
     return payloadText;
   }
@@ -40,7 +41,7 @@ function parsePayloadJson(
     return undefined;
   }
   try {
-    return JSON.parse(payloadText) as Record<string, unknown>;
+    return JSON.parse(payloadText) as QdrantPayload;
   } catch {
     return undefined;
   }
@@ -77,7 +78,7 @@ export async function searchPointsOneTableExact(args: {
   timeoutMs: number;
   filterPaths?: Array<Array<string>>;
 }): Promise<
-  Array<{ id: string; score: number; payload?: Record<string, unknown> }>
+  Array<{ id: string; score: number; payload?: QdrantPayload }>
 > {
   assertVectorDimension(args.queryVector, args.dimension);
 

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi, type Mock } from "vitest";
 import { createSqlHarness, getQueryParam } from "../helpers/ydbjsQueryMock.js";
+import type { QdrantDenseVector } from "../../src/qdrant/QdrantTypes.js";
 
 vi.mock("../../src/ydb/client.js", () => {
   return {
@@ -39,9 +40,10 @@ describe("pointsRepo one_table with client-side serialization", () => {
         await fn(h.sql, new AbortController().signal)
     );
 
+    const queryVector: QdrantDenseVector = [0, 0, 0, 1];
     const result = await searchPointsOneTableInternal(
       "qdrant_all_points",
-      [0, 0, 0, 1],
+      queryVector,
       5,
       false,
       "Cosine",
@@ -59,7 +61,7 @@ describe("pointsRepo one_table with client-side serialization", () => {
     expect(getQueryParam(h.calls[0].query, "$qf")).toBeUndefined();
     expect(yql).not.toContain("Knn::ToBinaryStringFloat");
 
-    expect(buildVectorBinaryParamsMock).toHaveBeenCalledWith([0, 0, 0, 1]);
+    expect(buildVectorBinaryParamsMock).toHaveBeenCalledWith(queryVector);
   });
 
   it("uses binary string params for approximate search phases when client-side serialization is enabled", async () => {
@@ -71,9 +73,10 @@ describe("pointsRepo one_table with client-side serialization", () => {
         await fn(h.sql, new AbortController().signal)
     );
 
+    const queryVector: QdrantDenseVector = [0, 0, 0, 1];
     const result = await searchPointsOneTableInternal(
       "qdrant_all_points",
-      [0, 0, 0, 1],
+      queryVector,
       5,
       false,
       "Cosine",
@@ -95,6 +98,6 @@ describe("pointsRepo one_table with client-side serialization", () => {
     expect(yql).toContain("embedding_quantized IS NOT NULL");
     expect(yql).toContain("ORDER BY Knn::CosineSimilarity");
 
-    expect(buildVectorBinaryParamsMock).toHaveBeenCalledWith([0, 0, 0, 1]);
+    expect(buildVectorBinaryParamsMock).toHaveBeenCalledWith(queryVector);
   });
 });

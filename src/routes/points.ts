@@ -1,5 +1,9 @@
 import { Router, Request, Response } from "express";
-import type { Schemas } from "@qdrant/js-client-rest";
+import type {
+  QdrantPayload,
+  QdrantQueryResponse,
+  QdrantScoredPoint,
+} from "../qdrant/QdrantTypes.js";
 import {
   upsertPoints,
   searchPoints,
@@ -13,13 +17,10 @@ import { scheduleExit } from "../utils/exit.js";
 
 export const pointsRouter = Router();
 
-type QdrantScoredPoint = Schemas["ScoredPoint"];
-type QdrantQueryResponse = Schemas["QueryResponse"];
-
 function toQdrantScoredPoint(hit: {
   id: string;
   score: number;
-  payload?: Record<string, unknown>;
+  payload?: QdrantPayload;
 }): QdrantScoredPoint {
   // Qdrant's ScoredPoint includes a mandatory `version`.
   // We don't track versions; emit a stable default.

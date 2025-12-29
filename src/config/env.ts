@@ -140,7 +140,7 @@ export const STARTUP_PROBE_SESSION_TIMEOUT_MS = parseIntegerEnv(
 
 export const UPSERT_OPERATION_TIMEOUT_MS = parseIntegerEnv(
   process.env.YDB_QDRANT_UPSERT_TIMEOUT_MS,
-  5000,
+  20000,
   { min: 1000 }
 );
 

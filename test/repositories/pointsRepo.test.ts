@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, vi, type Mock } from "vitest";
 import { createSqlHarness, getQueryParam } from "../helpers/ydbjsQueryMock.js";
+import type {
+  QdrantPayload,
+  QdrantPointStructDense,
+} from "../../src/qdrant/QdrantTypes.js";
 
 vi.mock("../../src/ydb/client.js", () => {
   return {
@@ -61,12 +65,14 @@ describe("pointsRepo (with mocked YDB)", () => {
         await fn(h.sql, new AbortController().signal)
     );
 
+    const points: QdrantPointStructDense[] = [
+      { id: "p1", vector: [0, 0, 0, 1], payload: { a: 1 } },
+      { id: 2, vector: [0, 0, 1, 0] },
+    ];
+
     const result = await upsertPoints(
       "qdrant_all_points",
-      [
-        { id: "p1", vector: [0, 0, 0, 1], payload: { a: 1 } },
-        { id: 2, vector: [0, 0, 1, 0] },
-      ],
+      points,
       4,
       "qdr_tenant_a__my_collection"
     );
@@ -76,10 +82,13 @@ describe("pointsRepo (with mocked YDB)", () => {
   });
 
   it("throws on vector dimension mismatch in upsertPoints", async () => {
+    const badPoints: QdrantPointStructDense[] = [
+      { id: "p1", vector: [0, 1], payload: {} },
+    ];
     await expect(
       upsertPoints(
         "qdrant_all_points",
-        [{ id: "p1", vector: [0, 1], payload: {} }],
+        badPoints,
         4,
         "qdr_tenant_a__my_collection"
       )
@@ -110,10 +119,11 @@ describe("pointsRepo (with mocked YDB)", () => {
       "qdr_tenant_a__my_collection"
     );
 
+    const expectedPayload: QdrantPayload = { a: 1 };
     expect(result[0]).toEqual({
       id: "p1",
       score: 0.9,
-      payload: { a: 1 },
+      payload: expectedPayload,
     });
   });
 
@@ -148,9 +158,12 @@ describe("pointsRepo (with mocked YDB)", () => {
         await fn(h.sql, new AbortController().signal)
     );
 
+    const points: QdrantPointStructDense[] = [
+      { id: "p1", vector: [0, 0, 0, 1], payload: { a: 1 } },
+    ];
     const result = await upsertPoints(
       "qdrant_all_points",
-      [{ id: "p1", vector: [0, 0, 0, 1], payload: { a: 1 } }],
+      points,
       4,
       "qdr_tenant_a__my_collection"
     );
@@ -178,7 +191,7 @@ describe("pointsRepo (with mocked YDB)", () => {
     );
 
     const total = UPSERT_BATCH_SIZE + 50;
-    const points = Array.from({ length: total }, (_, i) => ({
+    const points: QdrantPointStructDense[] = Array.from({ length: total }, (_, i) => ({
       id: `p${i}`,
       vector: [0, 0, 0, 1],
       payload: { i },

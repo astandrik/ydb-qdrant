@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { extractVectorLoose } from "../../src/utils/normalization.js";
+import type { QdrantDenseVector } from "../../src/qdrant/QdrantTypes.js";
 
 describe("utils/normalization/extractVectorLoose", () => {
   it("returns undefined for non-object inputs", () => {
@@ -16,37 +17,37 @@ describe("utils/normalization/extractVectorLoose", () => {
   });
 
   it("prefers top-level vector property", () => {
-    const vec = [1, 2, 3];
+    const vec: QdrantDenseVector = [1, 2, 3];
     const body = { vector: vec, embedding: [9, 9, 9] };
     expect(extractVectorLoose(body)).toBe(vec);
   });
 
   it("falls back to top-level embedding when vector is missing", () => {
-    const vec = [0.1, 0.2];
+    const vec: QdrantDenseVector = [0.1, 0.2];
     const body = { embedding: vec };
     expect(extractVectorLoose(body)).toBe(vec);
   });
 
   it("reads vector from query.vector", () => {
-    const vec = [3, 4, 5];
+    const vec: QdrantDenseVector = [3, 4, 5];
     const body = { query: { vector: vec } };
     expect(extractVectorLoose(body)).toBe(vec);
   });
 
   it("reads vector from query.nearest.vector when query.vector is absent", () => {
-    const vec = [6, 7, 8];
+    const vec: QdrantDenseVector = [6, 7, 8];
     const body = { query: { nearest: { vector: vec } } };
     expect(extractVectorLoose(body)).toBe(vec);
   });
 
   it("reads vector from top-level nearest.vector when query is absent", () => {
-    const vec = [9, 10];
+    const vec: QdrantDenseVector = [9, 10];
     const body = { nearest: { vector: vec } };
     expect(extractVectorLoose(body)).toBe(vec);
   });
 
   it("finds first top-level numeric array when no special keys are present", () => {
-    const expected = [1, 2, 3];
+    const expected: QdrantDenseVector = [1, 2, 3];
     const body = {
       foo: expected,
       bar: [9, 9, 9],
@@ -55,7 +56,7 @@ describe("utils/normalization/extractVectorLoose", () => {
   });
 
   it("recurses into nested objects up to depth 3", () => {
-    const vec = [1, 2];
+    const vec: QdrantDenseVector = [1, 2];
     const body = {
       level1: {
         level2: {
@@ -69,7 +70,7 @@ describe("utils/normalization/extractVectorLoose", () => {
   });
 
   it("does not search deeper than depth 3", () => {
-    const vec = [1, 2];
+    const vec: QdrantDenseVector = [1, 2];
     const body = {
       level1: {
         level2: {

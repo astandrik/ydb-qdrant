@@ -8,6 +8,7 @@ import { attachQueryDiagnostics } from "../../ydb/QueryDiagnostics.js";
 import { Bytes, JsonDocument, Utf8 } from "@ydbjs/value/primitive";
 import { List } from "@ydbjs/value/list";
 import { Struct } from "@ydbjs/value/struct";
+import type { QdrantPointStructDense } from "../../qdrant/QdrantTypes.js";
 
 type UpsertRow = {
   uid: Utf8;
@@ -20,11 +21,7 @@ type UpsertRow = {
 function assertPointVectorsDimension(args: {
   tableName: string;
   uid: string;
-  points: Array<{
-    id: string | number;
-    vector: number[];
-    payload?: Record<string, unknown>;
-  }>;
+  points: QdrantPointStructDense[];
   dimension: number;
 }): void {
   for (const p of args.points) {
@@ -54,11 +51,7 @@ function assertPointVectorsDimension(args: {
 function buildUpsertQueryAndParams(args: {
   tableName: string;
   uid: string;
-  batch: Array<{
-    id: string | number;
-    vector: number[];
-    payload?: Record<string, unknown>;
-  }>;
+  batch: QdrantPointStructDense[];
 }): {
   rowsValue: List;
 } {
@@ -93,11 +86,7 @@ function buildUpsertQueryAndParams(args: {
 
 export async function upsertPointsOneTable(
   tableName: string,
-  points: Array<{
-    id: string | number;
-    vector: number[];
-    payload?: Record<string, unknown>;
-  }>,
+  points: QdrantPointStructDense[],
   dimension: number,
   uid: string
 ): Promise<number> {
