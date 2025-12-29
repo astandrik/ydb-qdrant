@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767018306313,
+  "lastUpdate": 1767018307910,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (one_table, 768D)": [
@@ -10582,6 +10582,45 @@ window.BENCHMARK_DATA = {
           {
             "name": "Stress: Throughput",
             "value": 223.30575983397415,
+            "unit": "ops/s"
+          },
+          {
+            "name": "Stress: Max VUs",
+            "value": 600,
+            "unit": "VUs"
+          },
+          {
+            "name": "Stress: Breaking Point VUs",
+            "value": 600,
+            "unit": "VUs"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cf12fa4498538ee3a87aacf357aec480a7f072b9",
+          "message": "fix: improve typing (#178)\n\n* fix: improve typing\n\n* fix: build\n\n* fix: nanofix",
+          "timestamp": "2025-12-29T17:17:18+03:00",
+          "tree_id": "87fb651e4d8a76c10ce33de51ed904933faa6340",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/cf12fa4498538ee3a87aacf357aec480a7f072b9"
+        },
+        "date": 1767018307304,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Stress: Throughput",
+            "value": 174.67923057640294,
             "unit": "ops/s"
           },
           {
