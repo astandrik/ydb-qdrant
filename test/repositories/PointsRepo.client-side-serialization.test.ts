@@ -1,34 +1,10 @@
 import { describe, it, expect, beforeEach, vi, type Mock } from "vitest";
+import { createSqlHarness, getQueryParam } from "../helpers/ydbjsQueryMock.js";
+import type { QdrantDenseVector } from "../../src/qdrant/QdrantTypes.js";
 
 vi.mock("../../src/ydb/client.js", () => {
-  const createExecuteQuerySettings = vi.fn(() => ({
-    kind: "ExecuteQuerySettings",
-  }));
-
-  const createExecuteQuerySettingsWithTimeout = vi.fn(
-    (options?: { timeoutMs: number }) => ({
-      kind: "ExecuteQuerySettingsWithTimeout",
-      timeoutMs: options?.timeoutMs,
-    })
-  );
-
   return {
-    Types: {
-      UTF8: "UTF8",
-      BYTES: "BYTES",
-      JSON_DOCUMENT: "JSON_DOCUMENT",
-      FLOAT: "FLOAT",
-    },
-    TypedValues: {
-      utf8: vi.fn((v: string) => ({ type: "utf8", v })),
-      uint32: vi.fn((v: number) => ({ type: "uint32", v })),
-      timestamp: vi.fn((v: Date) => ({ type: "timestamp", v })),
-      list: vi.fn((t: unknown, list: unknown[]) => ({ type: "list", t, list })),
-      bytes: vi.fn((v: unknown) => ({ type: "bytes", v })),
-    },
     withSession: vi.fn(),
-    createExecuteQuerySettings,
-    createExecuteQuerySettingsWithTimeout,
   };
 });
 
@@ -56,27 +32,18 @@ describe("pointsRepo one_table with client-side serialization", () => {
   });
 
   it("uses binary string param for exact search when client-side serialization is enabled", async () => {
-    const sessionMock = {
-      executeQuery: vi.fn().mockResolvedValue({
-        resultSets: [
-          {
-            rows: [
-              {
-                items: [{ textValue: "p1" }, { floatValue: 0.9 }],
-              },
-            ],
-          },
-        ],
-      }),
-    };
+    const h = createSqlHarness();
+    h.plan([{ result: [[{ point_id: "p1", score: 0.9 }]] }]);
 
-    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
-      return await fn(sessionMock);
-    });
+    withSessionMock.mockImplementation(
+      async (fn: (sql: unknown, signal: AbortSignal) => unknown) =>
+        await fn(h.sql, new AbortController().signal)
+    );
 
+    const queryVector: QdrantDenseVector = [0, 0, 0, 1];
     const result = await searchPointsOneTableInternal(
       "qdrant_all_points",
-      [0, 0, 0, 1],
+      queryVector,
       5,
       false,
       "Cosine",
@@ -87,37 +54,29 @@ describe("pointsRepo one_table with client-side serialization", () => {
     );
 
     expect(result).toEqual([{ id: "p1", score: 0.9 }]);
-    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
-    const yql = sessionMock.executeQuery.mock.calls[0][0] as string;
-    expect(yql).toContain("DECLARE $qbinf AS String;");
-    expect(yql).not.toContain("DECLARE $qf AS List<Float>;");
+    expect(h.calls).toHaveLength(1);
+    const yql = h.calls[0].yql;
+    // @ydbjs/query auto-injects DECLAREs; assert bound params instead.
+    expect(getQueryParam(h.calls[0].query, "$qbinf")).toBeDefined();
+    expect(getQueryParam(h.calls[0].query, "$qf")).toBeUndefined();
     expect(yql).not.toContain("Knn::ToBinaryStringFloat");
 
-    expect(buildVectorBinaryParamsMock).toHaveBeenCalledWith([0, 0, 0, 1]);
+    expect(buildVectorBinaryParamsMock).toHaveBeenCalledWith(queryVector);
   });
 
   it("uses binary string params for approximate search phases when client-side serialization is enabled", async () => {
-    const sessionMock = {
-      executeQuery: vi.fn().mockResolvedValue({
-        resultSets: [
-          {
-            rows: [
-              {
-                items: [{ textValue: "p1" }, { floatValue: 0.9 }],
-              },
-            ],
-          },
-        ],
-      }),
-    };
+    const h = createSqlHarness();
+    h.plan([{ result: [[{ point_id: "p1", score: 0.9 }]] }]);
 
-    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
-      return await fn(sessionMock);
-    });
+    withSessionMock.mockImplementation(
+      async (fn: (sql: unknown, signal: AbortSignal) => unknown) =>
+        await fn(h.sql, new AbortController().signal)
+    );
 
+    const queryVector: QdrantDenseVector = [0, 0, 0, 1];
     const result = await searchPointsOneTableInternal(
       "qdrant_all_points",
-      [0, 0, 0, 1],
+      queryVector,
       5,
       false,
       "Cosine",
@@ -128,17 +87,17 @@ describe("pointsRepo one_table with client-side serialization", () => {
     );
 
     expect(result).toEqual([{ id: "p1", score: 0.9 }]);
-    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
+    expect(h.calls).toHaveLength(1);
+    const yql = h.calls[0].yql;
 
-    const yql = sessionMock.executeQuery.mock.calls[0][0] as string;
-
-    expect(yql).toContain("DECLARE $qbin_bit AS String;");
-    expect(yql).toContain("DECLARE $qbinf AS String;");
+    // @ydbjs/query auto-injects DECLAREs; assert bound params instead.
+    expect(getQueryParam(h.calls[0].query, "$qbin_bit")).toBeDefined();
+    expect(getQueryParam(h.calls[0].query, "$qbinf")).toBeDefined();
     expect(yql).not.toContain("Knn::ToBinaryStringBit");
     expect(yql).not.toContain("Knn::ToBinaryStringFloat");
     expect(yql).toContain("embedding_quantized IS NOT NULL");
     expect(yql).toContain("ORDER BY Knn::CosineSimilarity");
 
-    expect(buildVectorBinaryParamsMock).toHaveBeenCalledWith([0, 0, 0, 1]);
+    expect(buildVectorBinaryParamsMock).toHaveBeenCalledWith(queryVector);
   });
 });

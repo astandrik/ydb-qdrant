@@ -1,13 +1,14 @@
 import { beforeAll, describe, it, expect } from "vitest";
 import { createYdbQdrantClient } from "../../src/package/api.js";
 import { GLOBAL_POINTS_TABLE } from "../../src/ydb/schema.js";
-import {
-  withSession,
-  TypedValues,
-  TableDescription,
-  Column,
-  Types,
-} from "../../src/ydb/client.js";
+import { withSession } from "../../src/ydb/client.js";
+import { Utf8 } from "@ydbjs/value/primitive";
+import type {
+  QdrantDenseVector,
+  QdrantPayload,
+  QdrantPointId,
+  QdrantPointStructDense,
+} from "../../src/qdrant/QdrantTypes.js";
 import {
   RECALL_DIM,
   RECALL_K,
@@ -53,18 +54,21 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     const { points, queries } = buildRealisticDataset(RNG_SEED);
 
     await client.upsertPoints(collection, {
-      points: points.map((p) => ({
-        id: p.id,
-        vector: p.vector,
-      })),
+      points: points.map(
+        (p): QdrantPointStructDense => ({
+          id: p.id as QdrantPointId,
+          vector: p.vector as QdrantDenseVector,
+        })
+      ),
     });
 
     const recalls: number[] = [];
     const f1s: number[] = [];
 
     for (const query of queries) {
+      const queryVector: QdrantDenseVector = query.vector;
       const result = await client.searchPoints(collection, {
-        vector: query.vector,
+        vector: queryVector,
         top: RECALL_K,
         with_payload: false,
       });
@@ -113,15 +117,15 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
       },
     });
 
-    await client.upsertPoints(collection, {
-      points: [
-        { id: "p1", vector: [0, 0, 0, 1], payload: { label: "p1" } },
-        { id: "p2", vector: [0, 0, 1, 0], payload: { label: "p2" } },
-      ],
-    });
+    const points: QdrantPointStructDense[] = [
+      { id: "p1", vector: [0, 0, 0, 1], payload: { label: "p1" } },
+      { id: "p2", vector: [0, 0, 1, 0], payload: { label: "p2" } },
+    ];
+    await client.upsertPoints(collection, { points });
 
+    const queryVector: QdrantDenseVector = [0, 0, 0, 1];
     const result = await client.searchPoints(collection, {
-      vector: [0, 0, 0, 1],
+      vector: queryVector,
       top: 2,
       with_payload: true,
     });
@@ -151,9 +155,10 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
       },
     });
 
-    await client.upsertPoints(collection, {
-      points: [{ id: "uid_test_point", vector: [1, 0, 0, 0], payload: {} }],
-    });
+    const points: QdrantPointStructDense[] = [
+      { id: "uid_test_point", vector: [1, 0, 0, 0], payload: {} },
+    ];
+    await client.upsertPoints(collection, { points });
 
     // Query the global table directly to verify the uid and quantized column
     const query = `
@@ -163,22 +168,27 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
       WHERE uid = $uid AND point_id = $point_id;
     `;
 
-    const res = await withSession(async (s) => {
-      return await s.executeQuery(query, {
-        $uid: TypedValues.utf8(expectedUid),
-        $point_id: TypedValues.utf8("uid_test_point"),
-      });
+    type Row = {
+      uid: string;
+      point_id: string;
+      embedding: unknown;
+      embedding_quantized: unknown;
+    };
+
+    const [rows] = await withSession(async (sql, signal) => {
+      return await sql<[Row]>`${sql.unsafe(query)}`
+        .idempotent(true)
+        .signal(signal)
+        .parameter("uid", new Utf8(expectedUid))
+        .parameter("point_id", new Utf8("uid_test_point"));
     });
 
-    const rowset = res.resultSets?.[0];
-    expect(rowset?.rows?.length).toBe(1);
-    const row = rowset?.rows?.[0];
-    // items: [uid, point_id, embedding, embedding_quantized]
-    expect(row?.items?.[0]?.textValue).toBe(expectedUid);
-    expect(row?.items?.[1]?.textValue).toBe("uid_test_point");
-    // Just verify that both binary columns are present and non-empty
-    expect(row?.items?.[2]).toBeDefined();
-    expect(row?.items?.[3]).toBeDefined();
+    expect(rows).toHaveLength(1);
+    const row = rows[0];
+    expect(row.uid).toBe(expectedUid);
+    expect(row.point_id).toBe("uid_test_point");
+    expect(row.embedding).toBeDefined();
+    expect(row.embedding_quantized).toBeDefined();
 
     // Cleanup
     try {
@@ -206,21 +216,20 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     });
 
     // Upsert points for each tenant
+    const payloadA: QdrantPayload = { tenant: "a" };
     await clientA.upsertPoints(collection, {
-      points: [
-        { id: "shared_id", vector: [1, 0, 0, 0], payload: { tenant: "a" } },
-      ],
+      points: [{ id: "shared_id", vector: [1, 0, 0, 0], payload: payloadA }],
     });
 
+    const payloadB: QdrantPayload = { tenant: "b" };
     await clientB.upsertPoints(collection, {
-      points: [
-        { id: "shared_id", vector: [0, 1, 0, 0], payload: { tenant: "b" } },
-      ],
+      points: [{ id: "shared_id", vector: [0, 1, 0, 0], payload: payloadB }],
     });
 
     // Search from tenant A should only see tenant A's data
+    const queryVectorA: QdrantDenseVector = [1, 0, 0, 0];
     const resA = await clientA.searchPoints(collection, {
-      vector: [1, 0, 0, 0],
+      vector: queryVectorA,
       top: 10,
       with_payload: true,
     });
@@ -230,8 +239,9 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     expect(pointA?.payload?.tenant).toBe("a");
 
     // Search from tenant B should only see tenant B's data
+    const queryVectorB: QdrantDenseVector = [0, 1, 0, 0];
     const resB = await clientB.searchPoints(collection, {
-      vector: [0, 1, 0, 0],
+      vector: queryVectorB,
       top: 10,
       with_payload: true,
     });
@@ -337,96 +347,6 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     }
   });
 
-  it("migrates existing table by adding embedding_quantized column for legacy layouts", async () => {
-    // This test simulates the migration scenario for existing deployments
-    // We create a legacy table without embedding_quantized, insert data, then run migration
-
-    const legacyTable = `qdrant_migration_test_${Date.now()}`;
-
-    // Step 1: Create a legacy table without embedding_quantized column
-    await withSession(async (s) => {
-      const desc = new TableDescription()
-        .withColumns(
-          new Column("uid", Types.UTF8),
-          new Column("point_id", Types.UTF8),
-          new Column("embedding", Types.BYTES),
-          new Column("payload", Types.JSON_DOCUMENT)
-        )
-        .withPrimaryKeys("uid", "point_id");
-      await s.createTable(legacyTable, desc);
-    });
-
-    // Step 2: Insert a test row with only embedding (no embedding_quantized)
-    const testUid = "migration_test_uid";
-    const testVector = [1.0, 0.0, 0.0, 0.0];
-    await withSession(async (s) => {
-      const insertQuery = `
-        DECLARE $uid AS Utf8;
-        DECLARE $point_id AS Utf8;
-        DECLARE $vec AS List<Float>;
-        DECLARE $payload AS JsonDocument;
-        UPSERT INTO ${legacyTable} (uid, point_id, embedding, payload)
-        VALUES (
-          $uid,
-          $point_id,
-          Untag(Knn::ToBinaryStringFloat($vec), "FloatVector"),
-          $payload
-        );
-      `;
-      await s.executeQuery(insertQuery, {
-        $uid: TypedValues.utf8(testUid),
-        $point_id: TypedValues.utf8("legacy_point"),
-        $vec: TypedValues.list(Types.FLOAT, testVector),
-        $payload: TypedValues.jsonDocument("{}"),
-      });
-    });
-
-    // Step 3: Verify the table has no embedding_quantized column initially
-    const descBefore = await withSession(async (s) => {
-      return await s.describeTable(legacyTable);
-    });
-    const columnsBefore = descBefore.columns?.map((c) => c.name) ?? [];
-    expect(columnsBefore).toContain("embedding");
-    expect(columnsBefore).not.toContain("embedding_quantized");
-
-    // Step 4: Run migration (ALTER TABLE via schema API to add embedding_quantized)
-    await withSession(async (s) => {
-      const alterDdl = `
-        ALTER TABLE ${legacyTable}
-        ADD COLUMN embedding_quantized String;
-      `;
-
-      const rawSession = s as unknown as {
-        sessionId: string;
-        api: {
-          executeSchemeQuery: (req: {
-            sessionId: string;
-            yqlText: string;
-          }) => Promise<unknown>;
-        };
-      };
-
-      await rawSession.api.executeSchemeQuery({
-        sessionId: rawSession.sessionId,
-        yqlText: alterDdl,
-      });
-    });
-
-    // Step 5: Verify the column was added
-    const descAfter = await withSession(async (s) => {
-      return await s.describeTable(legacyTable);
-    });
-    const columnsAfter = descAfter.columns?.map((c) => c.name) ?? [];
-    expect(columnsAfter).toContain("embedding_quantized");
-
-    // Cleanup: drop the test table
-    try {
-      await withSession(async (s) => {
-        const dropDdl = `DROP TABLE ${legacyTable};`;
-        await s.executeQuery(dropDdl);
-      });
-    } catch {
-      // ignore cleanup failures
-    }
-  });
+  // No schema auto-migration is performed by the service. If an existing deployment has
+  // older tables, operators must apply manual migrations or recreate tables.
 });

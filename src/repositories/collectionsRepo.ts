@@ -1,25 +1,67 @@
-import {
-  TypedValues,
-  withSession,
-  createExecuteQuerySettings,
-  withStartupProbeSession,
-  createExecuteQuerySettingsWithTimeout,
-} from "../ydb/client.js";
+import { withSession, withStartupProbeSession } from "../ydb/client.js";
 import {
   STARTUP_PROBE_SESSION_TIMEOUT_MS,
+  UPSERT_OPERATION_TIMEOUT_MS,
   LAST_ACCESS_MIN_WRITE_INTERVAL_MS,
 } from "../config/env.js";
 import { logger } from "../logging/logger.js";
 import type { DistanceKind, VectorType, CollectionMeta } from "../types";
 import { uidFor } from "../utils/tenant.js";
+import { attachQueryDiagnostics } from "../ydb/QueryDiagnostics.js";
+import { withRetry, isTransientYdbError } from "../utils/retry.js";
 import {
   createCollectionOneTable,
   deleteCollectionOneTable,
 } from "./collectionsRepo.one-table.js";
-import { withRetry, isTransientYdbError } from "../utils/retry.js";
+import { Timestamp, Utf8 } from "@ydbjs/value/primitive";
 
 const lastAccessWriteCache = new Map<string, number>();
 const LAST_ACCESS_CACHE_MAX_SIZE = 10000;
+
+type CollectionMetaCacheEntry = {
+  meta: CollectionMeta;
+  expiresAtMs: number;
+};
+
+const collectionMetaCache = new Map<string, CollectionMetaCacheEntry>();
+const COLLECTION_META_CACHE_MAX_SIZE = 10000;
+// Meta lookups are on the hot path for *every* request (upsert/search/delete).
+// Under sustained ingestion, YDB can get busy and even a single-row SELECT can stall.
+// Keep meta cached long enough to avoid turning that into a constant DB read load.
+const COLLECTION_META_CACHE_TTL_MS = 5 * 60_000;
+
+function evictOldestCollectionMetaEntry(): void {
+  if (collectionMetaCache.size < COLLECTION_META_CACHE_MAX_SIZE) {
+    return;
+  }
+  const oldestKey = collectionMetaCache.keys().next().value;
+  if (oldestKey !== undefined) {
+    collectionMetaCache.delete(oldestKey);
+  }
+}
+
+function getCachedCollectionMeta(metaKey: string): CollectionMeta | null {
+  const entry = collectionMetaCache.get(metaKey);
+  if (!entry) return null;
+  if (Date.now() >= entry.expiresAtMs) {
+    collectionMetaCache.delete(metaKey);
+    return null;
+  }
+  return entry.meta;
+}
+
+function setCachedCollectionMeta(metaKey: string, meta: CollectionMeta): void {
+  evictOldestCollectionMetaEntry();
+  collectionMetaCache.set(metaKey, {
+    meta,
+    expiresAtMs: Date.now() + COLLECTION_META_CACHE_TTL_MS,
+  });
+}
+
+// Test-only: keep repository unit tests isolated since this module maintains in-memory caches.
+export function __resetCachesForTests(): void {
+  collectionMetaCache.clear();
+}
 
 function evictOldestLastAccessEntry(): void {
   if (lastAccessWriteCache.size < LAST_ACCESS_CACHE_MAX_SIZE) {
@@ -46,52 +88,54 @@ export async function createCollection(
   vectorType: VectorType
 ): Promise<void> {
   await createCollectionOneTable(metaKey, dim, distance, vectorType);
+  collectionMetaCache.delete(metaKey);
 }
 
 export async function getCollectionMeta(
   metaKey: string
 ): Promise<CollectionMeta | null> {
-  const qry = `
-    DECLARE $collection AS Utf8;
-    SELECT
-      table_name,
-      vector_dimension,
-      distance,
-      vector_type,
-      CAST(last_accessed_at AS Utf8) AS last_accessed_at
-    FROM qdr__collections
-    WHERE collection = $collection;
-  `;
-  const res = await withSession(async (s) => {
-    const settings = createExecuteQuerySettings();
-    return await s.executeQuery(
-      qry,
-      {
-        $collection: TypedValues.utf8(metaKey),
-      },
-      undefined,
-      settings
-    );
-  });
-  const rowset = res.resultSets?.[0];
-  if (!rowset || rowset.rows?.length !== 1) return null;
-  const row = rowset.rows[0] as {
-    items?: Array<
-      | {
-          textValue?: string;
-          uint32Value?: number;
-        }
-      | undefined
-    >;
+  const cached = getCachedCollectionMeta(metaKey);
+  if (cached) {
+    return cached;
+  }
+
+  type Row = {
+    table_name: string;
+    vector_dimension: number;
+    distance: string;
+    vector_type: string;
+    last_accessed_at?: string;
   };
-  const table = row.items?.[0]?.textValue as string;
-  const dimension = Number(
-    row.items?.[1]?.uint32Value ?? row.items?.[1]?.textValue
-  );
-  const distance =
-    (row.items?.[2]?.textValue as DistanceKind) ?? ("Cosine" as DistanceKind);
-  const vectorType = (row.items?.[3]?.textValue as VectorType) ?? "float";
-  const lastAccessRaw = row.items?.[4]?.textValue;
+
+  const [rows] = await withSession(async (sql, signal) => {
+    const q = attachQueryDiagnostics(
+      sql<[Row]>`
+      SELECT
+        table_name,
+        vector_dimension,
+        distance,
+        vector_type,
+        CAST(last_accessed_at AS Utf8) AS last_accessed_at
+      FROM qdr__collections
+      WHERE collection = $collection;
+    `,
+      { operation: "getCollectionMeta", metaKey }
+    )
+      .idempotent(true)
+      // Collection metadata is required for upserts as well; use the more forgiving timeout.
+      .timeout(UPSERT_OPERATION_TIMEOUT_MS)
+      .signal(signal)
+      .parameter("collection", new Utf8(metaKey));
+    return await q;
+  });
+
+  if (rows.length !== 1) return null;
+  const row = rows[0];
+  const table = row.table_name;
+  const dimension = Number(row.vector_dimension);
+  const distance = (row.distance as DistanceKind) ?? ("Cosine" as DistanceKind);
+  const vectorType = (row.vector_type as VectorType) ?? "float";
+  const lastAccessRaw = row.last_accessed_at;
   const lastAccessedAt =
     typeof lastAccessRaw === "string" && lastAccessRaw.length > 0
       ? new Date(lastAccessRaw)
@@ -108,45 +152,38 @@ export async function getCollectionMeta(
     result.lastAccessedAt = lastAccessedAt;
   }
 
+  setCachedCollectionMeta(metaKey, result);
   return result;
 }
 
 export async function verifyCollectionsQueryCompilationForStartup(): Promise<void> {
   const probeKey = "__startup_probe__/__startup_probe__";
-  const qry = `
-    DECLARE $collection AS Utf8;
-    SELECT
-      table_name,
-      vector_dimension,
-      distance,
-      vector_type,
-      CAST(last_accessed_at AS Utf8) AS last_accessed_at
-    FROM qdr__collections
-    WHERE collection = $collection;
-  `;
   await withRetry(
     async () => {
-      await withStartupProbeSession(async (s) => {
-        const settings = createExecuteQuerySettingsWithTimeout({
-          keepInCache: true,
-          idempotent: true,
-          timeoutMs: STARTUP_PROBE_SESSION_TIMEOUT_MS,
-        });
-        await s.executeQuery(
-          qry,
-          {
-            $collection: TypedValues.utf8(probeKey),
-          },
-          undefined,
-          settings
-        );
+      await withStartupProbeSession(async (sql, signal) => {
+        await sql`
+          SELECT
+            table_name,
+            vector_dimension,
+            distance,
+            vector_type,
+            CAST(last_accessed_at AS Utf8) AS last_accessed_at
+          FROM qdr__collections
+          WHERE collection = $collection;
+        `
+          .idempotent(true)
+          .timeout(STARTUP_PROBE_SESSION_TIMEOUT_MS)
+          .signal(signal)
+          .parameter("collection", new Utf8(probeKey));
       });
     },
     {
-      isTransient: isTransientYdbError,
       maxRetries: 2,
       baseDelayMs: 200,
-      context: { probe: "collections_startup_compilation" },
+      isTransient: isTransientYdbError,
+      context: {
+        operation: "verifyCollectionsQueryCompilationForStartup",
+      },
     }
   );
 }
@@ -169,6 +206,7 @@ export async function deleteCollection(
     effectiveUid = uidFor(tenant, collection);
   }
   await deleteCollectionOneTable(metaKey, effectiveUid);
+  collectionMetaCache.delete(metaKey);
 }
 
 /**
@@ -188,26 +226,18 @@ export async function touchCollectionLastAccess(
     return;
   }
 
-  const qry = `
-    DECLARE $collection AS Utf8;
-    DECLARE $last_accessed AS Timestamp;
-    UPDATE qdr__collections
-    SET last_accessed_at = $last_accessed
-    WHERE collection = $collection;
-  `;
-
   try {
-    await withSession(async (s) => {
-      const settings = createExecuteQuerySettings();
-      await s.executeQuery(
-        qry,
-        {
-          $collection: TypedValues.utf8(metaKey),
-          $last_accessed: TypedValues.timestamp(now),
-        },
-        undefined,
-        settings
-      );
+    await withSession(async (sql, signal) => {
+      await sql`
+        UPDATE qdr__collections
+        SET last_accessed_at = $last_accessed
+        WHERE collection = $collection;
+      `
+        .idempotent(true)
+        .timeout(UPSERT_OPERATION_TIMEOUT_MS)
+        .signal(signal)
+        .parameter("collection", new Utf8(metaKey))
+        .parameter("last_accessed", new Timestamp(now));
     });
 
     evictOldestLastAccessEntry();

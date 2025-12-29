@@ -6,7 +6,7 @@ LAYOUT_WITH_LEGEND()
 title Component Diagram: YDB Integration Layer (Database Client & Helpers)
 
 Container_Boundary(ydb_integration, "YDB Integration Layer") {
-    Component(ydb_client, "YDB Driver", "ydb-sdk (CJS interop)", "Manages database connection pool and session lifecycle with 15s timeout")
+    Component(ydb_client, "YDB Driver", "@ydbjs/core + @ydbjs/query (v6)", "Driver + query client for executing YQL (sessions handled by QueryService)")
     
     Component(ydb_helpers, "YDB Helpers", "TypeScript Module", "Vector serialization and payload conversion utilities")
     
@@ -20,26 +20,23 @@ Container_Boundary(ydb_integration, "YDB Integration Layer") {
 ContainerDb(ydb_database, "YDB Database", "Distributed SQL/NoSQL", "Stores metadata and vector data")
 
 Rel(ydb_client, env_config, "Reads", "YDB_ENDPOINT, YDB_DATABASE")
-Rel(ydb_client, ydb_database, "Connects to", "Driver.ready(10s), getCredentialsFromEnv()")
+Rel(ydb_client, ydb_database, "Connects to", "Driver.ready(), credentials provider")
 
-Rel(ydb_helpers, ydb_client, "Uses", "Types, TypedValues for YQL parameters")
+Rel(ydb_helpers, ydb_client, "Uses", "@ydbjs/value types for query parameters")
 
 Rel(schema_mgr, ydb_client, "Uses", "withSession() to check/create table")
 Rel(schema_mgr, logger, "Logs to", "Table creation events")
 
 note right of ydb_client
   **Driver Initialization:**
-  - Uses createRequire() for CJS interop
-  - Required from ydb-sdk: Driver, getCredentialsFromEnv,
-    Types, TypedValues, TableDescription, Column
-  - Config: { endpoint, database, authService }
+  - @ydbjs/core Driver + @ydbjs/query query(driver)
+  - Config: { endpoint, database, credentialsProvider }
   
   **Session Management:**
-  - withSession<T>(fn, timeout=15000ms)
-  - Auto-pooling via driver.tableClient
-  - Re-exports: Types, TypedValues, TableDescription, Column
+  - withSession<T>(fn)
+  - Sessions are created/attached per query by @ydbjs/query
   
-  **Auth Chain (getCredentialsFromEnv):**
+  **Auth Chain (first match):**
   1. YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS
   2. YDB_METADATA_CREDENTIALS (YC VM/Functions)
   3. YDB_ACCESS_TOKEN_CREDENTIALS
@@ -57,14 +54,9 @@ end note
 
 note bottom of schema_mgr
   **ensureMetaTable():**
-  1. Try s.describeTable("qdr__collections")
-  2. If fails (not found):
-     - Create TableDescription with columns:
-       * collection (PK, UTF8)
-       * table_name, vector_dimension (UINT32)
-       * distance, vector_type, created_at (TIMESTAMP)
-     - Call s.createTable("qdr__collections", desc)
-  3. Idempotent; errors ignored if exists
+  1. CREATE TABLE qdr__collections (ignore exists errors)
+  2. Probe required columns via SELECT ... LIMIT 0
+  3. If missing required columns: fail fast (manual migration required)
 end note
 
 note top of env_config
@@ -91,8 +83,7 @@ note top of env_config
   - YDB_SESSION_KEEPALIVE_PERIOD_MS (default 5000)
   
   **Optional (Migration):**
-  - YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE (default false)
-  - YDB_QDRANT_USE_BATCH_DELETE (default false)
+  - (Collection deletion uses YQL `BATCH DELETE` in one-table mode)
   
   **Optional (Tracking):**
   - YDB_QDRANT_LAST_ACCESS_MIN_WRITE_INTERVAL_MS (default 60000)

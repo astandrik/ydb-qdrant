@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { QdrantPointStructDense } from "../../src/qdrant/QdrantTypes.js";
 
 vi.mock("../../src/ydb/client.js", () => ({
   readyOrThrow: vi.fn().mockResolvedValue(undefined),
@@ -85,9 +86,10 @@ describe("YdbQdrantClient (programmatic API, mocked YDB)", () => {
     });
     const tClient = client.forTenant("tenant_other");
 
-    await tClient.upsertPoints("col", {
+    const upsertBody: { points: QdrantPointStructDense[] } = {
       points: [{ id: "p1", vector: [0, 0, 0, 1] }],
-    });
+    };
+    await tClient.upsertPoints("col", upsertBody);
 
     expect(pointsService.upsertPoints).toHaveBeenCalledWith(
       { tenant: "tenant_other", collection: "col" },
@@ -107,7 +109,7 @@ describe("YdbQdrantClient (programmatic API, mocked YDB)", () => {
     await client.deleteCollection("col_all");
     await client.putCollectionIndex("col_all");
 
-    const upsertBody = {
+    const upsertBody: { points: QdrantPointStructDense[] } = {
       points: [{ id: "p1", vector: [0, 0, 0, 1] }],
     };
     await client.upsertPoints("col_all", upsertBody);
@@ -164,7 +166,7 @@ describe("YdbQdrantClient (programmatic API, mocked YDB)", () => {
     await tClient.deleteCollection("col_all");
     await tClient.putCollectionIndex("col_all");
 
-    const upsertBody = {
+    const upsertBody: { points: QdrantPointStructDense[] } = {
       points: [{ id: "p1", vector: [0, 0, 0, 1] }],
     };
     await tClient.upsertPoints("col_all", upsertBody);
@@ -218,7 +220,7 @@ describe("YdbQdrantClient (programmatic API, mocked YDB)", () => {
       endpoint: "grpc://localhost:2136",
       database: "/local",
       connectionString: undefined,
-      authService: undefined,
+      credentialsProvider: undefined,
     });
     expect(ydbClient.readyOrThrow).toHaveBeenCalledTimes(1);
     expect(schema.ensureMetaTable).toHaveBeenCalledTimes(1);

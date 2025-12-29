@@ -1,26 +1,27 @@
-import {
-  TypedValues,
-  Types,
-  withSession,
-  createExecuteQuerySettingsWithTimeout,
-} from "../../ydb/client.js";
+import { getAbortErrorCause, isTimeoutAbortError } from "../../ydb/client.js";
 import { buildVectorBinaryParams } from "../../ydb/helpers.js";
-import { withRetry, isTransientYdbError } from "../../utils/retry.js";
 import { UPSERT_BATCH_SIZE } from "../../ydb/schema.js";
 import { UPSERT_OPERATION_TIMEOUT_MS } from "../../config/env.js";
 import { logger } from "../../logging/logger.js";
-import type { Ydb } from "ydb-sdk";
+import { withRetry, isTransientYdbError } from "../../utils/retry.js";
+import { bulkUpsertRowsOnce } from "../../ydb/bulkUpsert.js";
+import { Bytes, JsonDocument, Utf8 } from "@ydbjs/value/primitive";
+import { List } from "@ydbjs/value/list";
+import { Struct } from "@ydbjs/value/struct";
+import type { QdrantPointStructDense } from "../../qdrant/QdrantTypes.js";
 
-type QueryParams = { [key: string]: Ydb.ITypedValue };
+type UpsertRow = {
+  uid: Utf8;
+  point_id: Utf8;
+  embedding: Bytes;
+  embedding_quantized: Bytes;
+  payload: JsonDocument;
+};
 
 function assertPointVectorsDimension(args: {
   tableName: string;
   uid: string;
-  points: Array<{
-    id: string | number;
-    vector: number[];
-    payload?: Record<string, unknown>;
-  }>;
+  points: QdrantPointStructDense[];
   dimension: number;
 }): void {
   for (const p of args.points) {
@@ -50,67 +51,42 @@ function assertPointVectorsDimension(args: {
 function buildUpsertQueryAndParams(args: {
   tableName: string;
   uid: string;
-  batch: Array<{
-    id: string | number;
-    vector: number[];
-    payload?: Record<string, unknown>;
-  }>;
-}): { ddl: string; params: QueryParams; debugMode: string } {
-  const ddl = `
-          DECLARE $rows AS List<Struct<
-            uid: Utf8,
-            point_id: Utf8,
-            embedding: String,
-            embedding_quantized: String,
-            payload: JsonDocument
-          >>;
-
-          UPSERT INTO ${args.tableName} (uid, point_id, embedding, embedding_quantized, payload)
-          SELECT
-            uid,
-            point_id,
-            embedding,
-            embedding_quantized,
-            payload
-          FROM AS_TABLE($rows);
-        `;
-
-  const rowType = Types.struct({
-    uid: Types.UTF8,
-    point_id: Types.UTF8,
-    embedding: Types.BYTES,
-    embedding_quantized: Types.BYTES,
-    payload: Types.JSON_DOCUMENT,
+  batch: QdrantPointStructDense[];
+}): {
+  rowsValue: List;
+} {
+  const rows: UpsertRow[] = args.batch.map((p) => {
+    const binaries = buildVectorBinaryParams(p.vector);
+    return {
+      uid: new Utf8(args.uid),
+      point_id: new Utf8(String(p.id)),
+      embedding: new Bytes(binaries.float),
+      embedding_quantized: new Bytes(binaries.bit),
+      payload: new JsonDocument(JSON.stringify(p.payload ?? {})),
+    };
   });
 
-  const rowsValue = TypedValues.list(
-    rowType,
-    args.batch.map((p) => {
-      const binaries = buildVectorBinaryParams(p.vector);
-      return {
-        uid: args.uid,
-        point_id: String(p.id),
-        embedding: binaries.float,
-        embedding_quantized: binaries.bit,
-        payload: JSON.stringify(p.payload ?? {}),
-      };
-    })
+  const rowsValue = new List(
+    ...rows.map(
+      (row) =>
+        new Struct({
+          uid: row.uid,
+          point_id: row.point_id,
+          embedding: row.embedding,
+          embedding_quantized: row.embedding_quantized,
+          payload: row.payload,
+        })
+    )
   );
 
   return {
-    ddl,
-    params: { $rows: rowsValue },
-    debugMode: "one_table_upsert_client_side_serialization",
+    rowsValue,
   };
 }
 
 export async function upsertPointsOneTable(
   tableName: string,
-  points: Array<{
-    id: string | number;
-    vector: number[];
-    payload?: Record<string, unknown>;
-  }>,
+  points: QdrantPointStructDense[],
   dimension: number,
   uid: string
 ): Promise<number> {
@@ -118,48 +94,57 @@ export async function upsertPointsOneTable(
 
   let upserted = 0;
 
-  await withSession(async (s) => {
-    const settings = createExecuteQuerySettingsWithTimeout({
-      keepInCache: true,
-      idempotent: true,
-      timeoutMs: UPSERT_OPERATION_TIMEOUT_MS,
+  for (let i = 0; i < points.length; i += UPSERT_BATCH_SIZE) {
+    const batch = points.slice(i, i + UPSERT_BATCH_SIZE);
+
+    const { rowsValue } = buildUpsertQueryAndParams({
+      tableName,
+      uid,
+      batch,
     });
-    for (let i = 0; i < points.length; i += UPSERT_BATCH_SIZE) {
-      const batch = points.slice(i, i + UPSERT_BATCH_SIZE);
 
-      const { ddl, params, debugMode } = buildUpsertQueryAndParams({
-        tableName,
-        uid,
-        batch,
-      });
-
-      if (logger.isLevelEnabled("debug")) {
-        logger.debug(
-          {
+    await withRetry(
+      async () => {
+        const startedAtMs = Date.now();
+        try {
+          await bulkUpsertRowsOnce({
             tableName,
-            mode: debugMode,
-            batchSize: batch.length,
-            yql: ddl,
-            params: {
-              rows: batch.map((p) => ({
+            rowsValue,
+            timeoutMs: UPSERT_OPERATION_TIMEOUT_MS,
+          });
+        } catch (err: unknown) {
+          const durationMs = Date.now() - startedAtMs;
+          if (err instanceof Error && err.name === "AbortError") {
+            logger.warn(
+              {
+                tableName,
                 uid,
-                point_id: String(p.id),
-                vectorLength: p.vector.length,
-                vectorPreview: p.vector.slice(0, 3),
-                payload: p.payload ?? {},
-              })),
-            },
-          },
-          "one_table upsert: executing YQL"
-        );
-      }
-
-      await withRetry(() => s.executeQuery(ddl, params, undefined, settings), {
+                batchStart: i,
+                batchSize: batch.length,
+                timeoutMs: UPSERT_OPERATION_TIMEOUT_MS,
+                durationMs,
+                err,
+                errCause: getAbortErrorCause(err),
+                isTimeout: isTimeoutAbortError(err),
+              },
+              "upsertPointsOneTable: BulkUpsert aborted"
+            );
+          }
+          throw err;
+        }
+      },
+      {
         isTransient: isTransientYdbError,
-        context: { tableName, batchSize: batch.length },
-      });
-      upserted += batch.length;
-    }
-  });
+        context: {
+          operation: "upsertPointsOneTable",
+          tableName,
+          uid,
+          batchStart: i,
+          batchSize: batch.length,
+        },
+      }
+    );
+    upserted += batch.length;
+  }
   return upserted;
 }

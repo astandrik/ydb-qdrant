@@ -1,13 +1,11 @@
-import {
-  TypedValues,
-  withSession,
-  createExecuteQuerySettings,
-} from "../../ydb/client.js";
-import { withRetry, isTransientYdbError } from "../../utils/retry.js";
-import type { Ydb } from "ydb-sdk";
+import { withSession } from "../../ydb/client.js";
 import { buildPathSegmentsWhereClause } from "./PathSegmentsFilter.js";
-
-type QueryParams = { [key: string]: Ydb.ITypedValue };
+import type { Query } from "@ydbjs/query";
+import type { Value } from "@ydbjs/value";
+import { Uint32, Utf8 } from "@ydbjs/value/primitive";
+import { withRetry, isTransientYdbError } from "../../utils/retry.js";
+import { UPSERT_OPERATION_TIMEOUT_MS } from "../../config/env.js";
+import { attachQueryDiagnostics } from "../../ydb/QueryDiagnostics.js";
 
 const DELETE_FILTER_SELECT_BATCH_SIZE = 1000;
 
@@ -17,91 +15,54 @@ export async function deletePointsOneTable(
   uid: string
 ): Promise<number> {
   let deleted = 0;
-  await withSession(async (s) => {
-    const settings = createExecuteQuerySettings();
+  await withSession(async (sql, signal) => {
     for (const id of ids) {
-      const yql = `
-        DECLARE $uid AS Utf8;
-        DECLARE $id AS Utf8;
-        DELETE FROM ${tableName} WHERE uid = $uid AND point_id = $id;
-      `;
-      const params: QueryParams = {
-        $uid: TypedValues.utf8(uid),
-        $id: TypedValues.utf8(String(id)),
-      };
-
-      await withRetry(() => s.executeQuery(yql, params, undefined, settings), {
-        isTransient: isTransientYdbError,
-        context: { tableName, uid, pointId: String(id) },
-      });
+      await withRetry(
+        async () => {
+          await attachQueryDiagnostics(
+            sql`
+            DELETE FROM ${sql.identifier(tableName)}
+            WHERE uid = $uid AND point_id = $id;
+          `,
+            {
+              operation: "deletePointsOneTable",
+              tableName,
+              uid,
+              pointId: String(id),
+            }
+          )
+            .parameter("uid", new Utf8(uid))
+            .parameter("id", new Utf8(String(id)))
+            .idempotent(true)
+            .timeout(UPSERT_OPERATION_TIMEOUT_MS)
+            .signal(signal);
+        },
+        {
+          isTransient: isTransientYdbError,
+          context: {
+            operation: "deletePointsOneTable",
+            tableName,
+            uid,
+            pointId: String(id),
+          },
+        }
+      );
       deleted += 1;
     }
   });
   return deleted;
 }
 
-type Cell = {
-  uint64Value?: unknown;
-  int64Value?: unknown;
-  uint32Value?: unknown;
-  int32Value?: unknown;
-  textValue?: string;
-};
-
-function toNumber(value: unknown): number | null {
+function toCount(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "bigint") {
     const n = Number(value);
-    return Number.isFinite(n) ? n : null;
+    return Number.isFinite(n) ? n : 0;
   }
   if (typeof value === "string") {
     const n = Number(value);
-    return Number.isFinite(n) ? n : null;
+    return Number.isFinite(n) ? n : 0;
   }
-  if (value && typeof value === "object") {
-    // ydb-sdk may return Uint64/Int64 as protobufjs Long-like objects:
-    // { low: number, high: number, unsigned?: boolean }
-    const v = value as { low?: unknown; high?: unknown };
-    if (typeof v.low === "number" && typeof v.high === "number") {
-      const low = BigInt(v.low >>> 0);
-      const high = BigInt(v.high >>> 0);
-      const n = Number(low + (high << 32n));
-      return Number.isFinite(n) ? n : null;
-    }
-  }
-  return null;
-}
-
-function readDeletedCountFromResult(rs: {
-  resultSets?: Array<{
-    rows?: unknown[];
-  }>;
-}): number {
-  const sets = rs.resultSets ?? [];
-  for (let i = sets.length - 1; i >= 0; i -= 1) {
-    const rowset = sets[i];
-    const rows =
-      (rowset?.rows as
-        | Array<{
-            items?: Array<Cell | undefined>;
-          }>
-        | undefined) ?? [];
-    const cell = rows[0]?.items?.[0];
-    if (!cell) continue;
-
-    const candidates: unknown[] = [
-      cell.uint64Value,
-      cell.int64Value,
-      cell.uint32Value,
-      cell.int32Value,
-      cell.textValue,
-    ];
-    for (const c of candidates) {
-      const n = toNumber(c);
-      if (n !== null) return n;
-    }
-  }
-
   return 0;
 }
 
@@ -116,63 +77,64 @@ export async function deletePointsByPathSegmentsOneTable(
 
   const { whereSql, params: whereParams } = buildPathSegmentsWhereClause(paths);
 
-  const whereParamDeclarations = Object.keys(whereParams)
-    .sort()
-    .map((key) => `DECLARE ${key} AS Utf8;`)
-    .join("\n    ");
-
-  const deleteBatchYql = `
-    DECLARE $uid AS Utf8;
-    DECLARE $limit AS Uint32;
-    ${whereParamDeclarations}
-
-    $to_delete = (
-      SELECT uid, point_id
-      FROM ${tableName}
-      WHERE uid = $uid AND ${whereSql}
-      LIMIT $limit
-    );
-
-    DELETE FROM ${tableName} ON
-    SELECT uid, point_id FROM $to_delete;
-
-    SELECT COUNT(*) AS deleted FROM $to_delete;
-  `;
-
   let deleted = 0;
-  await withSession(async (s) => {
-    const settings = createExecuteQuerySettings();
+  await withSession(async (sql, signal) => {
+    type DeleteCountRow = { deleted: unknown };
+    type ResultSets = [DeleteCountRow];
+
     // Best-effort loop: stop when there are no more matching rows.
     // Use limited batches to avoid per-operation buffer limits.
     while (true) {
-      const rs = (await withRetry(
-        () =>
-          s.executeQuery(
-            deleteBatchYql,
+      const [rows] = await withRetry(
+        async () => {
+          let q: Query<ResultSets> = attachQueryDiagnostics(
+            sql<ResultSets>`
+            $to_delete = (
+              SELECT uid, point_id
+              FROM ${sql.identifier(tableName)}
+              WHERE uid = $uid AND ${sql.unsafe(whereSql)}
+              LIMIT $limit
+            );
+
+            DELETE FROM ${sql.identifier(tableName)} ON
+            SELECT uid, point_id FROM $to_delete;
+
+            SELECT COUNT(*) AS deleted FROM $to_delete;
+          `,
             {
-              ...whereParams,
-              $uid: TypedValues.utf8(uid),
-              $limit: TypedValues.uint32(DELETE_FILTER_SELECT_BATCH_SIZE),
-            },
-            undefined,
-            settings
-          ),
+              operation: "deletePointsByPathSegmentsOneTable",
+              tableName,
+              uid,
+              batchLimit: DELETE_FILTER_SELECT_BATCH_SIZE,
+              pathsCount: paths.length,
+            }
+          )
+            .idempotent(true)
+            .timeout(UPSERT_OPERATION_TIMEOUT_MS)
+            .signal(signal)
+            .parameter("uid", new Utf8(uid))
+            .parameter("limit", new Uint32(DELETE_FILTER_SELECT_BATCH_SIZE));
+
+          for (const [key, value] of Object.entries(
+            whereParams as Record<string, Value>
+          )) {
+            q = q.parameter(key, value);
+          }
+
+          return await q;
+        },
         {
           isTransient: isTransientYdbError,
           context: {
+            operation: "deletePointsByPathSegmentsOneTable",
             tableName,
             uid,
-            filterPathsCount: paths.length,
             batchLimit: DELETE_FILTER_SELECT_BATCH_SIZE,
+            pathsCount: paths.length,
           },
         }
-      )) as {
-        resultSets?: Array<{
-          rows?: unknown[];
-        }>;
-      };
-
-      const batchDeleted = readDeletedCountFromResult(rs);
+      );
+      const batchDeleted = toCount(rows[0]?.deleted);
       if (batchDeleted <= 0) {
         break;
       }

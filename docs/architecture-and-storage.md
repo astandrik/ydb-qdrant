@@ -10,13 +10,9 @@ YDB Qdrant-compatible service is a Node.js/TypeScript service and npm library th
     - Columns: `uid Utf8`, `point_id Utf8`, `embedding String` (binary float), `embedding_quantized String` (bit‑quantized), `payload JsonDocument`.
     - Table is created with YDB auto-partitioning enabled (by load and by size) using the SDK table profile, with a target partition size of ~100 MB to allow the storage layer to split/merge partitions as load and size change.
 
-### One-table Mode Migrations
+### One-table Mode Schema Requirements
 
-In `one_table` mode, automatic schema/backfill steps for `qdrant_all_points` are disabled by default. To opt in, set:
-
-- `YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE=true`
-
-after backing up data; otherwise the service will error if the `embedding_quantized` column is missing and needs to be added (for example via `ALTER TABLE qdrant_all_points RENAME COLUMN embedding_bit TO embedding_quantized`).
+The service expects the tables to match the current schema. If an existing deployment has an older schema (for example missing `embedding_quantized`), apply a manual migration (or recreate the table) before running the service.
 
 ### Vector Serialization and Search
 
@@ -73,7 +69,7 @@ Compatibility notes:
 - YQL getting started: https://ydb.tech/docs/en/getting_started/yql/
 - YQL reference (syntax, functions): https://ydb.tech/docs/en/yql/reference/
 - YQL functions index: https://ydb.tech/docs/en/yql/reference/functions/
-- ydb-sdk (Node.js): https://github.com/ydb-platform/ydb-nodejs-sdk
+- YDB JavaScript/TypeScript SDK: `https://github.com/ydb-platform/ydb-js-sdk`
 - YDB Cloud (endpoints, auth): https://cloud.yandex.com/en/docs/ydb/
 - IR evaluation (precision/recall/F1, MAP, nDCG): https://nlp.stanford.edu/IR-book/pdf/08eval.pdf
 

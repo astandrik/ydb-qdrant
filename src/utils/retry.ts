@@ -1,4 +1,5 @@
 import { logger } from "../logging/logger.js";
+import { retry as ydbRetry } from "@ydbjs/retry";
 
 export interface RetryOptions {
   maxRetries?: number;
@@ -47,31 +48,47 @@ export async function withRetry<T>(
   const isTransient = options.isTransient ?? isTransientYdbError;
   const context = options.context ?? {};
 
-  let attempt = 0;
-  while (true) {
-    try {
+  // We keep the public API in terms of `maxRetries`, but @ydbjs/retry uses a budget
+  // in terms of total attempts. Convert retries→attempts.
+  const attemptsBudget = Math.max(0, maxRetries) + 1;
+  const delayByAttempt = new Map<number, number>();
+
+  return await ydbRetry(
+    {
+      budget: attemptsBudget,
+      retry: (error) => isTransient(error),
+      strategy: (ctx) => {
+        // Preserve previous backoff shape: baseDelayMs * 2^attemptIndex + jitter(0..100)
+        // where attemptIndex started at 0 for the first retry.
+        const attemptIndex = Math.max(0, ctx.attempt - 1);
+        const delayMs = Math.floor(
+          baseDelayMs * Math.pow(2, attemptIndex) + Math.random() * 100
+        );
+        delayByAttempt.set(ctx.attempt, delayMs);
+        return delayMs;
+      },
+      onRetry: (ctx) => {
+        const attemptIndex = Math.max(0, ctx.attempt - 1);
+        logger.warn(
+          {
+            ...context,
+            attempt: attemptIndex,
+            backoffMs: delayByAttempt.get(ctx.attempt),
+            err:
+              ctx.error instanceof Error
+                ? ctx.error
+                : new Error(
+                    typeof ctx.error === "string"
+                      ? ctx.error
+                      : JSON.stringify(ctx.error)
+                  ),
+          },
+          "operation aborted due to transient error; retrying"
+        );
+      },
+    },
+    async () => {
       return await fn();
-    } catch (e: unknown) {
-      if (!isTransient(e) || attempt >= maxRetries) {
-        throw e;
-      }
-      const backoffMs = Math.floor(
-        baseDelayMs * Math.pow(2, attempt) + Math.random() * 100
-      );
-      logger.warn(
-        {
-          ...context,
-          attempt,
-          backoffMs,
-          err:
-            e instanceof Error
-              ? e
-              : new Error(typeof e === "string" ? e : JSON.stringify(e)),
-        },
-        "operation aborted due to transient error; retrying"
-      );
-      await new Promise((r) => setTimeout(r, backoffMs));
-      attempt += 1;
     }
-  }
+  );
 }

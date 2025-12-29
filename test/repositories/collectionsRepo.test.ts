@@ -1,69 +1,9 @@
 import { describe, it, expect, beforeEach, vi, type Mock } from "vitest";
+import { createSqlHarness } from "../helpers/ydbjsQueryMock.js";
 
 vi.mock("../../src/ydb/client.js", () => {
-  const createExecuteQuerySettings = vi.fn(() => ({
-    kind: "ExecuteQuerySettings",
-  }));
-
   return {
-    Types: {
-      UTF8: "UTF8",
-      BYTES: "BYTES",
-      JSON_DOCUMENT: "JSON_DOCUMENT",
-      FLOAT: "FLOAT",
-      list: vi.fn((t: unknown) => ({ kind: "list", t })),
-    },
-    TypedValues: {
-      utf8: vi.fn((v: string) => ({ type: "utf8", v })),
-      uint32: vi.fn((v: number) => ({ type: "uint32", v })),
-      timestamp: vi.fn((v: Date) => ({ type: "timestamp", v })),
-      list: vi.fn((t: unknown, list: unknown[]) => ({ type: "list", t, list })),
-    },
     withSession: vi.fn(),
-    TableDescription: class {
-      cols: unknown[] = [];
-      pk: string[] = [];
-      withColumns(...cols: unknown[]) {
-        this.cols = cols;
-        return this;
-      }
-      withPrimaryKey(...pk: string[]) {
-        this.pk = pk;
-        return this;
-      }
-      withPrimaryKeys(...pk: string[]) {
-        this.pk = pk;
-        return this;
-      }
-    },
-    Column: class {
-      name: string;
-      type: unknown;
-      constructor(name: string, type: unknown) {
-        this.name = name;
-        this.type = type;
-      }
-    },
-    createExecuteQuerySettings,
-  };
-});
-
-vi.mock("../../src/config/env.js", async () => {
-  const actual = await vi.importActual<
-    typeof import("../../src/config/env.js")
-  >("../../src/config/env.js");
-
-  let useBatchDeleteForCollections = false;
-
-  return {
-    ...actual,
-    LOG_LEVEL: "info",
-    get USE_BATCH_DELETE_FOR_COLLECTIONS() {
-      return useBatchDeleteForCollections;
-    },
-    __setUseBatchDeleteForCollections(value: boolean) {
-      useBatchDeleteForCollections = value;
-    },
   };
 });
 
@@ -89,25 +29,28 @@ describe("collectionsRepo (with mocked YDB)", () => {
   });
 
   it("creates collection table and upserts metadata", async () => {
-    const sessionMock = {
-      createTable: vi.fn(),
-      executeQuery: vi.fn(),
-    };
+    const h = createSqlHarness();
+    h.plan([{ result: [[]] }]);
 
-    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
-      await fn(sessionMock);
-    });
+    withSessionMock.mockImplementation(
+      async (fn: (sql: unknown, signal: AbortSignal) => unknown) =>
+        await fn(h.sql, new AbortController().signal)
+    );
 
     await createCollection("tenant_a/my_collection", 128, "Cosine", "float");
 
-    expect(sessionMock.createTable).not.toHaveBeenCalled();
-    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
+    expect(h.calls).toHaveLength(1);
+    expect(h.calls[0].yql).toContain("UPSERT INTO qdr__collections");
   });
 
   it("returns null from getCollectionMeta when no rows returned", async () => {
-    withSessionMock.mockResolvedValueOnce({
-      resultSets: [{ rows: [] }],
-    } as unknown as never);
+    const h = createSqlHarness();
+    h.plan([{ result: [[]] }]);
+
+    withSessionMock.mockImplementationOnce(
+      async (fn: (sql: unknown, signal: AbortSignal) => unknown) =>
+        await fn(h.sql, new AbortController().signal)
+    );
 
     const meta = await getCollectionMeta("tenant_a/my_collection");
 
@@ -115,22 +58,27 @@ describe("collectionsRepo (with mocked YDB)", () => {
   });
 
   it("parses collection metadata row into typed object", async () => {
-    withSessionMock.mockResolvedValueOnce({
-      resultSets: [
-        {
-          rows: [
+    const h = createSqlHarness();
+    h.plan([
+      {
+        result: [
+          [
             {
-              items: [
-                { textValue: "qdr_tenant_a__my_collection" },
-                { uint32Value: 128 },
-                { textValue: "Euclid" },
-                { textValue: "float" },
-              ],
+              table_name: "qdr_tenant_a__my_collection",
+              vector_dimension: 128,
+              distance: "Euclid",
+              vector_type: "float",
+              last_accessed_at: "2025-01-01T00:00:00.000Z",
             },
           ],
-        },
-      ],
-    } as unknown as never);
+        ],
+      },
+    ]);
+
+    withSessionMock.mockImplementationOnce(
+      async (fn: (sql: unknown, signal: AbortSignal) => unknown) =>
+        await fn(h.sql, new AbortController().signal)
+    );
 
     const meta = await getCollectionMeta("tenant_a/my_collection");
 
@@ -139,22 +87,22 @@ describe("collectionsRepo (with mocked YDB)", () => {
       dimension: 128,
       distance: "Euclid",
       vectorType: "float",
+      lastAccessedAt: new Date("2025-01-01T00:00:00.000Z"),
     });
   });
 
   it("skips table creation in one_table mode", async () => {
-    const sessionMock = {
-      createTable: vi.fn(),
-      executeQuery: vi.fn(),
-    };
+    const h = createSqlHarness();
+    h.plan([{ result: [[]] }]);
 
-    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
-      await fn(sessionMock);
-    });
+    withSessionMock.mockImplementation(
+      async (fn: (sql: unknown, signal: AbortSignal) => unknown) =>
+        await fn(h.sql, new AbortController().signal)
+    );
 
     await createCollection("tenant_a/my_collection", 128, "Cosine", "float");
 
-    expect(sessionMock.createTable).not.toHaveBeenCalled();
-    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
+    expect(h.calls).toHaveLength(1);
+    expect(h.calls[0].yql).toContain("UPSERT INTO qdr__collections");
   });
 });
