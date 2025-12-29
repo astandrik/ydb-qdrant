@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767019736738,
+  "lastUpdate": 1767019804929,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (one_table, 768D)": [
@@ -2971,6 +2971,50 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/astandrik/ydb-qdrant/commit/8faedb18ce1d4a36a5537b546d05b72d4ba7981b"
         },
         "date": 1767019734037,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Soak: Search Latency p95",
+            "value": 45,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Search Latency p99",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Upsert Latency p95",
+            "value": 18,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Error Rate",
+            "value": 0,
+            "unit": "%"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "41898282+github-actions[bot]@users.noreply.github.com",
+            "name": "github-actions[bot]",
+            "username": "github-actions[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a8fcf28ac42ccc4ab5be87200d73d708f12244c1",
+          "message": "chore(main): release 7.0.1 (#179)\n\nCo-authored-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>",
+          "timestamp": "2025-12-29T17:46:21+03:00",
+          "tree_id": "3b42275ce4fe640133960e0c696a7450267f20d7",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/a8fcf28ac42ccc4ab5be87200d73d708f12244c1"
+        },
+        "date": 1767019803701,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
