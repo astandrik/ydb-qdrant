@@ -156,7 +156,7 @@ Collections are not auto-created: create them explicitly via `PUT /collections/{
 
 ## All-in-one local YDB + ydb-qdrant image
 
-- Image: `ghcr.io/astandrik/ydb-qdrant-local:latest` (published from this repo on `ydb-qdrant-v*` tags).
+- Image: `ghcr.io/astandrik/ydb-qdrant-local:latest` (published from this repo on `ydb-qdrant-v*` tags; see `.github/workflows/docker-ydb-qdrant.yml`).
 - Purpose: single-container local dev/demo with both YDB (Embedded UI on 8765) and ydb-qdrant HTTP API (8080) inside.
 - Typical run:
   - `docker run -d --name ydb-qdrant-local -p 8080:8080 -p 8765:8765 ghcr.io/astandrik/ydb-qdrant-local:latest`

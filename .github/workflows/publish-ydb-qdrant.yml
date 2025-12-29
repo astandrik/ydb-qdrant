@@ -3,16 +3,25 @@ name: Publish ydb-qdrant to npm
 on:
   release:
     types: [published]
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
 
 jobs:
   publish:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout (release)
+        if: ${{ github.event_name == 'release' }}
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.release.tag_name }}
+
+      - name: Checkout (tag push / manual)
+        if: ${{ github.event_name != 'release' }}
+        uses: actions/checkout@v4
 
       - name: Setup Node
         uses: actions/setup-node@v4

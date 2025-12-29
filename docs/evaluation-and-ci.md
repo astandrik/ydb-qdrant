@@ -79,7 +79,7 @@ Versioning:
 npm version patch|minor|major
 ```
 
-to bump the version and create a git tag (for example, `ydb-qdrant-v0.2.0`).
+to bump the version and create a git tag (for example, `v0.2.0`).
 
 Manual publish:
 
@@ -94,7 +94,7 @@ This will run tests and build via the `prepublishOnly` script before uploading t
 
 CI publish:
 
-- GitHub Actions workflow `.github/workflows/publish-ydb-qdrant.yml` publishes on tags matching `ydb-qdrant-v*`.
+- GitHub Actions workflow `.github/workflows/publish-ydb-qdrant.yml` publishes when a GitHub Release is published (typically for `v*` tags created by Release Please).
 - Configure the `NPM_TOKEN` secret in the repository; the workflow runs:
 
 ```bash
