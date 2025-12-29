@@ -2,8 +2,6 @@ window.BENCHMARK_DATA = {
   "lastUpdate": 1767007543257,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
-    "Load Test - Soak (multi_table, 768D)": [],
-    "Load Test - Soak Capacity (multi_table, 768D)": [],
     "Load Test - Soak (one_table, 768D)": [
       {
         "commit": {
@@ -4680,8 +4678,6 @@ window.BENCHMARK_DATA = {
         ]
       }
     ],
-    "Load Test - Stress (multi_table, 768D)": [],
-    "Load Test - Stress Capacity (multi_table, 768D)": [],
     "Load Test - Stress (one_table, 768D)": [
       {
         "commit": {
