@@ -1,10 +1,10 @@
-import { withSession } from "../../ydb/client.js";
+import { getAbortErrorCause, isTimeoutAbortError } from "../../ydb/client.js";
 import { buildVectorBinaryParams } from "../../ydb/helpers.js";
 import { UPSERT_BATCH_SIZE } from "../../ydb/schema.js";
 import { UPSERT_OPERATION_TIMEOUT_MS } from "../../config/env.js";
 import { logger } from "../../logging/logger.js";
 import { withRetry, isTransientYdbError } from "../../utils/retry.js";
-import { attachQueryDiagnostics } from "../../ydb/QueryDiagnostics.js";
+import { bulkUpsertRowsOnce } from "../../ydb/bulkUpsert.js";
 import { Bytes, JsonDocument, Utf8 } from "@ydbjs/value/primitive";
 import { List } from "@ydbjs/value/list";
 import { Struct } from "@ydbjs/value/struct";
@@ -94,56 +94,57 @@ export async function upsertPointsOneTable(
 
   let upserted = 0;
 
-  await withSession(async (sql, signal) => {
-    for (let i = 0; i < points.length; i += UPSERT_BATCH_SIZE) {
-      const batch = points.slice(i, i + UPSERT_BATCH_SIZE);
+  for (let i = 0; i < points.length; i += UPSERT_BATCH_SIZE) {
+    const batch = points.slice(i, i + UPSERT_BATCH_SIZE);
 
-      const { rowsValue } = buildUpsertQueryAndParams({
-        tableName,
-        uid,
-        batch,
-      });
+    const { rowsValue } = buildUpsertQueryAndParams({
+      tableName,
+      uid,
+      batch,
+    });
 
-      await withRetry(
-        async () => {
-          await attachQueryDiagnostics(
-            sql`
-              UPSERT INTO ${sql.identifier(tableName)} (
-                uid,
-                point_id,
-                embedding,
-                embedding_quantized,
-                payload
-              )
-              SELECT uid, point_id, embedding, embedding_quantized, payload
-              FROM AS_TABLE($rows);
-            `,
-            {
-              operation: "upsertPointsOneTable",
-              tableName,
-              uid,
-              batchStart: i,
-              batchSize: batch.length,
-            }
-          )
-            .parameter("rows", rowsValue)
-            .idempotent(true)
-            .timeout(UPSERT_OPERATION_TIMEOUT_MS)
-            .signal(signal);
-        },
-        {
-          isTransient: isTransientYdbError,
-          context: {
-            operation: "upsertPointsOneTable",
+    await withRetry(
+      async () => {
+        const startedAtMs = Date.now();
+        try {
+          await bulkUpsertRowsOnce({
             tableName,
-            uid,
-            batchStart: i,
-            batchSize: batch.length,
-          },
+            rowsValue,
+            timeoutMs: UPSERT_OPERATION_TIMEOUT_MS,
+          });
+        } catch (err: unknown) {
+          const durationMs = Date.now() - startedAtMs;
+          if (err instanceof Error && err.name === "AbortError") {
+            logger.warn(
+              {
+                tableName,
+                uid,
+                batchStart: i,
+                batchSize: batch.length,
+                timeoutMs: UPSERT_OPERATION_TIMEOUT_MS,
+                durationMs,
+                err,
+                errCause: getAbortErrorCause(err),
+                isTimeout: isTimeoutAbortError(err),
+              },
+              "upsertPointsOneTable: BulkUpsert aborted"
+            );
+          }
+          throw err;
         }
-      );
-      upserted += batch.length;
-    }
-  });
+      },
+      {
+        isTransient: isTransientYdbError,
+        context: {
+          operation: "upsertPointsOneTable",
+          tableName,
+          uid,
+          batchStart: i,
+          batchSize: batch.length,
+        },
+      }
+    );
+    upserted += batch.length;
+  }
   return upserted;
 }

@@ -47,7 +47,7 @@ Notes
 - `YDB_SESSION_KEEPALIVE_PERIOD_MS` — interval in milliseconds for session health checks (default `5000`, range 1000–60000). Dead sessions are automatically removed from the pool.
 - `YDB_QDRANT_STARTUP_PROBE_SESSION_TIMEOUT_MS` — session timeout used by the startup compilation probe (default `5000`, min `1000`).
 - `YDB_QDRANT_UPSERT_TIMEOUT_MS` — per‑query YDB operation timeout in milliseconds for upsert batches (default `5000`); individual UPSERT statements are cancelled if they exceed this bound.
-- `YDB_QDRANT_SEARCH_TIMEOUT_MS` — per‑query YDB operation timeout in milliseconds for search operations (default `10000`); search YQL statements are cancelled if they exceed this bound.
+- `YDB_QDRANT_SEARCH_TIMEOUT_MS` — per‑query YDB operation timeout in milliseconds for search operations (default `20000`); search YQL statements are cancelled if they exceed this bound.
 - `YDB_QDRANT_LAST_ACCESS_MIN_WRITE_INTERVAL_MS` — minimum interval between `last_accessed_at` updates per collection (default `60000`, min `1000`).
 
 ## Run

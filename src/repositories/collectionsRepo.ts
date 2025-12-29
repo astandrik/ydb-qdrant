@@ -1,6 +1,5 @@
 import { withSession, withStartupProbeSession } from "../ydb/client.js";
 import {
-  SEARCH_OPERATION_TIMEOUT_MS,
   STARTUP_PROBE_SESSION_TIMEOUT_MS,
   UPSERT_OPERATION_TIMEOUT_MS,
   LAST_ACCESS_MIN_WRITE_INTERVAL_MS,
@@ -26,7 +25,10 @@ type CollectionMetaCacheEntry = {
 
 const collectionMetaCache = new Map<string, CollectionMetaCacheEntry>();
 const COLLECTION_META_CACHE_MAX_SIZE = 10000;
-const COLLECTION_META_CACHE_TTL_MS = 10_000;
+// Meta lookups are on the hot path for *every* request (upsert/search/delete).
+// Under sustained ingestion, YDB can get busy and even a single-row SELECT can stall.
+// Keep meta cached long enough to avoid turning that into a constant DB read load.
+const COLLECTION_META_CACHE_TTL_MS = 5 * 60_000;
 
 function evictOldestCollectionMetaEntry(): void {
   if (collectionMetaCache.size < COLLECTION_META_CACHE_MAX_SIZE) {
@@ -120,7 +122,8 @@ export async function getCollectionMeta(
       { operation: "getCollectionMeta", metaKey }
     )
       .idempotent(true)
-      .timeout(SEARCH_OPERATION_TIMEOUT_MS)
+      // Collection metadata is required for upserts as well; use the more forgiving timeout.
+      .timeout(UPSERT_OPERATION_TIMEOUT_MS)
       .signal(signal)
       .parameter("collection", new Utf8(metaKey));
     return await q;

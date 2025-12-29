@@ -146,7 +146,7 @@ export const UPSERT_OPERATION_TIMEOUT_MS = parseIntegerEnv(
 
 export const SEARCH_OPERATION_TIMEOUT_MS = parseIntegerEnv(
   process.env.YDB_QDRANT_SEARCH_TIMEOUT_MS,
-  10000,
+  20000,
   { min: 1000 }
 );
 

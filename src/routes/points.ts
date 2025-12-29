@@ -12,7 +12,15 @@ import {
 } from "../services/PointsService.js";
 import { QdrantServiceError } from "../services/errors.js";
 import { logger } from "../logging/logger.js";
-import { isCompilationTimeoutError } from "../ydb/client.js";
+import {
+  SEARCH_OPERATION_TIMEOUT_MS,
+  UPSERT_OPERATION_TIMEOUT_MS,
+} from "../config/env.js";
+import {
+  getAbortErrorCause,
+  isCompilationTimeoutError,
+  isTimeoutAbortError,
+} from "../ydb/client.js";
 import { scheduleExit } from "../utils/exit.js";
 
 export const pointsRouter = Router();
@@ -62,6 +70,20 @@ pointsRouter.put("/:collection/points", async (req: Request, res: Response) => {
       scheduleExit(1);
       return;
     }
+    if (isTimeoutAbortError(err)) {
+      logger.error(
+        {
+          err,
+          errCause: getAbortErrorCause(err),
+          timeoutMs: UPSERT_OPERATION_TIMEOUT_MS,
+        },
+        "YDB upsert operation timed out"
+      );
+      return res.status(500).json({
+        status: "error",
+        error: `upsert operation timed out after ${UPSERT_OPERATION_TIMEOUT_MS}ms`,
+      });
+    }
     logger.error({ err }, "upsert points (PUT) failed");
     res.status(500).json({ status: "error", error: errorMessage });
   }
@@ -94,6 +116,20 @@ pointsRouter.post(
         res.status(500).json({ status: "error", error: errorMessage });
         scheduleExit(1);
         return;
+      }
+      if (isTimeoutAbortError(err)) {
+        logger.error(
+          {
+            err,
+            errCause: getAbortErrorCause(err),
+            timeoutMs: UPSERT_OPERATION_TIMEOUT_MS,
+          },
+          "YDB upsert operation timed out"
+        );
+        return res.status(500).json({
+          status: "error",
+          error: `upsert operation timed out after ${UPSERT_OPERATION_TIMEOUT_MS}ms`,
+        });
       }
       logger.error({ err }, "upsert points failed");
       res.status(500).json({ status: "error", error: errorMessage });
@@ -134,6 +170,20 @@ pointsRouter.post(
         scheduleExit(1);
         return;
       }
+      if (isTimeoutAbortError(err)) {
+        logger.error(
+          {
+            err,
+            errCause: getAbortErrorCause(err),
+            timeoutMs: SEARCH_OPERATION_TIMEOUT_MS,
+          },
+          "YDB search operation timed out"
+        );
+        return res.status(500).json({
+          status: "error",
+          error: `search operation timed out after ${SEARCH_OPERATION_TIMEOUT_MS}ms`,
+        });
+      }
       logger.error({ err }, "search points failed");
       res.status(500).json({ status: "error", error: errorMessage });
     }
@@ -173,6 +223,20 @@ pointsRouter.post(
         res.status(500).json({ status: "error", error: errorMessage });
         scheduleExit(1);
         return;
+      }
+      if (isTimeoutAbortError(err)) {
+        logger.error(
+          {
+            err,
+            errCause: getAbortErrorCause(err),
+            timeoutMs: SEARCH_OPERATION_TIMEOUT_MS,
+          },
+          "YDB search operation timed out"
+        );
+        return res.status(500).json({
+          status: "error",
+          error: `search operation timed out after ${SEARCH_OPERATION_TIMEOUT_MS}ms`,
+        });
       }
       logger.error({ err }, "search points (query) failed");
       res.status(500).json({ status: "error", error: errorMessage });

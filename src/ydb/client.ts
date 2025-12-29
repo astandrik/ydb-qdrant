@@ -298,6 +298,58 @@ export function isCompilationTimeoutError(error: unknown): boolean {
   return false;
 }
 
+function getErrorCause(error: Error): unknown {
+  return (error as Error & { cause?: unknown }).cause;
+}
+
+function getCauseName(cause: unknown): string | undefined {
+  if (cause instanceof Error) {
+    return cause.name;
+  }
+  if (typeof cause === "object" && cause !== null) {
+    const n = (cause as { name?: unknown }).name;
+    if (typeof n === "string") {
+      return n;
+    }
+  }
+  return undefined;
+}
+
+export function isTimeoutAbortError(error: unknown): boolean {
+  // `@ydbjs/query` implements `.timeout(ms)` by adding `AbortSignal.timeout(ms)` to the query
+  // signal chain. When that fires, @ydbjs/retry wraps it via `@ydbjs/abortable` and we end up
+  // observing a DOMException `{ name: "AbortError" }`, often with an underlying `cause`
+  // `{ name: "TimeoutError" }`.
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  if (error.name === "TimeoutError") {
+    return true;
+  }
+  if (error.name !== "AbortError") {
+    return false;
+  }
+  const cause = getErrorCause(error);
+  const causeName = getCauseName(cause);
+  if (causeName === "TimeoutError") {
+    return true;
+  }
+  // Node versions differ in how abort reasons are propagated through `AbortSignal.any(...)`.
+  // In our codebase we currently only use AbortError signals for query timeouts / cancellations,
+  // so treat an AbortError without a usable cause as timeout-like.
+  return true;
+}
+
+export function getAbortErrorCause(error: unknown): unknown {
+  if (!(error instanceof Error)) {
+    return undefined;
+  }
+  if (error.name !== "AbortError") {
+    return undefined;
+  }
+  return getErrorCause(error);
+}
+
 function shouldTriggerDriverRefresh(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false;
@@ -458,6 +510,15 @@ function getOrCreateDriver(): Driver {
   return driver;
 }
 
+/**
+ * @internal
+ * Exposes the singleton YDB `Driver` for internal modules that need non-QueryService RPCs
+ * (e.g. TableService BulkUpsert).
+ */
+export function __getDriverForInternalUse(): Driver {
+  return getOrCreateDriver();
+}
+
 function getOrCreateQueryClient(): QueryClient {
   if (sqlClient) {
     return sqlClient;
@@ -530,9 +591,12 @@ export async function withSession<T>(
 
     const MAX_ATTEMPTS = 3;
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-      leased = await withTimeoutSignal(WITH_SESSION_TIMEOUT_MS, async (signal) => {
-        return await pool.acquire(signal);
-      });
+      leased = await withTimeoutSignal(
+        WITH_SESSION_TIMEOUT_MS,
+        async (signal) => {
+          return await pool.acquire(signal);
+        }
+      );
       try {
         const store = {
           nodeId: leased.nodeId,
@@ -562,7 +626,9 @@ export async function withSession<T>(
         throw err;
       }
     }
-    throw new Error("withSession: exhausted attempts to acquire a healthy session");
+    throw new Error(
+      "withSession: exhausted attempts to acquire a healthy session"
+    );
   } catch (err) {
     void maybeRefreshDriverOnSessionError(err);
     throw err;

@@ -5,6 +5,12 @@ import type {
   QdrantPointStructDense,
 } from "../../src/qdrant/QdrantTypes.js";
 
+vi.mock("../../src/ydb/bulkUpsert.js", () => {
+  return {
+    bulkUpsertRowsOnce: vi.fn(() => Promise.resolve()),
+  };
+});
+
 vi.mock("../../src/ydb/client.js", () => {
   return {
     withSession: vi.fn(),
@@ -47,6 +53,7 @@ import {
   deletePointsByPathSegments,
 } from "../../src/repositories/pointsRepo.js";
 import * as ydbClient from "../../src/ydb/client.js";
+import * as bulkUpsert from "../../src/ydb/bulkUpsert.js";
 import { UPSERT_BATCH_SIZE } from "../../src/ydb/schema.js";
 
 const withSessionMock = ydbClient.withSession as unknown as Mock;
@@ -57,13 +64,8 @@ describe("pointsRepo (with mocked YDB)", () => {
   });
 
   it("upserts points and notifies scheduler (one_table)", async () => {
-    const h = createSqlHarness();
-    h.plan([{ result: [[]] }]);
-
-    withSessionMock.mockImplementation(
-      async (fn: (sql: unknown, signal: AbortSignal) => unknown) =>
-        await fn(h.sql, new AbortController().signal)
-    );
+    const bulkUpsertRowsOnceMock =
+      bulkUpsert.bulkUpsertRowsOnce as unknown as Mock;
 
     const points: QdrantPointStructDense[] = [
       { id: "p1", vector: [0, 0, 0, 1], payload: { a: 1 } },
@@ -77,7 +79,7 @@ describe("pointsRepo (with mocked YDB)", () => {
       "qdr_tenant_a__my_collection"
     );
 
-    expect(h.calls).toHaveLength(1);
+    expect(bulkUpsertRowsOnceMock).toHaveBeenCalledTimes(1);
     expect(result).toBe(2);
   });
 
@@ -150,13 +152,7 @@ describe("pointsRepo (with mocked YDB)", () => {
   });
 
   it("upserts points with uid parameter for one_table mode", async () => {
-    const h = createSqlHarness();
-    h.plan([{ result: [[]] }]);
-
-    withSessionMock.mockImplementation(
-      async (fn: (sql: unknown, signal: AbortSignal) => unknown) =>
-        await fn(h.sql, new AbortController().signal)
-    );
+    const bulkUpsertRowsOnceMock = vi.mocked(bulkUpsert.bulkUpsertRowsOnce);
 
     const points: QdrantPointStructDense[] = [
       { id: "p1", vector: [0, 0, 0, 1], payload: { a: 1 } },
@@ -169,33 +165,25 @@ describe("pointsRepo (with mocked YDB)", () => {
     );
 
     expect(result).toBe(1);
-    expect(h.calls).toHaveLength(1);
-    const yql = h.calls[0].yql;
-    expect(yql).toContain("UPSERT INTO qdrant_all_points");
-    expect(yql).toContain("FROM AS_TABLE($rows)");
-    expect(yql).not.toContain("Knn::ToBinaryStringFloat");
-    expect(yql).not.toContain("Knn::ToBinaryStringBit");
-
-    // In v6, @ydbjs/query injects DECLARE statements automatically based on .parameter() calls.
-    // Assert parameters were bound instead of asserting explicit DECLARE text.
-    const rowsParam = getQueryParam(h.calls[0].query, "rows");
-    expect(rowsParam).toBeDefined();
+    expect(bulkUpsertRowsOnceMock).toHaveBeenCalledTimes(1);
+    const firstCallArgs = bulkUpsertRowsOnceMock.mock.calls[0]?.[0];
+    expect(firstCallArgs).toBeDefined();
+    expect(firstCallArgs?.tableName).toBe("qdrant_all_points");
+    expect(firstCallArgs?.timeoutMs).toEqual(expect.any(Number));
   });
 
   it("upserts more than UPSERT_BATCH_SIZE points in multiple batches (one_table)", async () => {
-    const h = createSqlHarness();
-
-    withSessionMock.mockImplementation(
-      async (fn: (sql: unknown, signal: AbortSignal) => unknown) =>
-        await fn(h.sql, new AbortController().signal)
-    );
+    const bulkUpsertRowsOnceMock = vi.mocked(bulkUpsert.bulkUpsertRowsOnce);
 
     const total = UPSERT_BATCH_SIZE + 50;
-    const points: QdrantPointStructDense[] = Array.from({ length: total }, (_, i) => ({
-      id: `p${i}`,
-      vector: [0, 0, 0, 1],
-      payload: { i },
-    }));
+    const points: QdrantPointStructDense[] = Array.from(
+      { length: total },
+      (_, i) => ({
+        id: `p${i}`,
+        vector: [0, 0, 0, 1],
+        payload: { i },
+      })
+    );
 
     const result = await upsertPoints(
       "qdrant_all_points",
@@ -205,7 +193,9 @@ describe("pointsRepo (with mocked YDB)", () => {
     );
 
     expect(result).toBe(total);
-    expect(h.calls).toHaveLength(Math.ceil(total / UPSERT_BATCH_SIZE));
+    expect(bulkUpsertRowsOnceMock).toHaveBeenCalledTimes(
+      Math.ceil(total / UPSERT_BATCH_SIZE)
+    );
   });
 
   it("searches points with uid parameter for one_table mode (Cosine)", async () => {

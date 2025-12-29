@@ -145,7 +145,7 @@ describe("env.ts configuration", () => {
       const env = await import("../../src/config/env.js");
 
       expect(env.UPSERT_OPERATION_TIMEOUT_MS).toBe(20000);
-      expect(env.SEARCH_OPERATION_TIMEOUT_MS).toBe(10000);
+      expect(env.SEARCH_OPERATION_TIMEOUT_MS).toBe(20000);
       expect(env.STARTUP_PROBE_SESSION_TIMEOUT_MS).toBe(5000);
     });
 
@@ -181,7 +181,7 @@ describe("env.ts configuration", () => {
       const env = await import("../../src/config/env.js");
 
       expect(env.UPSERT_OPERATION_TIMEOUT_MS).toBe(20000);
-      expect(env.SEARCH_OPERATION_TIMEOUT_MS).toBe(10000);
+      expect(env.SEARCH_OPERATION_TIMEOUT_MS).toBe(20000);
       expect(env.STARTUP_PROBE_SESSION_TIMEOUT_MS).toBe(5000);
     });
   });

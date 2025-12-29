@@ -70,7 +70,7 @@ describe("collectionsRepo meta cache", () => {
     await mod.getCollectionMeta(metaKey);
     expect(withSessionMock).toHaveBeenCalledTimes(1);
 
-    vi.setSystemTime(new Date(Date.now() + 10_001));
+    vi.setSystemTime(new Date(Date.now() + 5 * 60_000 + 1));
     await mod.getCollectionMeta(metaKey);
     expect(withSessionMock).toHaveBeenCalledTimes(2);
   });
