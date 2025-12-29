@@ -19,7 +19,7 @@ import {
   type CollectionMeta,
   type DistanceKind,
   type VectorType,
-} from "../types";
+} from "../types.js";
 const lastAccessWriteCache = new Map<string, number>();
 const LAST_ACCESS_CACHE_MAX_SIZE = 10000;
 
