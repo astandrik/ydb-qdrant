@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767007290360,
+  "lastUpdate": 1767007532014,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (multi_table, 768D)": [
@@ -15123,6 +15123,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "Stress: Error Rate",
             "value": 0.0216,
+            "unit": "%"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cff9423bb854b3eb9e3b79d26ce772a5533ae1a2",
+          "message": "feat!: update sdk to v6 (#176)\n\n* feat!: update sdk to v6\n\n* fix: lint\n\n* fix: client\n\n* fix: review\n\n* fix: review issues\n\n* fix: code\n\n* fix: refactor\n\n* fix: refactoring\n\n* fix: tests\n\n* fix: use sessionPools\n\n* fix: review fixes\n\n* fix: review\n\n* feat: use v6 features\n\n* fix: review fixes\n\n* fix: review fixes and correct types\n\n* feat: bult upsert",
+          "timestamp": "2025-12-29T14:17:46+03:00",
+          "tree_id": "4f970714821815c1f2f505542494b09b699e1b1c",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/cff9423bb854b3eb9e3b79d26ce772a5533ae1a2"
+        },
+        "date": 1767007531378,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Stress: Search Latency p95",
+            "value": 5609.049999999999,
+            "unit": "ms"
+          },
+          {
+            "name": "Stress: Search Latency p99",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Stress: Search Latency max",
+            "value": 10020,
+            "unit": "ms"
+          },
+          {
+            "name": "Stress: Upsert Latency p95",
+            "value": 276,
+            "unit": "ms"
+          },
+          {
+            "name": "Stress: Error Rate",
+            "value": 0.4939,
             "unit": "%"
           }
         ]
