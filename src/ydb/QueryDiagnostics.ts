@@ -6,6 +6,7 @@ import {
   QueryStatsMode,
 } from "../config/env.js";
 import { logger } from "../logging/logger.js";
+import { isRecord } from "../utils/typeGuards.js";
 
 type QueryDiagContext = Record<string, unknown> & {
   operation: string;
@@ -16,10 +17,6 @@ function mapStatsMode(mode: QueryStatsMode): StatsMode | null {
   if (mode === QueryStatsMode.Full) return StatsMode.FULL;
   if (mode === QueryStatsMode.Profile) return StatsMode.PROFILE;
   return null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function pickStatsSummary(stats: unknown): Record<string, unknown> {

@@ -1,13 +1,11 @@
+import { isRecord } from "./typeGuards.js";
+
 export interface SearchNormalizationResult {
   vector: number[] | undefined;
   top: number | undefined;
   withPayload: boolean | undefined;
   scoreThreshold: number | undefined;
   filter?: unknown;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }
 
 export function isNumberArray(value: unknown): value is number[] {

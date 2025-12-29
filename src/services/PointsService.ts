@@ -23,6 +23,7 @@ import {
   normalizeSearchBodyForQuery,
   type SearchNormalizationResult,
 } from "../utils/normalization.js";
+import { isRecord } from "../utils/typeGuards.js";
 import type {
   QdrantPayload,
   QdrantPointStructDense,
@@ -40,9 +41,6 @@ type InternalScoredPoint = {
 function parsePathSegmentsFilterToPaths(
   filter: unknown
 ): Array<Array<string>> | null {
-  const isRecord = (v: unknown): v is Record<string, unknown> =>
-    typeof v === "object" && v !== null;
-
   const extractMust = (must: unknown): Array<string> | null => {
     if (!Array.isArray(must) || must.length === 0) return null;
     const pairs: Array<{ idx: number; value: string }> = [];
@@ -121,12 +119,7 @@ export async function upsertPoints(
   try {
     // Narrow Qdrant OpenAPI types to the dense-vector subset we support.
     const points: QdrantPointStructDense[] = parsed.data.points;
-    upserted = await repoUpsertPoints(
-      tableName,
-      points,
-      meta.dimension,
-      uid
-    );
+    upserted = await repoUpsertPoints(tableName, points, meta.dimension, uid);
   } catch (err: unknown) {
     if (isVectorDimensionMismatchError(err)) {
       logger.warn(
