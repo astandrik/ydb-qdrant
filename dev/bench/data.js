@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767007541114,
+  "lastUpdate": 1767007543257,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (multi_table, 768D)": [
@@ -19035,6 +19035,45 @@ window.BENCHMARK_DATA = {
           {
             "name": "Stress: Throughput",
             "value": 174.27670064909893,
+            "unit": "ops/s"
+          },
+          {
+            "name": "Stress: Max VUs",
+            "value": 600,
+            "unit": "VUs"
+          },
+          {
+            "name": "Stress: Breaking Point VUs",
+            "value": 600,
+            "unit": "VUs"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cff9423bb854b3eb9e3b79d26ce772a5533ae1a2",
+          "message": "feat!: update sdk to v6 (#176)\n\n* feat!: update sdk to v6\n\n* fix: lint\n\n* fix: client\n\n* fix: review\n\n* fix: review issues\n\n* fix: code\n\n* fix: refactor\n\n* fix: refactoring\n\n* fix: tests\n\n* fix: use sessionPools\n\n* fix: review fixes\n\n* fix: review\n\n* feat: use v6 features\n\n* fix: review fixes\n\n* fix: review fixes and correct types\n\n* feat: bult upsert",
+          "timestamp": "2025-12-29T14:17:46+03:00",
+          "tree_id": "4f970714821815c1f2f505542494b09b699e1b1c",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/cff9423bb854b3eb9e3b79d26ce772a5533ae1a2"
+        },
+        "date": 1767007542677,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Stress: Throughput",
+            "value": 209.28522592881455,
             "unit": "ops/s"
           },
           {
