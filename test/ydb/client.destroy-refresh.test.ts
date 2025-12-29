@@ -55,10 +55,11 @@ const sqlClientMock = {
 };
 
 function createMockDriver(): Driver {
-  return {
+  const driver: Partial<Driver> = {
     ready: readyMock,
     close: closeMock,
-  } as unknown as Driver;
+  };
+  return driver as Driver;
 }
 
 function setMockDriverFactory(): void {

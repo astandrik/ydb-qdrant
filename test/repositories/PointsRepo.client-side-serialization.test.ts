@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi, type Mock } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createSqlHarness, getQueryParam } from "../helpers/ydbjsQueryMock.js";
 import type { QdrantDenseVector } from "../../src/qdrant/QdrantTypes.js";
 
@@ -22,9 +22,8 @@ import * as helpers from "../../src/ydb/helpers.js";
 import { searchPointsOneTable as searchPointsOneTableInternal } from "../../src/repositories/pointsRepo.one-table.js";
 import { SearchMode } from "../../src/config/env.js";
 
-const withSessionMock = ydbClient.withSession as unknown as Mock;
-const buildVectorBinaryParamsMock =
-  helpers.buildVectorBinaryParams as unknown as Mock;
+const withSessionMock = vi.mocked(ydbClient.withSession);
+const buildVectorBinaryParamsMock = vi.mocked(helpers.buildVectorBinaryParams);
 
 describe("pointsRepo one_table with client-side serialization", () => {
   beforeEach(() => {

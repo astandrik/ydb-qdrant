@@ -1,5 +1,5 @@
 import { create } from "@bufbuild/protobuf";
-import { StatusIds_StatusCode } from "@ydbjs/api/operation";
+import { StatusIds_StatusCode, type IssueMessage } from "@ydbjs/api/operation";
 import { OperationServiceDefinition } from "@ydbjs/api/operation";
 import { TableServiceDefinition } from "@ydbjs/api/table";
 import { TypedValueSchema } from "@ydbjs/api/value";
@@ -23,13 +23,13 @@ async function waitOperationReady(args: {
       operation?: {
         ready: boolean;
         status: StatusIds_StatusCode;
-        issues: unknown;
+        issues: IssueMessage[];
       };
     }>;
   };
   operationId: string;
   signal: AbortSignal;
-}): Promise<{ status: StatusIds_StatusCode; issues: unknown }> {
+}): Promise<{ status: StatusIds_StatusCode; issues: IssueMessage[] }> {
   for (;;) {
     const resp = await args.operationClient.getOperation(
       { id: args.operationId },
@@ -60,31 +60,8 @@ export async function bulkUpsertRowsOnce(args: {
 
   await d.ready(signal);
 
-  const tableClient = d.createClient(TableServiceDefinition) as unknown as {
-    bulkUpsert: (
-      req: { table: string; rows: unknown },
-      opts: { signal: AbortSignal }
-    ) => Promise<{
-      operation?: {
-        id: string;
-        ready: boolean;
-        status: StatusIds_StatusCode;
-        issues: unknown;
-      };
-    }>;
-  };
-  const operationClient = d.createClient(OperationServiceDefinition) as unknown as {
-    getOperation: (
-      req: { id: string },
-      opts: { signal: AbortSignal }
-    ) => Promise<{
-      operation?: {
-        ready: boolean;
-        status: StatusIds_StatusCode;
-        issues: unknown;
-      };
-    }>;
-  };
+  const tableClient = d.createClient(TableServiceDefinition);
+  const operationClient = d.createClient(OperationServiceDefinition);
 
   const typedRows = create(TypedValueSchema, {
     type: args.rowsValue.type.encode(),
@@ -108,6 +85,6 @@ export async function bulkUpsertRowsOnce(args: {
     : { status: op.status, issues: op.issues };
 
   if (final.status !== StatusIds_StatusCode.SUCCESS) {
-    throw new YDBError(final.status, final.issues as never);
+    throw new YDBError(final.status, final.issues);
   }
 }
