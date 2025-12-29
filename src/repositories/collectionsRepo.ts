@@ -5,7 +5,6 @@ import {
   LAST_ACCESS_MIN_WRITE_INTERVAL_MS,
 } from "../config/env.js";
 import { logger } from "../logging/logger.js";
-import type { DistanceKind, VectorType, CollectionMeta } from "../types";
 import { uidFor } from "../utils/tenant.js";
 import { attachQueryDiagnostics } from "../ydb/QueryDiagnostics.js";
 import { withRetry, isTransientYdbError } from "../utils/retry.js";
@@ -14,7 +13,13 @@ import {
   deleteCollectionOneTable,
 } from "./collectionsRepo.one-table.js";
 import { Timestamp, Utf8 } from "@ydbjs/value/primitive";
-
+import {
+  DistanceKindSchema,
+  VectorTypeSchema,
+  type CollectionMeta,
+  type DistanceKind,
+  type VectorType,
+} from "../types.js";
 const lastAccessWriteCache = new Map<string, number>();
 const LAST_ACCESS_CACHE_MAX_SIZE = 10000;
 
@@ -133,8 +138,12 @@ export async function getCollectionMeta(
   const row = rows[0];
   const table = row.table_name;
   const dimension = Number(row.vector_dimension);
-  const distance = (row.distance as DistanceKind) ?? ("Cosine" as DistanceKind);
-  const vectorType = (row.vector_type as VectorType) ?? "float";
+  const distance: DistanceKind = DistanceKindSchema.catch("Cosine").parse(
+    row.distance
+  );
+  const vectorType: VectorType = VectorTypeSchema.catch("float").parse(
+    row.vector_type
+  );
   const lastAccessRaw = row.last_accessed_at;
   const lastAccessedAt =
     typeof lastAccessRaw === "string" && lastAccessRaw.length > 0

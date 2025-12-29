@@ -220,11 +220,7 @@ describe("ydb/SessionPool", () => {
     pool.release(b);
 
     // Make keepalive pick the second session (s2) by making its lastCheckedAtMs older.
-    const internals = pool as unknown as {
-      available: Array<{ sessionId: string; lastCheckedAtMs: number }>;
-      keepaliveTick: () => Promise<void>;
-      inUse: Set<string>;
-    };
+    const internals = pool.__getInternalsForTests();
     expect(internals.available).toHaveLength(2);
     const avail0 = internals.available[0];
     const avail1 = internals.available[1];
