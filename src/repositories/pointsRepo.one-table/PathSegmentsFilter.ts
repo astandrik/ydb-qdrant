@@ -1,7 +1,7 @@
-import type { Value } from "@ydbjs/value";
-import { Utf8 } from "@ydbjs/value/primitive";
+import { TypedValues } from "../../ydb/client.js";
+import type { Ydb } from "ydb-sdk";
 
-type QueryParams = Record<string, Value>;
+type QueryParams = { [key: string]: Ydb.ITypedValue };
 
 export function buildPathSegmentsWhereClause(paths: Array<Array<string>>): {
   whereSql: string;
@@ -19,13 +19,10 @@ export function buildPathSegmentsWhereClause(paths: Array<Array<string>>): {
     for (let sIdx = 0; sIdx < segs.length; sIdx += 1) {
       const paramName = `$p${pIdx}_${sIdx}`;
       // payload is JsonDocument; JSON_VALUE supports JsonPath access.
-      // Security: path segment values are always bound as parameters (see `params[paramName]`)
-      // and MUST NOT be interpolated into `whereSql`. The only dynamic part in the SQL text
-      // below is the numeric segment index (sIdx) and the internal parameter name.
       andParts.push(
         `JSON_VALUE(payload, '$.pathSegments."${sIdx}"') = ${paramName}`
       );
-      params[paramName] = new Utf8(segs[sIdx]);
+      params[paramName] = TypedValues.utf8(segs[sIdx]);
     }
     orGroups.push(`(${andParts.join(" AND ")})`);
   }
@@ -42,11 +39,17 @@ export function buildPathSegmentsFilter(
 ):
   | {
       whereSql: string;
+      whereParamDeclarations: string;
       whereParams: QueryParams;
     }
   | undefined {
   if (!paths || paths.length === 0) return undefined;
 
   const { whereSql, params: whereParams } = buildPathSegmentsWhereClause(paths);
-  return { whereSql, whereParams };
+  const whereParamDeclarations = Object.keys(whereParams)
+    .sort()
+    .map((key) => `DECLARE ${key} AS Utf8;`)
+    .join("\n        ");
+
+  return { whereSql, whereParamDeclarations, whereParams };
 }

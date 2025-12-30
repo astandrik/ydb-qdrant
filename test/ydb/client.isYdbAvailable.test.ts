@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { isYdbAvailable, __setDriverForTests } from "../../src/ydb/client.js";
 
-const readyMock = vi.fn<(signal?: AbortSignal) => Promise<void>>();
+const readyMock = vi.fn<(timeoutMs: number) => Promise<boolean>>();
 
 describe("ydb/client:isYdbAvailable", () => {
   beforeEach(() => {
@@ -13,9 +13,14 @@ describe("ydb/client:isYdbAvailable", () => {
     __setDriverForTests(undefined);
   });
 
-  it("returns true when driver.ready resolves", async () => {
-    readyMock.mockResolvedValueOnce(undefined);
+  it("returns true when driver.ready resolves true", async () => {
+    readyMock.mockResolvedValueOnce(true);
     await expect(isYdbAvailable()).resolves.toBe(true);
+  });
+
+  it("returns false when driver.ready resolves false", async () => {
+    readyMock.mockResolvedValueOnce(false);
+    await expect(isYdbAvailable()).resolves.toBe(false);
   });
 
   it("returns false when driver.ready throws", async () => {

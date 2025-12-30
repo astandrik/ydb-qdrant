@@ -1,5 +1,5 @@
 import { readyOrThrow, configureDriver } from "../ydb/client.js";
-import type { CredentialsProvider } from "@ydbjs/auth";
+import type { IAuthService } from "ydb-sdk";
 import { ensureMetaTable } from "../ydb/schema.js";
 import {
   createCollection as serviceCreateCollection,
@@ -20,6 +20,7 @@ export {
   SearchReq,
   DeletePointsReq,
 } from "../types.js";
+export type { UpsertPointsBody, SearchPointsBody } from "../types.js";
 
 type CreateCollectionResult = Awaited<
   ReturnType<typeof serviceCreateCollection>
@@ -38,7 +39,7 @@ export interface YdbQdrantClientOptions {
   endpoint?: string;
   database?: string;
   connectionString?: string;
-  credentialsProvider?: CredentialsProvider;
+  authService?: IAuthService;
 }
 
 export interface YdbQdrantTenantClient {
@@ -49,7 +50,15 @@ export interface YdbQdrantTenantClient {
   getCollection(collection: string): Promise<GetCollectionResult>;
   deleteCollection(collection: string): Promise<DeleteCollectionResult>;
   putCollectionIndex(collection: string): Promise<PutIndexResult>;
+  upsertPoints(
+    collection: string,
+    body: import("../types.js").UpsertPointsBody
+  ): Promise<UpsertPointsResult>;
   upsertPoints(collection: string, body: unknown): Promise<UpsertPointsResult>;
+  searchPoints(
+    collection: string,
+    body: import("../types.js").SearchPointsBody
+  ): Promise<SearchPointsResult>;
   searchPoints(collection: string, body: unknown): Promise<SearchPointsResult>;
   deletePoints(collection: string, body: unknown): Promise<DeletePointsResult>;
 }
@@ -112,13 +121,13 @@ export async function createYdbQdrantClient(
     options.endpoint !== undefined ||
     options.database !== undefined ||
     options.connectionString !== undefined ||
-    options.credentialsProvider !== undefined
+    options.authService !== undefined
   ) {
     configureDriver({
       endpoint: options.endpoint,
       database: options.database,
       connectionString: options.connectionString,
-      credentialsProvider: options.credentialsProvider,
+      authService: options.authService,
     });
   }
 

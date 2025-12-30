@@ -1,11 +1,5 @@
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import { createYdbQdrantClient } from "../../src/package/api.js";
-import type {
-  QdrantDenseVector,
-  QdrantPayload,
-  QdrantPointId,
-  QdrantPointStructDense,
-} from "../../src/qdrant/QdrantTypes.js";
 
 describe("YDB integration (real database via programmatic API)", () => {
   const tenant = process.env.YDB_QDRANT_INTEGRATION_TENANT ?? "itest_tenant";
@@ -40,15 +34,23 @@ describe("YDB integration (real database via programmatic API)", () => {
       },
     });
 
-    const points: QdrantPointStructDense[] = [
-      { id: "p1", vector: [0, 0, 0, 1], payload: { label: "p1" } },
-      { id: "p2", vector: [0, 0, 1, 0], payload: { label: "p2" } },
-    ];
-    await client.upsertPoints(collection, { points });
+    await client.upsertPoints(collection, {
+      points: [
+        {
+          id: "p1",
+          vector: [0, 0, 0, 1],
+          payload: { label: "p1" },
+        },
+        {
+          id: "p2",
+          vector: [0, 0, 1, 0],
+          payload: { label: "p2" },
+        },
+      ],
+    });
 
-    const queryVector: QdrantDenseVector = [0, 0, 0, 1];
     const result = await client.searchPoints(collection, {
-      vector: queryVector,
+      vector: [0, 0, 0, 1],
       top: 2,
       with_payload: true,
     });
@@ -97,16 +99,16 @@ describe("YDB integration (real database via programmatic API)", () => {
       },
     });
 
-    const points: QdrantPointStructDense[] = [
-      { id: "p1", vector: [0, 0, 0, 1], payload: { label: "p1" } },
-      { id: "p2", vector: [0, 0, 1, 0], payload: { label: "p2" } },
-      { id: "p3", vector: [0, 1, 0, 0], payload: { label: "p3" } },
-    ];
-    await client.upsertPoints(col, { points });
+    await client.upsertPoints(col, {
+      points: [
+        { id: "p1", vector: [0, 0, 0, 1], payload: { label: "p1" } },
+        { id: "p2", vector: [0, 0, 1, 0], payload: { label: "p2" } },
+        { id: "p3", vector: [0, 1, 0, 0], payload: { label: "p3" } },
+      ],
+    });
 
-    const queryVector: QdrantDenseVector = [0, 0, 0, 1];
     const initial = await client.searchPoints(col, {
-      vector: queryVector,
+      vector: [0, 0, 0, 1],
       top: 10,
       with_payload: true,
     });
@@ -114,11 +116,10 @@ describe("YDB integration (real database via programmatic API)", () => {
     const initialIds = (initial.points ?? []).map((p) => p.id);
     expect(initialIds).toEqual(expect.arrayContaining(["p1", "p2", "p3"]));
 
-    const deleteIds: QdrantPointId[] = ["p1", "p2"];
-    await client.deletePoints(col, { points: deleteIds });
+    await client.deletePoints(col, { points: ["p1", "p2"] });
 
     const afterDelete = await client.searchPoints(col, {
-      vector: queryVector,
+      vector: [0, 0, 0, 1],
       top: 10,
       with_payload: true,
     });
@@ -146,26 +147,36 @@ describe("YDB integration (real database via programmatic API)", () => {
       },
     });
 
-    const v: QdrantDenseVector = [0, 0, 0, 1];
+    const v = [0, 0, 0, 1];
 
-    const payloadT1: QdrantPayload = {
-      filePath: "src/hooks/useMonacoGhost.ts",
-      pathSegments: { "0": "src", "1": "hooks", "2": "useMonacoGhost.ts" },
-    };
-    const payloadC1: QdrantPayload = {
-      filePath: "src/hooks/other.ts",
-      pathSegments: { "0": "src", "1": "hooks", "2": "other.ts" },
-    };
-    const payloadC2: QdrantPayload = {
-      filePath: "src/components/Button.tsx",
-      pathSegments: { "0": "src", "1": "components", "2": "Button.tsx" },
-    };
-    const points: QdrantPointStructDense[] = [
-      { id: "t1", vector: v, payload: payloadT1 },
-      { id: "c1", vector: v, payload: payloadC1 },
-      { id: "c2", vector: v, payload: payloadC2 },
-    ];
-    await client.upsertPoints(col, { points });
+    await client.upsertPoints(col, {
+      points: [
+        {
+          id: "t1",
+          vector: v,
+          payload: {
+            filePath: "src/hooks/useMonacoGhost.ts",
+            pathSegments: { "0": "src", "1": "hooks", "2": "useMonacoGhost.ts" },
+          },
+        },
+        {
+          id: "c1",
+          vector: v,
+          payload: {
+            filePath: "src/hooks/other.ts",
+            pathSegments: { "0": "src", "1": "hooks", "2": "other.ts" },
+          },
+        },
+        {
+          id: "c2",
+          vector: v,
+          payload: {
+            filePath: "src/components/Button.tsx",
+            pathSegments: { "0": "src", "1": "components", "2": "Button.tsx" },
+          },
+        },
+      ],
+    });
 
     const before = await client.searchPoints(col, {
       vector: v,
@@ -225,7 +236,7 @@ describe("YDB integration (real database via programmatic API)", () => {
       },
     });
 
-    const v: QdrantDenseVector = [0, 0, 0, 1];
+    const v = [0, 0, 0, 1];
 
     await client.upsertPoints(col, {
       points: [

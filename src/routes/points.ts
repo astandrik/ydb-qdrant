@@ -1,9 +1,4 @@
 import { Router, Request, Response } from "express";
-import type {
-  QdrantPayload,
-  QdrantQueryResponse,
-  QdrantScoredPoint,
-} from "../qdrant/QdrantTypes.js";
 import {
   upsertPoints,
   searchPoints,
@@ -12,36 +7,10 @@ import {
 } from "../services/PointsService.js";
 import { QdrantServiceError } from "../services/errors.js";
 import { logger } from "../logging/logger.js";
-import {
-  SEARCH_OPERATION_TIMEOUT_MS,
-  UPSERT_OPERATION_TIMEOUT_MS,
-} from "../config/env.js";
-import {
-  getAbortErrorCause,
-  isCompilationTimeoutError,
-  isTimeoutAbortError,
-} from "../ydb/client.js";
+import { isCompilationTimeoutError } from "../ydb/client.js";
 import { scheduleExit } from "../utils/exit.js";
 
 export const pointsRouter = Router();
-
-function toQdrantScoredPoint(hit: {
-  id: string;
-  score: number;
-  payload?: QdrantPayload;
-}): QdrantScoredPoint {
-  // Qdrant's ScoredPoint includes a mandatory `version`.
-  // We don't track versions; emit a stable default.
-  return {
-    id: hit.id,
-    version: 0,
-    score: hit.score,
-    payload: hit.payload ?? null,
-    vector: null,
-    shard_key: null,
-    order_value: null,
-  };
-}
 
 // Qdrant-compatible: PUT /collections/:collection/points (upsert)
 pointsRouter.put("/:collection/points", async (req: Request, res: Response) => {
@@ -69,20 +38,6 @@ pointsRouter.put("/:collection/points", async (req: Request, res: Response) => {
       res.status(500).json({ status: "error", error: errorMessage });
       scheduleExit(1);
       return;
-    }
-    if (isTimeoutAbortError(err)) {
-      logger.error(
-        {
-          err,
-          errCause: getAbortErrorCause(err),
-          timeoutMs: UPSERT_OPERATION_TIMEOUT_MS,
-        },
-        "YDB upsert operation timed out"
-      );
-      return res.status(500).json({
-        status: "error",
-        error: `upsert operation timed out after ${UPSERT_OPERATION_TIMEOUT_MS}ms`,
-      });
     }
     logger.error({ err }, "upsert points (PUT) failed");
     res.status(500).json({ status: "error", error: errorMessage });
@@ -117,20 +72,6 @@ pointsRouter.post(
         scheduleExit(1);
         return;
       }
-      if (isTimeoutAbortError(err)) {
-        logger.error(
-          {
-            err,
-            errCause: getAbortErrorCause(err),
-            timeoutMs: UPSERT_OPERATION_TIMEOUT_MS,
-          },
-          "YDB upsert operation timed out"
-        );
-        return res.status(500).json({
-          status: "error",
-          error: `upsert operation timed out after ${UPSERT_OPERATION_TIMEOUT_MS}ms`,
-        });
-      }
       logger.error({ err }, "upsert points failed");
       res.status(500).json({ status: "error", error: errorMessage });
     }
@@ -141,7 +82,7 @@ pointsRouter.post(
   "/:collection/points/search",
   async (req: Request, res: Response) => {
     try {
-      const result = await searchPoints(
+      const { points } = await searchPoints(
         {
           tenant: req.header("X-Tenant-Id") ?? undefined,
           collection: String(req.params.collection),
@@ -150,12 +91,7 @@ pointsRouter.post(
         },
         req.body
       );
-      // Qdrant compatibility: REST API returns `result` as an array of points.
-      // Keep service return shape internal (`{ points: [...] }`).
-      res.json({
-        status: "ok",
-        result: result.points.map(toQdrantScoredPoint),
-      });
+      res.json({ status: "ok", result: points });
     } catch (err: unknown) {
       if (err instanceof QdrantServiceError) {
         return res.status(err.statusCode).json(err.payload);
@@ -170,20 +106,6 @@ pointsRouter.post(
         scheduleExit(1);
         return;
       }
-      if (isTimeoutAbortError(err)) {
-        logger.error(
-          {
-            err,
-            errCause: getAbortErrorCause(err),
-            timeoutMs: SEARCH_OPERATION_TIMEOUT_MS,
-          },
-          "YDB search operation timed out"
-        );
-        return res.status(500).json({
-          status: "error",
-          error: `search operation timed out after ${SEARCH_OPERATION_TIMEOUT_MS}ms`,
-        });
-      }
       logger.error({ err }, "search points failed");
       res.status(500).json({ status: "error", error: errorMessage });
     }
@@ -195,7 +117,7 @@ pointsRouter.post(
   "/:collection/points/query",
   async (req: Request, res: Response) => {
     try {
-      const result = await queryPoints(
+      const { points } = await queryPoints(
         {
           tenant: req.header("X-Tenant-Id") ?? undefined,
           collection: String(req.params.collection),
@@ -204,12 +126,7 @@ pointsRouter.post(
         },
         req.body
       );
-      // Qdrant compatibility: /points/query returns `result` as an object.
-      // (Unlike /points/search, where result is a list.)
-      const qdrantResult: QdrantQueryResponse = {
-        points: result.points.map(toQdrantScoredPoint),
-      };
-      res.json({ status: "ok", result: qdrantResult });
+      res.json({ status: "ok", result: points });
     } catch (err: unknown) {
       if (err instanceof QdrantServiceError) {
         return res.status(err.statusCode).json(err.payload);
@@ -223,20 +140,6 @@ pointsRouter.post(
         res.status(500).json({ status: "error", error: errorMessage });
         scheduleExit(1);
         return;
-      }
-      if (isTimeoutAbortError(err)) {
-        logger.error(
-          {
-            err,
-            errCause: getAbortErrorCause(err),
-            timeoutMs: SEARCH_OPERATION_TIMEOUT_MS,
-          },
-          "YDB search operation timed out"
-        );
-        return res.status(500).json({
-          status: "error",
-          error: `search operation timed out after ${SEARCH_OPERATION_TIMEOUT_MS}ms`,
-        });
       }
       logger.error({ err }, "search points (query) failed");
       res.status(500).json({ status: "error", error: errorMessage });

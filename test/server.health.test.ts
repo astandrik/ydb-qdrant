@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { Request } from "express";
 import { createMockRes } from "./helpers/routeTestHelpers.js";
 
 const isYdbAvailableMock = vi.fn<() => Promise<boolean>>();
@@ -34,22 +35,6 @@ vi.mock("../src/utils/exit.js", () => ({
 
 import { healthHandler, rootHandler } from "../src/server.js";
 
-type RootHandlerCompat = (
-  req: unknown,
-  res: { json: (payload: unknown) => unknown }
-) => void;
-
-type HealthHandlerCompat = (
-  req: unknown,
-  res: {
-    status: (code: number) => unknown;
-    json: (payload: unknown) => unknown;
-  }
-) => Promise<void>;
-
-const rootHandlerCompat = rootHandler as RootHandlerCompat;
-const healthHandlerCompat = healthHandler as HealthHandlerCompat;
-
 describe("GET /health", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -61,7 +46,7 @@ describe("GET /health", () => {
     verifyCollectionsQueryCompilationForStartupMock.mockResolvedValueOnce();
     const res = createMockRes();
 
-    await healthHandlerCompat({}, res);
+    await healthHandler({} as Request, res);
 
     expect(res.statusCode).toBe(200);
     expect(res.body).toMatchObject({ status: "ok" });
@@ -75,7 +60,7 @@ describe("GET /health", () => {
     isYdbAvailableMock.mockResolvedValueOnce(false);
     const res = createMockRes();
 
-    await healthHandlerCompat({}, res);
+    await healthHandler({} as Request, res);
 
     expect(res.statusCode).toBe(503);
     expect(res.body).toMatchObject({
@@ -94,7 +79,7 @@ describe("GET /health", () => {
     isCompilationTimeoutErrorMock.mockReturnValueOnce(true);
     const res = createMockRes();
 
-    await healthHandlerCompat({}, res);
+    await healthHandler({} as Request, res);
 
     expect(res.statusCode).toBe(503);
     expect(res.body).toMatchObject({
@@ -116,7 +101,7 @@ describe("GET /", () => {
     const res = createMockRes();
 
     try {
-      rootHandlerCompat({}, res);
+      rootHandler({} as Request, res);
     } finally {
       if (originalVersion === undefined) {
         delete process.env.npm_package_version;
@@ -126,14 +111,13 @@ describe("GET /", () => {
     }
 
     expect(res.statusCode).toBe(200);
-    const body = res.body;
-    const obj =
-      typeof body === "object" && body !== null
-        ? (body as Record<string, unknown>)
-        : {};
-    expect(typeof obj.title).toBe("string");
-    expect(String(obj.title).toLowerCase()).toContain("qdrant");
-    expect(obj.version).toBe("4.23.0-test");
+    const body = res.body as unknown as {
+      title?: unknown;
+      version?: unknown;
+    };
+    expect(typeof body.title).toBe("string");
+    expect((body.title as string).toLowerCase()).toContain("qdrant");
+    expect(body.version).toBe("4.23.0-test");
   });
 
   it('returns 200 with version "unknown" when npm_package_version is missing', () => {
@@ -142,7 +126,7 @@ describe("GET /", () => {
     const res = createMockRes();
 
     try {
-      rootHandlerCompat({}, res);
+      rootHandler({} as Request, res);
     } finally {
       if (originalVersion === undefined) {
         delete process.env.npm_package_version;
@@ -152,13 +136,12 @@ describe("GET /", () => {
     }
 
     expect(res.statusCode).toBe(200);
-    const body = res.body;
-    const obj =
-      typeof body === "object" && body !== null
-        ? (body as Record<string, unknown>)
-        : {};
-    expect(typeof obj.title).toBe("string");
-    expect(String(obj.title).toLowerCase()).toContain("qdrant");
-    expect(obj.version).toBe("unknown");
+    const body = res.body as unknown as {
+      title?: unknown;
+      version?: unknown;
+    };
+    expect(typeof body.title).toBe("string");
+    expect((body.title as string).toLowerCase()).toContain("qdrant");
+    expect(body.version).toBe("unknown");
   });
 });
