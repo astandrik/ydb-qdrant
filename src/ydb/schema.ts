@@ -27,6 +27,29 @@ function isMigrationRequiredError(err: unknown): boolean {
 
 function isTableNotFoundError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
+  const ctorName =
+    err instanceof Error
+      ? (err.constructor as { name?: unknown } | undefined)?.name
+      : undefined;
+  const statusCodeMatch = /code\s+(\d{6})/i.exec(msg);
+  const statusCode =
+    statusCodeMatch && statusCodeMatch[1]
+      ? Number(statusCodeMatch[1])
+      : undefined;
+
+  // ydb-sdk exposes dedicated error classes with server status codes.
+  // In practice, table-not-found can surface as:
+  // - NotFound (code 400140)
+  // - SchemeError (code 400070) with empty issues (observed in CI logs for describeTable)
+  if (ctorName === "NotFound" || statusCode === 400140) {
+    return true;
+  }
+  if (
+    (ctorName === "SchemeError" || statusCode === 400070) &&
+    /:\s*\[\s*\]\s*$/i.test(msg)
+  ) {
+    return true;
+  }
   return (
     /table.*not found/i.test(msg) ||
     /path.*not found/i.test(msg) ||

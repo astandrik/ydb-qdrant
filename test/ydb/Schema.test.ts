@@ -117,6 +117,30 @@ describe("ydb/schema.ensureMetaTable", () => {
     );
   });
 
+  it("creates metadata table when describeTable fails with SchemeError (code 400070): []", async () => {
+    const { ensureMetaTable } = await resetSchemaModule();
+
+    const session = {
+      sessionId: "test-session",
+      describeTable: vi
+        .fn()
+        .mockRejectedValue(new Error("SchemeError (code 400070): []")),
+      createTable: vi.fn().mockResolvedValue(undefined),
+    };
+
+    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
+      return await fn(session);
+    });
+
+    await ensureMetaTable();
+
+    expect(session.describeTable).toHaveBeenCalledWith("qdr__collections");
+    expect(session.createTable).toHaveBeenCalledTimes(1);
+    expect(loggerInfoMock).toHaveBeenCalledWith(
+      "created metadata table qdr__collections"
+    );
+  });
+
   it("throws when last_accessed_at column is missing (migration required)", async () => {
     const { ensureMetaTable } = await resetSchemaModule();
 
