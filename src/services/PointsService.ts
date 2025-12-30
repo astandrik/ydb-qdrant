@@ -23,6 +23,7 @@ import {
   normalizeSearchBodyForQuery,
   type SearchNormalizationResult,
 } from "../utils/normalization.js";
+import type { YdbQdrantScoredPoint } from "../qdrant/QdrantRestTypes.js";
 
 type PointsContextInput = CollectionContextInput;
 
@@ -142,11 +143,7 @@ async function executeSearch(
   normalizedSearch: SearchNormalizationResult,
   source: "search" | "query"
 ): Promise<{
-  points: Array<{
-    id: string;
-    score: number;
-    payload?: Record<string, unknown>;
-  }>;
+  points: YdbQdrantScoredPoint[];
 }> {
   await ensureMetaTable();
   const normalized = normalizeCollectionContextShared(
@@ -290,11 +287,7 @@ export async function searchPoints(
   ctx: PointsContextInput,
   body: unknown
 ): Promise<{
-  points: Array<{
-    id: string;
-    score: number;
-    payload?: Record<string, unknown>;
-  }>;
+  points: YdbQdrantScoredPoint[];
 }> {
   const normalizedSearch = normalizeSearchBodyForSearch(body);
   return await executeSearch(ctx, normalizedSearch, "search");
@@ -304,11 +297,7 @@ export async function queryPoints(
   ctx: PointsContextInput,
   body: unknown
 ): Promise<{
-  points: Array<{
-    id: string;
-    score: number;
-    payload?: Record<string, unknown>;
-  }>;
+  points: YdbQdrantScoredPoint[];
 }> {
   const normalizedSearch = normalizeSearchBodyForQuery(body);
   return await executeSearch(ctx, normalizedSearch, "query");

@@ -75,6 +75,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@qdrant/js-client-rest": "^1.16.2",
     "@types/express": "^5.0.3",
     "@types/node": "^24.9.1",
     "@vitest/coverage-v8": "^4.0.12",

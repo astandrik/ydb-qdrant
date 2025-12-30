@@ -1,4 +1,5 @@
-import type { DistanceKind } from "../types";
+import type { DistanceKind, UpsertPoint } from "../types.js";
+import type { YdbQdrantScoredPoint } from "../qdrant/QdrantRestTypes.js";
 import {
   SEARCH_MODE,
   OVERFETCH_MULTIPLIER,
@@ -13,11 +14,7 @@ import {
 
 export async function upsertPoints(
   tableName: string,
-  points: Array<{
-    id: string | number;
-    vector: number[];
-    payload?: Record<string, unknown>;
-  }>,
+  points: UpsertPoint[],
   dimension: number,
   uid: string
 ): Promise<number> {
@@ -33,9 +30,7 @@ export async function searchPoints(
   dimension: number,
   uid: string,
   filterPaths?: Array<Array<string>>
-): Promise<
-  Array<{ id: string; score: number; payload?: Record<string, unknown> }>
-> {
+): Promise<YdbQdrantScoredPoint[]> {
   const mode: SearchMode | undefined = SEARCH_MODE;
   return await searchPointsOneTable(
     tableName,

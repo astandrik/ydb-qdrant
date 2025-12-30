@@ -20,6 +20,7 @@ export {
   SearchReq,
   DeletePointsReq,
 } from "../types.js";
+export type { UpsertPointsBody, SearchPointsBody } from "../types.js";
 
 type CreateCollectionResult = Awaited<
   ReturnType<typeof serviceCreateCollection>
@@ -49,7 +50,15 @@ export interface YdbQdrantTenantClient {
   getCollection(collection: string): Promise<GetCollectionResult>;
   deleteCollection(collection: string): Promise<DeleteCollectionResult>;
   putCollectionIndex(collection: string): Promise<PutIndexResult>;
+  upsertPoints(
+    collection: string,
+    body: import("../types.js").UpsertPointsBody
+  ): Promise<UpsertPointsResult>;
   upsertPoints(collection: string, body: unknown): Promise<UpsertPointsResult>;
+  searchPoints(
+    collection: string,
+    body: import("../types.js").SearchPointsBody
+  ): Promise<SearchPointsResult>;
   searchPoints(collection: string, body: unknown): Promise<SearchPointsResult>;
   deletePoints(collection: string, body: unknown): Promise<DeletePointsResult>;
 }

@@ -10,17 +10,14 @@ import { UPSERT_BATCH_SIZE } from "../../ydb/schema.js";
 import { UPSERT_OPERATION_TIMEOUT_MS } from "../../config/env.js";
 import { logger } from "../../logging/logger.js";
 import type { Ydb } from "ydb-sdk";
+import type { UpsertPoint } from "../../types.js";
 
 type QueryParams = { [key: string]: Ydb.ITypedValue };
 
 function assertPointVectorsDimension(args: {
   tableName: string;
   uid: string;
-  points: Array<{
-    id: string | number;
-    vector: number[];
-    payload?: Record<string, unknown>;
-  }>;
+  points: UpsertPoint[];
   dimension: number;
 }): void {
   for (const p of args.points) {
@@ -50,11 +47,7 @@ function assertPointVectorsDimension(args: {
 function buildUpsertQueryAndParams(args: {
   tableName: string;
   uid: string;
-  batch: Array<{
-    id: string | number;
-    vector: number[];
-    payload?: Record<string, unknown>;
-  }>;
+  batch: Array<Pick<UpsertPoint, "id" | "vector" | "payload">>;
 }): { ddl: string; params: QueryParams; debugMode: string } {
   const ddl = `
           DECLARE $rows AS List<Struct<
@@ -106,11 +99,7 @@ function buildUpsertQueryAndParams(args: {
 
 export async function upsertPointsOneTable(
   tableName: string,
-  points: Array<{
-    id: string | number;
-    vector: number[];
-    payload?: Record<string, unknown>;
-  }>,
+  points: UpsertPoint[],
   dimension: number,
   uid: string
 ): Promise<number> {

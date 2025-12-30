@@ -6,7 +6,7 @@ import {
 } from "../../ydb/client.js";
 import type { Ydb } from "ydb-sdk";
 import { buildVectorBinaryParams } from "../../ydb/helpers.js";
-import type { DistanceKind } from "../../types";
+import type { DistanceKind } from "../../types.js";
 import {
   mapDistanceToKnnFn,
   mapDistanceToBitKnnFn,
@@ -14,6 +14,8 @@ import {
 import { logger } from "../../logging/logger.js";
 import { SearchMode, SEARCH_OPERATION_TIMEOUT_MS } from "../../config/env.js";
 import { buildPathSegmentsFilter } from "./PathSegmentsFilter.js";
+import type { Payload } from "../../types.js";
+import type { YdbQdrantScoredPoint } from "../../qdrant/QdrantRestTypes.js";
 
 type QueryParams = { [key: string]: Ydb.ITypedValue };
 
@@ -59,19 +61,19 @@ function parseSearchRows(
     >;
   }>,
   withPayload: boolean | undefined
-): Array<{ id: string; score: number; payload?: Record<string, unknown> }> {
+): YdbQdrantScoredPoint[] {
   return rows.map((row) => {
     const id = row.items?.[0]?.textValue;
     if (typeof id !== "string") {
       throw new Error("point_id is missing in YDB search result");
     }
-    let payload: Record<string, unknown> | undefined;
+    let payload: Payload | undefined;
     let scoreIdx = 1;
     if (withPayload) {
       const payloadText = row.items?.[1]?.textValue;
       if (payloadText) {
         try {
-          payload = JSON.parse(payloadText) as Record<string, unknown>;
+          payload = JSON.parse(payloadText) as Payload;
         } catch {
           payload = undefined;
         }
@@ -205,9 +207,7 @@ async function searchPointsOneTableExact(
   dimension: number,
   uid: string,
   filterPaths?: Array<Array<string>>
-): Promise<
-  Array<{ id: string; score: number; payload?: Record<string, unknown> }>
-> {
+): Promise<YdbQdrantScoredPoint[]> {
   assertVectorDimension(queryVector, dimension);
 
   const results = await withSession(async (s) => {
@@ -274,9 +274,7 @@ async function searchPointsOneTableApproximate(
   uid: string,
   overfetchMultiplier: number,
   filterPaths?: Array<Array<string>>
-): Promise<
-  Array<{ id: string; score: number; payload?: Record<string, unknown> }>
-> {
+): Promise<YdbQdrantScoredPoint[]> {
   assertVectorDimension(queryVector, dimension);
 
   const results = await withSession(async (s) => {
@@ -348,9 +346,7 @@ export async function searchPointsOneTable(
   mode: SearchMode | undefined,
   overfetchMultiplier: number,
   filterPaths?: Array<Array<string>>
-): Promise<
-  Array<{ id: string; score: number; payload?: Record<string, unknown> }>
-> {
+): Promise<YdbQdrantScoredPoint[]> {
   if (mode === SearchMode.Exact) {
     return await searchPointsOneTableExact(
       tableName,
