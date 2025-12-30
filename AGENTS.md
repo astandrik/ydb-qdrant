@@ -41,7 +41,6 @@ Notes
 - `YDB_QDRANT_SEARCH_MODE` — `"exact"` (default) or `"approximate"`; in approximate mode searches use a two-phase flow over `embedding_quantized` + `embedding`, in exact mode they scan `embedding` only.
 - `YDB_QDRANT_OVERFETCH_MULTIPLIER` — candidate overfetch multiplier for approximate search phase 1 (default `10`, min `1`).
 - `YDB_QDRANT_UPSERT_BATCH_SIZE` — upsert batch size per YDB query (default `100`, min `1`).
-- `YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE` — allow automatic schema migration for `qdrant_all_points` (default `false`).
 - `YDB_QDRANT_USE_BATCH_DELETE` — controls collection delete strategy; by default (when omitted) uses a single `DELETE` with a chunked per-uid cleanup loop for compatibility, and when set to a truthy value uses `BATCH DELETE FROM qdrant_all_points WHERE uid = <uid>` (YDB v25.2+).
 - `YDB_SESSION_POOL_MIN_SIZE` — minimum number of sessions in the pool (default `5`, range 1–500).
 - `YDB_SESSION_POOL_MAX_SIZE` — maximum number of sessions in the pool (default `100`, range 1–500).
@@ -165,7 +164,7 @@ Collections are not auto-created: create them explicitly via `PUT /collections/{
 - YDB config (env, all optional):
   - `YDB_LOCAL_GRPC_PORT` (default `2136`), `YDB_LOCAL_MON_PORT` (default `8765`), `YDB_DATABASE` (default `/local`), `YDB_ANONYMOUS_CREDENTIALS` (default `1`), `YDB_USE_IN_MEMORY_PDISKS`, `YDB_LOCAL_SURVIVE_RESTART`, `YDB_DEFAULT_LOG_LEVEL`, `YDB_FEATURE_FLAGS`, `YDB_ENABLE_COLUMN_TABLES`, `YDB_KAFKA_PROXY_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`.
 - ydb-qdrant config (env, same semantics as standalone image):
-  - `PORT` (default `8080`), `LOG_LEVEL`, `YDB_QDRANT_SEARCH_MODE`, `YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE`.
+  - `PORT` (default `8080`), `LOG_LEVEL`, `YDB_QDRANT_SEARCH_MODE`.
 - Note: `YDB_ENDPOINT` is unconditionally set to `grpc://localhost:<YDB_LOCAL_GRPC_PORT>` by the entrypoint — any user-provided value is ignored. Use the standalone `ydb-qdrant` image to connect to an external YDB.
 
 ## Logging & diagnostics

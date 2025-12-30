@@ -151,7 +151,7 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
     );
   });
 
-  it("throws when embedding_quantized column is missing and automigrate is disabled", async () => {
+  it("throws when embedding_quantized column is missing", async () => {
     const { ensureGlobalPointsTable, GLOBAL_POINTS_TABLE } =
       await resetSchemaModule();
 
@@ -176,53 +176,10 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
     });
 
     await expect(ensureGlobalPointsTable()).rejects.toThrow(
-      `Global points table ${GLOBAL_POINTS_TABLE} is missing required column embedding_quantized; apply the migration (e.g., ALTER TABLE ${GLOBAL_POINTS_TABLE} RENAME COLUMN embedding_bit TO embedding_quantized) or set YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE=true after backup to allow automatic migration.`
+      `Global points table ${GLOBAL_POINTS_TABLE} is missing required column embedding_quantized; please recreate the table or apply a manual schema migration before starting the service`
     );
 
     expect(session.describeTable).toHaveBeenCalledWith(GLOBAL_POINTS_TABLE);
     expect(session.createTable).not.toHaveBeenCalled();
-  });
-
-  it("adds embedding_quantized column when automigration is opt-in", async () => {
-    const { ensureGlobalPointsTable, GLOBAL_POINTS_TABLE } =
-      await resetSchemaModule({ YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE: "true" });
-
-    const session = {
-      sessionId: "test-session",
-      describeTable: vi.fn().mockResolvedValue({
-        columns: [
-          { name: "uid" },
-          { name: "point_id" },
-          { name: "embedding" },
-          { name: "payload" },
-          // Note: embedding_quantized is missing
-        ],
-      }),
-      createTable: vi.fn(),
-      api: {
-        executeSchemeQuery: vi.fn().mockResolvedValue(undefined),
-      },
-    };
-
-    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
-      return await fn(session);
-    });
-
-    await ensureGlobalPointsTable();
-
-    expect(session.describeTable).toHaveBeenCalledWith(GLOBAL_POINTS_TABLE);
-    expect(session.createTable).not.toHaveBeenCalled();
-    expect(session.api.executeSchemeQuery).toHaveBeenCalledTimes(1);
-
-    const alterReq = session.api.executeSchemeQuery.mock.calls[0][0] as {
-      yqlText: string;
-    };
-    expect(alterReq.yqlText).toContain("ALTER TABLE");
-    expect(alterReq.yqlText).toContain(GLOBAL_POINTS_TABLE);
-    expect(alterReq.yqlText).toContain("ADD COLUMN embedding_quantized String");
-
-    expect(loggerInfoMock).toHaveBeenCalledWith(
-      `added embedding_quantized column to existing table ${GLOBAL_POINTS_TABLE}`
-    );
   });
 });

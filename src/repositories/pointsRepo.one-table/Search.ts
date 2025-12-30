@@ -1,4 +1,5 @@
 import {
+  Types,
   TypedValues,
   withSession,
   createExecuteQuerySettingsWithTimeout,
@@ -29,9 +30,22 @@ function assertVectorDimension(
 }
 
 function typedBytesOrFallback(value: Buffer): Ydb.ITypedValue {
-  return typeof TypedValues.bytes === "function"
-    ? TypedValues.bytes(value)
-    : (value as unknown as Ydb.ITypedValue);
+  const typedValuesCompat = TypedValues as unknown as {
+    bytes?: (v: Buffer) => Ydb.ITypedValue;
+    fromNative?: (type: unknown, v: unknown) => Ydb.ITypedValue;
+  };
+
+  if (typeof typedValuesCompat.bytes === "function") {
+    return typedValuesCompat.bytes(value);
+  }
+
+  if (typeof typedValuesCompat.fromNative === "function") {
+    return typedValuesCompat.fromNative(Types.BYTES, value);
+  }
+
+  throw new Error(
+    "ydb-sdk does not support constructing BYTES typed parameters (TypedValues.bytes/fromNative missing); cannot execute vector search"
+  );
 }
 
 function parseSearchRows(

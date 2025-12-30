@@ -29,6 +29,7 @@ vi.mock("../../src/ydb/client.js", () => {
       uint32: vi.fn((v: number) => ({ type: "uint32", v })),
       timestamp: vi.fn((v: Date) => ({ type: "timestamp", v })),
       list: vi.fn((t: unknown, list: unknown[]) => ({ type: "list", t, list })),
+      bytes: vi.fn((v: unknown) => ({ type: "bytes", v })),
     },
     withSession: vi.fn(),
     createExecuteQuerySettings,

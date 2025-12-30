@@ -337,9 +337,10 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     }
   });
 
-  it("migrates existing table by adding embedding_quantized column for legacy layouts", async () => {
-    // This test simulates the migration scenario for existing deployments
-    // We create a legacy table without embedding_quantized, insert data, then run migration
+  it("rejects legacy layouts without embedding_quantized column (no automatic migrations)", async () => {
+    // This test simulates an old deployment schema.
+    // The project does not perform automatic migrations, so queries that rely on
+    // embedding_quantized should fail against such a table.
 
     const legacyTable = `qdrant_migration_test_${Date.now()}`;
 
@@ -389,35 +390,26 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     expect(columnsBefore).toContain("embedding");
     expect(columnsBefore).not.toContain("embedding_quantized");
 
-    // Step 4: Run migration (ALTER TABLE via schema API to add embedding_quantized)
-    await withSession(async (s) => {
-      const alterDdl = `
-        ALTER TABLE ${legacyTable}
-        ADD COLUMN embedding_quantized String;
-      `;
-
-      const rawSession = s as unknown as {
-        sessionId: string;
-        api: {
-          executeSchemeQuery: (req: {
-            sessionId: string;
-            yqlText: string;
-          }) => Promise<unknown>;
-        };
-      };
-
-      await rawSession.api.executeSchemeQuery({
-        sessionId: rawSession.sessionId,
-        yqlText: alterDdl,
-      });
-    });
-
-    // Step 5: Verify the column was added
-    const descAfter = await withSession(async (s) => {
-      return await s.describeTable(legacyTable);
-    });
-    const columnsAfter = descAfter.columns?.map((c) => c.name) ?? [];
-    expect(columnsAfter).toContain("embedding_quantized");
+    // Step 4: Verify a query that requires embedding_quantized fails.
+    await expect(
+      withSession(async (s) => {
+        const q = `
+          DECLARE $uid AS Utf8;
+          DECLARE $qbin_bit AS String;
+          SELECT point_id
+          FROM ${legacyTable}
+          WHERE uid = $uid AND embedding_quantized IS NOT NULL
+          ORDER BY Knn::CosineSimilarity(embedding_quantized, $qbin_bit) DESC
+          LIMIT 1;
+        `;
+        await s.executeQuery(q, {
+          $uid: TypedValues.utf8(testUid),
+          // Any BYTES payload is fine here: the query should fail at compilation
+          // because embedding_quantized does not exist in the legacy schema.
+          $qbin_bit: TypedValues.bytes(Buffer.from([10])),
+        });
+      })
+    ).rejects.toThrow();
 
     // Cleanup: drop the test table
     try {

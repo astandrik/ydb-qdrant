@@ -47,11 +47,6 @@ function parseBooleanEnv(
   return true;
 }
 
-export const GLOBAL_POINTS_AUTOMIGRATE_ENABLED = parseBooleanEnv(
-  process.env.YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE,
-  false
-);
-
 export const USE_BATCH_DELETE_FOR_COLLECTIONS = parseBooleanEnv(
   process.env.YDB_QDRANT_USE_BATCH_DELETE,
   false

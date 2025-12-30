@@ -1,6 +1,5 @@
 import { withSession, TableDescription, Column, Types, Ydb } from "./client.js";
 import { logger } from "../logging/logger.js";
-import { GLOBAL_POINTS_AUTOMIGRATE_ENABLED } from "../config/env.js";
 
 export const GLOBAL_POINTS_TABLE = "qdrant_all_points";
 // Shared YDB-related constants for repositories.
@@ -28,33 +27,8 @@ async function ensureMetaTableOnce(): Promise<void> {
         );
 
         if (!hasLastAccessedAt) {
-          const alterDdl = `
-            ALTER TABLE qdr__collections
-            ADD COLUMN last_accessed_at Timestamp;
-          `;
-
-          // NOTE: ydb-sdk's public TableSession type does not surface executeSchemeQuery,
-          // but the underlying implementation provides it. This cast relies on the
-          // current ydb-sdk internals (tested with ydb-sdk v5.11.1) to run ALTER TABLE
-          // as a scheme query. If the SDK changes its internal API, this may need to be
-          // revisited or replaced with an officially supported migration mechanism.
-          const rawSession = s as unknown as {
-            sessionId: string;
-            api: {
-              executeSchemeQuery: (req: {
-                sessionId: string;
-                yqlText: string;
-              }) => Promise<unknown>;
-            };
-          };
-
-          await rawSession.api.executeSchemeQuery({
-            sessionId: rawSession.sessionId,
-            yqlText: alterDdl,
-          });
-
-          logger.info(
-            "added last_accessed_at column to metadata table qdr__collections"
+          throwMigrationRequired(
+            "Metadata table qdr__collections is missing required column last_accessed_at; please recreate the table or apply a manual schema migration before starting the service"
           );
         }
         return;
@@ -143,39 +117,8 @@ export async function ensureGlobalPointsTable(): Promise<void> {
     );
 
     if (!hasEmbeddingQuantized) {
-      if (!GLOBAL_POINTS_AUTOMIGRATE_ENABLED) {
-        throwMigrationRequired(
-          `Global points table ${GLOBAL_POINTS_TABLE} is missing required column embedding_quantized; apply the migration (e.g., ALTER TABLE ${GLOBAL_POINTS_TABLE} RENAME COLUMN embedding_bit TO embedding_quantized) or set YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE=true after backup to allow automatic migration.`
-        );
-      }
-
-      const alterDdl = `
-          ALTER TABLE ${GLOBAL_POINTS_TABLE}
-          ADD COLUMN embedding_quantized String;
-        `;
-
-      // NOTE: Same rationale as in ensureMetaTable: executeSchemeQuery is not part of
-      // the public TableSession TypeScript surface, so we reach into the underlying
-      // ydb-sdk implementation (verified with ydb-sdk v5.11.1) to apply schema changes.
-      // If future SDK versions alter this shape, this cast and migration path must be
-      // updated accordingly.
-      const rawSession = s as unknown as {
-        sessionId: string;
-        api: {
-          executeSchemeQuery: (req: {
-            sessionId: string;
-            yqlText: string;
-          }) => Promise<unknown>;
-        };
-      };
-
-      await rawSession.api.executeSchemeQuery({
-        sessionId: rawSession.sessionId,
-        yqlText: alterDdl,
-      });
-
-      logger.info(
-        `added embedding_quantized column to existing table ${GLOBAL_POINTS_TABLE}`
+      throwMigrationRequired(
+        `Global points table ${GLOBAL_POINTS_TABLE} is missing required column embedding_quantized; please recreate the table or apply a manual schema migration before starting the service`
       );
     }
     // Mark table ready after schema checks/migrations succeed.

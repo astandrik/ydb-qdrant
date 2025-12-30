@@ -48,25 +48,63 @@ type Cell = {
   textValue?: string;
 };
 
+const MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+
+function bigintToSafeNumberOrNull(value: bigint): number | null {
+  if (value > MAX_SAFE_BIGINT || value < -MAX_SAFE_BIGINT) {
+    return null;
+  }
+  return Number(value);
+}
+
+function longLikeToBigInt(value: {
+  low: number;
+  high: number;
+  unsigned?: boolean;
+}): bigint {
+  const low = BigInt(value.low >>> 0);
+  const high = BigInt(value.high >>> 0);
+  let n = low + (high << 32n);
+
+  // If this is a signed Long-like and the sign bit is set, interpret as a negative 64-bit integer.
+  const isUnsigned = value.unsigned === true;
+  const signBitSet = (value.high & 0x8000_0000) !== 0;
+  if (!isUnsigned && signBitSet) {
+    n -= 1n << 64n;
+  }
+
+  return n;
+}
+
 function toNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "bigint") {
-    const n = Number(value);
-    return Number.isFinite(n) ? n : null;
+    return bigintToSafeNumberOrNull(value);
   }
   if (typeof value === "string") {
+    // Prefer exact parsing for integer strings to avoid silent precision loss.
+    if (/^-?\d+$/.test(value.trim())) {
+      try {
+        const b = BigInt(value.trim());
+        return bigintToSafeNumberOrNull(b);
+      } catch {
+        return null;
+      }
+    }
     const n = Number(value);
     return Number.isFinite(n) ? n : null;
   }
   if (value && typeof value === "object") {
     // ydb-sdk may return Uint64/Int64 as protobufjs Long-like objects:
     // { low: number, high: number, unsigned?: boolean }
-    const v = value as { low?: unknown; high?: unknown };
+    const v = value as { low?: unknown; high?: unknown; unsigned?: unknown };
     if (typeof v.low === "number" && typeof v.high === "number") {
-      const low = BigInt(v.low >>> 0);
-      const high = BigInt(v.high >>> 0);
-      const n = Number(low + (high << 32n));
-      return Number.isFinite(n) ? n : null;
+      const b = longLikeToBigInt({
+        low: v.low,
+        high: v.high,
+        unsigned: v.unsigned === true,
+      });
+      return bigintToSafeNumberOrNull(b);
     }
   }
   return null;
@@ -173,6 +211,17 @@ export async function deletePointsByPathSegmentsOneTable(
       };
 
       const batchDeleted = readDeletedCountFromResult(rs);
+      if (
+        !Number.isSafeInteger(batchDeleted) ||
+        batchDeleted < 0 ||
+        batchDeleted > DELETE_FILTER_SELECT_BATCH_SIZE
+      ) {
+        throw new Error(
+          `Unexpected deleted count from YDB: ${String(
+            batchDeleted
+          )}. Expected an integer in [0, ${DELETE_FILTER_SELECT_BATCH_SIZE}].`
+        );
+      }
       if (batchDeleted <= 0) {
         break;
       }

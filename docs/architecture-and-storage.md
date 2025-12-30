@@ -12,11 +12,7 @@ YDB Qdrant-compatible service is a Node.js/TypeScript service and npm library th
 
 ### One-table Mode Migrations
 
-In `one_table` mode, automatic schema/backfill steps for `qdrant_all_points` are disabled by default. To opt in, set:
-
-- `YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE=true`
-
-after backing up data; otherwise the service will error if the `embedding_quantized` column is missing and needs to be added (for example via `ALTER TABLE qdrant_all_points RENAME COLUMN embedding_bit TO embedding_quantized`).
+This project does not perform automatic schema migrations. Tables are expected to be created with the correct schema from the beginning (including the `embedding_quantized` column in `qdrant_all_points` and `last_accessed_at` in `qdr__collections`). If an existing deployment uses an older schema, apply a manual migration or recreate the tables before running the service.
 
 ### Vector Serialization and Search
 
