@@ -69,6 +69,13 @@ jobs:
           echo "YDB did not become ready in time"
           exit 1
 
+      - name: Bootstrap metadata table (qdr__collections)
+        run: node dist/ydb/bootstrapMetaTable.js
+        env:
+          YDB_ENDPOINT: grpc://localhost:2136
+          YDB_DATABASE: /local
+          YDB_ANONYMOUS_CREDENTIALS: "1"
+
       - name: Start HTTP server
         run: |
           npm start &
