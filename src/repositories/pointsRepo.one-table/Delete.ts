@@ -138,6 +138,10 @@ function readDeletedCountFromResult(rs: {
       const n = toNumber(c);
       if (n !== null) return n;
     }
+
+    // We got a result cell but couldn't parse any of its known numeric representations.
+    // Returning 0 here would silently stop the delete loop, so fail loud.
+    throw new Error("Unable to parse deleted count from YDB result.");
   }
 
   return 0;
@@ -174,7 +178,7 @@ export async function deletePointsByPathSegmentsOneTable(
     DELETE FROM ${tableName} ON
     SELECT uid, point_id FROM $to_delete;
 
-    SELECT COUNT(*) AS deleted FROM $to_delete;
+    SELECT CAST(COUNT(*) AS Uint32) AS deleted FROM $to_delete;
   `;
 
   let deleted = 0;

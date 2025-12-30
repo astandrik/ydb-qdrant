@@ -465,7 +465,9 @@ describe("pointsRepo (with mocked YDB)", () => {
     expect(yql).toContain("$to_delete");
     expect(yql).toContain("SELECT uid, point_id");
     expect(yql).toContain("DELETE FROM qdrant_all_points ON");
-    expect(yql).toContain("SELECT COUNT(*) AS deleted FROM $to_delete");
+    expect(yql).toContain(
+      "SELECT CAST(COUNT(*) AS Uint32) AS deleted FROM $to_delete"
+    );
   });
 
   it("retries transient OVERLOADED errors for deletePointsByPathSegments (one_table)", async () => {

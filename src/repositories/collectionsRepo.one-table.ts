@@ -59,7 +59,7 @@ async function deletePointsForUidInChunks(
   // Each iteration only touches a limited number of rows to avoid
   // hitting YDB's per‑operation buffer limits.
   let iterations = 0;
-  const MAX_ITERATIONS = 1000;
+  const MAX_ITERATIONS = 10000;
 
   const settings = createExecuteQuerySettings();
 
