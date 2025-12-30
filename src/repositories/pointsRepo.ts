@@ -4,10 +4,6 @@ import {
   OVERFETCH_MULTIPLIER,
   type SearchMode,
 } from "../config/env.js";
-import type {
-  QdrantPayload,
-  QdrantPointStructDense,
-} from "../qdrant/QdrantTypes.js";
 import {
   upsertPointsOneTable,
   searchPointsOneTable,
@@ -17,7 +13,11 @@ import {
 
 export async function upsertPoints(
   tableName: string,
-  points: QdrantPointStructDense[],
+  points: Array<{
+    id: string | number;
+    vector: number[];
+    payload?: Record<string, unknown>;
+  }>,
   dimension: number,
   uid: string
 ): Promise<number> {
@@ -33,7 +33,9 @@ export async function searchPoints(
   dimension: number,
   uid: string,
   filterPaths?: Array<Array<string>>
-): Promise<Array<{ id: string; score: number; payload?: QdrantPayload }>> {
+): Promise<
+  Array<{ id: string; score: number; payload?: Record<string, unknown> }>
+> {
   const mode: SearchMode | undefined = SEARCH_MODE;
   return await searchPointsOneTable(
     tableName,

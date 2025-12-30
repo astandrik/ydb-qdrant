@@ -1,5 +1,5 @@
 import { readyOrThrow, configureDriver } from "../ydb/client.js";
-import type { CredentialsProvider } from "@ydbjs/auth";
+import type { IAuthService } from "ydb-sdk";
 import { ensureMetaTable } from "../ydb/schema.js";
 import {
   createCollection as serviceCreateCollection,
@@ -38,7 +38,7 @@ export interface YdbQdrantClientOptions {
   endpoint?: string;
   database?: string;
   connectionString?: string;
-  credentialsProvider?: CredentialsProvider;
+  authService?: IAuthService;
 }
 
 export interface YdbQdrantTenantClient {
@@ -112,13 +112,13 @@ export async function createYdbQdrantClient(
     options.endpoint !== undefined ||
     options.database !== undefined ||
     options.connectionString !== undefined ||
-    options.credentialsProvider !== undefined
+    options.authService !== undefined
   ) {
     configureDriver({
       endpoint: options.endpoint,
       database: options.database,
       connectionString: options.connectionString,
-      credentialsProvider: options.credentialsProvider,
+      authService: options.authService,
     });
   }
 

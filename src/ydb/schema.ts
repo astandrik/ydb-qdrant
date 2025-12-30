@@ -1,84 +1,15 @@
-import { withSession } from "./client.js";
+import { withSession, TableDescription, Column, Types, Ydb } from "./client.js";
 import { logger } from "../logging/logger.js";
-import { STARTUP_PROBE_SESSION_TIMEOUT_MS } from "../config/env.js";
+import { GLOBAL_POINTS_AUTOMIGRATE_ENABLED } from "../config/env.js";
 
 export const GLOBAL_POINTS_TABLE = "qdrant_all_points";
 // Shared YDB-related constants for repositories.
 export { UPSERT_BATCH_SIZE } from "../config/env.js";
 
-const SCHEMA_DDL_TIMEOUT_MS = 5000;
-
 let metaTableReady = false;
 let metaTableReadyInFlight: Promise<void> | null = null;
 
 let globalPointsTableReady = false;
-
-function collectIssueMessages(err: unknown): string[] {
-  const out: string[] = [];
-  const seen = new Set<object>();
-
-  // Hard guardrails to guarantee termination even for pathological error graphs.
-  const MAX_DEPTH = 8;
-  const MAX_NODES = 500;
-
-  const queue: Array<{ v: unknown; depth: number }> = [{ v: err, depth: 0 }];
-  let visited = 0;
-
-  while (queue.length > 0 && visited < MAX_NODES) {
-    const next = queue.shift();
-    if (!next) break;
-    const { v, depth } = next;
-
-    if (depth > MAX_DEPTH) continue;
-    if (v === null || typeof v !== "object") continue;
-
-    if (seen.has(v)) continue;
-    seen.add(v);
-    visited++;
-
-    const maybeMessage = (v as { message?: unknown }).message;
-    if (typeof maybeMessage === "string" && maybeMessage.length > 0) {
-      out.push(maybeMessage);
-    }
-
-    const maybeIssues = (v as { issues?: unknown }).issues;
-    if (Array.isArray(maybeIssues)) {
-      for (const child of maybeIssues) {
-        queue.push({ v: child, depth: depth + 1 });
-      }
-    }
-  }
-
-  return out;
-}
-
-function isAlreadyExistsError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
-  if (/already exists/i.test(msg) || /path exists/i.test(msg)) {
-    return true;
-  }
-
-  // YDBError often carries the useful text in nested `issues`, while `message`
-  // is a generic wrapper like "Type annotation".
-  const issueMsgs = collectIssueMessages(err).join("\n");
-  return (
-    /already exists/i.test(issueMsgs) ||
-    /path exists/i.test(issueMsgs) ||
-    /table name conflict/i.test(issueMsgs)
-  );
-}
-
-function isUnknownColumnError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
-  const re = /unknown column|cannot resolve|member not found/i;
-  if (re.test(msg)) {
-    return true;
-  }
-
-  // YDBError may carry the real message in nested `issues`.
-  const issueMsgs = collectIssueMessages(err).join("\n");
-  return re.test(issueMsgs);
-}
 
 function throwMigrationRequired(message: string): never {
   logger.error(message);
@@ -86,60 +17,71 @@ function throwMigrationRequired(message: string): never {
 }
 
 async function ensureMetaTableOnce(): Promise<void> {
-  await withSession(async (sql, signal) => {
-    try {
-      await sql`
-        CREATE TABLE qdr__collections (
-          collection Utf8,
-          table_name Utf8,
-          vector_dimension Uint32,
-          distance Utf8,
-          vector_type Utf8,
-          created_at Timestamp,
-          last_accessed_at Timestamp,
-          PRIMARY KEY (collection)
+  try {
+    await withSession(async (s) => {
+      // If table exists, describeTable will succeed
+      try {
+        const tableDescription = await s.describeTable("qdr__collections");
+        const columns = tableDescription.columns ?? [];
+        const hasLastAccessedAt = columns.some(
+          (col) => col.name === "last_accessed_at"
         );
-      `
-        .idempotent(true)
-        .timeout(SCHEMA_DDL_TIMEOUT_MS)
-        .signal(signal);
-      logger.info("created metadata table qdr__collections");
-    } catch (err) {
-      if (!isAlreadyExistsError(err)) {
-        // YDB may return non-"already exists" errors for concurrent CREATE TABLE attempts
-        // or name resolution conflicts. Probe existence before failing startup.
-        try {
-          await sql`SELECT collection FROM qdr__collections LIMIT 0;`
-            .idempotent(true)
-            .timeout(STARTUP_PROBE_SESSION_TIMEOUT_MS)
-            .signal(signal);
-          logger.warn(
-            { err },
-            "CREATE TABLE qdr__collections failed, but the table appears to exist; continuing"
+
+        if (!hasLastAccessedAt) {
+          const alterDdl = `
+            ALTER TABLE qdr__collections
+            ADD COLUMN last_accessed_at Timestamp;
+          `;
+
+          // NOTE: ydb-sdk's public TableSession type does not surface executeSchemeQuery,
+          // but the underlying implementation provides it. This cast relies on the
+          // current ydb-sdk internals (tested with ydb-sdk v5.11.1) to run ALTER TABLE
+          // as a scheme query. If the SDK changes its internal API, this may need to be
+          // revisited or replaced with an officially supported migration mechanism.
+          const rawSession = s as unknown as {
+            sessionId: string;
+            api: {
+              executeSchemeQuery: (req: {
+                sessionId: string;
+                yqlText: string;
+              }) => Promise<unknown>;
+            };
+          };
+
+          await rawSession.api.executeSchemeQuery({
+            sessionId: rawSession.sessionId,
+            yqlText: alterDdl,
+          });
+
+          logger.info(
+            "added last_accessed_at column to metadata table qdr__collections"
           );
-        } catch {
-          throw err;
         }
+        return;
+      } catch {
+        // create via schema API
+        const desc = new TableDescription()
+          .withColumns(
+            new Column("collection", Types.UTF8),
+            new Column("table_name", Types.UTF8),
+            new Column("vector_dimension", Types.UINT32),
+            new Column("distance", Types.UTF8),
+            new Column("vector_type", Types.UTF8),
+            new Column("created_at", Types.TIMESTAMP),
+            new Column("last_accessed_at", Types.TIMESTAMP)
+          )
+          .withPrimaryKey("collection");
+        await s.createTable("qdr__collections", desc);
+        logger.info("created metadata table qdr__collections");
       }
-    }
-
-    // Fail fast if schema is old/mismatched: we do not auto-migrate tables.
-    try {
-      await sql`SELECT last_accessed_at FROM qdr__collections LIMIT 0;`
-        .idempotent(true)
-        .timeout(STARTUP_PROBE_SESSION_TIMEOUT_MS)
-        .signal(signal);
-    } catch (err) {
-      if (!isUnknownColumnError(err)) {
-        throw err;
-      }
-      throwMigrationRequired(
-        "Metadata table qdr__collections is missing required column last_accessed_at; apply a manual migration (ALTER TABLE qdr__collections ADD COLUMN last_accessed_at Timestamp)."
-      );
-    }
-  });
-
-  metaTableReady = true;
+    });
+    metaTableReady = true;
+  } catch (err: unknown) {
+    logger.warn(
+      { err },
+      "ensureMetaTable: failed to verify or migrate qdr__collections; subsequent operations may fail if schema is incomplete"
+    );
+  }
 }
 
 export async function ensureMetaTable(): Promise<void> {
@@ -164,67 +106,79 @@ export async function ensureGlobalPointsTable(): Promise<void> {
     return;
   }
 
-  await withSession(async (sql, signal) => {
+  await withSession(async (s) => {
+    let tableDescription: Awaited<ReturnType<typeof s.describeTable>> | null =
+      null;
     try {
-      await sql`
-        CREATE TABLE ${sql.identifier(GLOBAL_POINTS_TABLE)} (
-          uid Utf8,
-          point_id Utf8,
-          embedding String,
-          embedding_quantized String,
-          payload JsonDocument,
-          PRIMARY KEY (uid, point_id)
+      tableDescription = await s.describeTable(GLOBAL_POINTS_TABLE);
+    } catch {
+      // Table doesn't exist, create it with all columns using the new schema and
+      // auto-partitioning enabled.
+      const desc = new TableDescription()
+        .withColumns(
+          new Column("uid", Types.UTF8),
+          new Column("point_id", Types.UTF8),
+          new Column("embedding", Types.BYTES),
+          new Column("embedding_quantized", Types.BYTES),
+          new Column("payload", Types.JSON_DOCUMENT)
         )
-        WITH (
-          AUTO_PARTITIONING_BY_LOAD = ENABLED,
-          AUTO_PARTITIONING_BY_SIZE = ENABLED,
-          AUTO_PARTITIONING_PARTITION_SIZE_MB = 100
-        );
-      `
-        .idempotent(true)
-        .timeout(SCHEMA_DDL_TIMEOUT_MS)
-        .signal(signal);
+        .withPrimaryKeys("uid", "point_id");
+
+      desc.withPartitioningSettings({
+        partitioningByLoad: Ydb.FeatureFlag.Status.ENABLED,
+        partitioningBySize: Ydb.FeatureFlag.Status.ENABLED,
+        partitionSizeMb: 100,
+      });
+
+      await s.createTable(GLOBAL_POINTS_TABLE, desc);
+      globalPointsTableReady = true;
       logger.info(`created global points table ${GLOBAL_POINTS_TABLE}`);
-    } catch (err) {
-      if (!isAlreadyExistsError(err)) {
-        // YDB may return non-"already exists" errors for concurrent CREATE TABLE attempts
-        // or name resolution conflicts. Probe existence before failing startup.
-        try {
-          await sql`SELECT uid FROM ${sql.identifier(
-            GLOBAL_POINTS_TABLE
-          )} LIMIT 0;`
-            .idempotent(true)
-            .timeout(STARTUP_PROBE_SESSION_TIMEOUT_MS)
-            .signal(signal);
-          logger.warn(
-            { err },
-            `CREATE TABLE ${GLOBAL_POINTS_TABLE} failed, but the table appears to exist; continuing`
-          );
-        } catch {
-          // If the table doesn't exist but CREATE TABLE failed for another reason,
-          // let the error surface; callers depend on the table being present.
-          throw err;
-        }
-      }
+      return;
     }
 
-    // Fail fast if schema is old/mismatched: we do not auto-migrate tables.
-    try {
-      await sql`SELECT embedding_quantized FROM ${sql.identifier(
-        GLOBAL_POINTS_TABLE
-      )} LIMIT 0;`
-        .idempotent(true)
-        .timeout(STARTUP_PROBE_SESSION_TIMEOUT_MS)
-        .signal(signal);
-    } catch (err) {
-      if (!isUnknownColumnError(err)) {
-        throw err;
+    // Table exists, require the new embedding_quantized column.
+    const columns = tableDescription.columns ?? [];
+    const hasEmbeddingQuantized = columns.some(
+      (col) => col.name === "embedding_quantized"
+    );
+
+    if (!hasEmbeddingQuantized) {
+      if (!GLOBAL_POINTS_AUTOMIGRATE_ENABLED) {
+        throwMigrationRequired(
+          `Global points table ${GLOBAL_POINTS_TABLE} is missing required column embedding_quantized; apply the migration (e.g., ALTER TABLE ${GLOBAL_POINTS_TABLE} RENAME COLUMN embedding_bit TO embedding_quantized) or set YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE=true after backup to allow automatic migration.`
+        );
       }
-      throwMigrationRequired(
-        `Global points table ${GLOBAL_POINTS_TABLE} is missing required column embedding_quantized; apply a manual migration (ALTER TABLE ${GLOBAL_POINTS_TABLE} ADD COLUMN embedding_quantized String). If your legacy schema used embedding_bit, rename it or recreate the table.`
+
+      const alterDdl = `
+          ALTER TABLE ${GLOBAL_POINTS_TABLE}
+          ADD COLUMN embedding_quantized String;
+        `;
+
+      // NOTE: Same rationale as in ensureMetaTable: executeSchemeQuery is not part of
+      // the public TableSession TypeScript surface, so we reach into the underlying
+      // ydb-sdk implementation (verified with ydb-sdk v5.11.1) to apply schema changes.
+      // If future SDK versions alter this shape, this cast and migration path must be
+      // updated accordingly.
+      const rawSession = s as unknown as {
+        sessionId: string;
+        api: {
+          executeSchemeQuery: (req: {
+            sessionId: string;
+            yqlText: string;
+          }) => Promise<unknown>;
+        };
+      };
+
+      await rawSession.api.executeSchemeQuery({
+        sessionId: rawSession.sessionId,
+        yqlText: alterDdl,
+      });
+
+      logger.info(
+        `added embedding_quantized column to existing table ${GLOBAL_POINTS_TABLE}`
       );
     }
-
+    // Mark table ready after schema checks/migrations succeed.
     globalPointsTableReady = true;
   });
 }

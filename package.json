@@ -66,21 +66,19 @@
     "@bufbuild/protobuf": "^2.10.0",
     "@grpc/grpc-js": "^1.14.0",
     "@yandex-cloud/nodejs-sdk": "^2.9.0",
-    "@ydbjs/api": "^6.0.5",
-    "@ydbjs/auth": "^6.0.5",
-    "@ydbjs/core": "^6.0.7",
-    "@ydbjs/query": "^6.0.7",
-    "@ydbjs/retry": "^6.0.5",
-    "@ydbjs/value": "^6.0.5",
+    "@ydbjs/api": "^6.0.4",
+    "@ydbjs/core": "^6.0.4",
+    "@ydbjs/query": "^6.0.4",
+    "@ydbjs/value": "^6.0.4",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "nice-grpc": "^2.1.13",
     "pino": "^10.1.0",
+    "ydb-sdk": "^5.11.1",
     "zod": "^4.1.12"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
-    "@qdrant/js-client-rest": "^1.16.2",
     "@types/express": "^5.0.3",
     "@types/node": "^24.9.1",
     "@vitest/coverage-v8": "^4.0.12",
@@ -92,8 +90,5 @@
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.47.0",
     "vitest": "^4.0.12"
-  },
-  "engines": {
-    "node": ">=20.19.0"
   }
 }

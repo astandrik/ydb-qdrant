@@ -1,9 +1,4 @@
 import { z } from "zod";
-import type {
-  QdrantPointId,
-  QdrantPointStructDense,
-  QdrantDenseVector,
-} from "./qdrant/QdrantTypes.js";
 
 export type DistanceKind = "Cosine" | "Euclid" | "Dot" | "Manhattan";
 export type VectorType = "float";
@@ -39,22 +34,22 @@ export const UpsertPointsReq = z.object({
   points: z
     .array(
       z.object({
-        id: z.union([z.string(), z.number()]) as z.ZodType<QdrantPointId>,
-        vector: z.array(z.number()) as z.ZodType<QdrantDenseVector>,
-        payload: z.record(z.string(), z.unknown()).optional(),
+        id: z.union([z.string(), z.number()]),
+        vector: z.array(z.number()),
+        payload: z.record(z.string(), z.any()).optional(),
       })
     )
     .min(1),
-}) as z.ZodType<{ points: QdrantPointStructDense[] }>;
+});
 
 export const SearchReq = z.object({
-  vector: z.array(z.number()).min(1) as z.ZodType<QdrantDenseVector>,
+  vector: z.array(z.number()).min(1),
   top: z.number().int().positive().max(1000),
   with_payload: z.boolean().optional(),
 });
 
 export const DeletePointsByIdsReq = z.object({
-  points: z.array(z.union([z.string(), z.number()]) as z.ZodType<QdrantPointId>).min(1),
+  points: z.array(z.union([z.string(), z.number()])).min(1),
 });
 
 const DeletePointsFilterCondition = z.object({

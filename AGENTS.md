@@ -30,7 +30,7 @@ Notes
 
 ## Environment & credentials
 - Required env: `YDB_ENDPOINT`, `YDB_DATABASE`.
-- Auth (first that matches; resolved in `src/ydb/client.ts` using `@ydbjs/auth` plus a custom SA key-file provider):
+- Auth (first that matches via ydb-sdk getCredentialsFromEnv):
   - `YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS=/abs/path/sa.json`
   - `YDB_METADATA_CREDENTIALS=1` (YC VM/Functions)
   - `YDB_ACCESS_TOKEN_CREDENTIALS=<token>` (short‑lived)
@@ -41,13 +41,14 @@ Notes
 - `YDB_QDRANT_SEARCH_MODE` — `"exact"` (default) or `"approximate"`; in approximate mode searches use a two-phase flow over `embedding_quantized` + `embedding`, in exact mode they scan `embedding` only.
 - `YDB_QDRANT_OVERFETCH_MULTIPLIER` — candidate overfetch multiplier for approximate search phase 1 (default `10`, min `1`).
 - `YDB_QDRANT_UPSERT_BATCH_SIZE` — upsert batch size per YDB query (default `100`, min `1`).
-- Collection deletion uses YDB `BATCH DELETE FROM qdrant_all_points WHERE uid = <uid>` for one-table mode.
+- `YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE` — allow automatic schema migration for `qdrant_all_points` (default `false`).
+- `YDB_QDRANT_USE_BATCH_DELETE` — controls collection delete strategy; by default (when omitted) uses a single `DELETE` with a chunked per-uid cleanup loop for compatibility, and when set to a truthy value uses `BATCH DELETE FROM qdrant_all_points WHERE uid = <uid>` (YDB v25.2+).
 - `YDB_SESSION_POOL_MIN_SIZE` — minimum number of sessions in the pool (default `5`, range 1–500).
 - `YDB_SESSION_POOL_MAX_SIZE` — maximum number of sessions in the pool (default `100`, range 1–500).
 - `YDB_SESSION_KEEPALIVE_PERIOD_MS` — interval in milliseconds for session health checks (default `5000`, range 1000–60000). Dead sessions are automatically removed from the pool.
 - `YDB_QDRANT_STARTUP_PROBE_SESSION_TIMEOUT_MS` — session timeout used by the startup compilation probe (default `5000`, min `1000`).
 - `YDB_QDRANT_UPSERT_TIMEOUT_MS` — per‑query YDB operation timeout in milliseconds for upsert batches (default `5000`); individual UPSERT statements are cancelled if they exceed this bound.
-- `YDB_QDRANT_SEARCH_TIMEOUT_MS` — per‑query YDB operation timeout in milliseconds for search operations (default `20000`); search YQL statements are cancelled if they exceed this bound.
+- `YDB_QDRANT_SEARCH_TIMEOUT_MS` — per‑query YDB operation timeout in milliseconds for search operations (default `10000`); search YQL statements are cancelled if they exceed this bound.
 - `YDB_QDRANT_LAST_ACCESS_MIN_WRITE_INTERVAL_MS` — minimum interval between `last_accessed_at` updates per collection (default `60000`, min `1000`).
 
 ## Run
@@ -98,8 +99,8 @@ Notes
 - `utils/distance.ts` — distance mapping functions (`mapDistanceToKnnFn` for exact search, `mapDistanceToBitKnnFn` for one-table phase 1 approximate search).
 - `utils/retry.ts` — generic retry wrapper (`withRetry`) with exponential backoff for transient YDB errors.
 - `types.ts` — shared types and Zod schemas (CreateCollectionReq, UpsertPointsReq, SearchReq, DeletePointsReq).
-- `ydb/client.ts` — `@ydbjs/core` `Driver` init + `@ydbjs/query` query client, `readyOrThrow`, `withSession`, `destroyDriver`, `refreshDriver`. Credentials resolved via `@ydbjs/auth` (plus SA key-file provider for `YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS`).
-- `ydb/schema.ts` — `ensureMetaTable()` (creates `qdr__collections` if missing) and `ensureGlobalPointsTable()` (creates `qdrant_all_points`).
+- `ydb/client.ts` — ydb-sdk Driver init (CJS interop), `readyOrThrow`, `withSession`, `destroyDriver`, `refreshDriver`, and re‑exports `Types`, `TypedValues`. Session pool size and keepalive period are configurable via environment variables.
+- `ydb/schema.ts` — `ensureMetaTable()` (creates `qdr__collections` if missing) and `ensureGlobalPointsTable()` (creates/migrates `qdrant_all_points` with `embedding_quantized`).
 - `repositories/collectionsRepo.ts` — facade for collection metadata operations and delete‑collection logic over the global points table.
 - `repositories/pointsRepo.ts` — facade for point upsert/search/delete; routes calls to the one-table strategy (`pointsRepo.one-table.ts`) and uses `withRetry` for transient errors.
 - `routes/collections.ts` — Express router for collection endpoints; uses `X-Tenant-Id`.
@@ -164,7 +165,7 @@ Collections are not auto-created: create them explicitly via `PUT /collections/{
 - YDB config (env, all optional):
   - `YDB_LOCAL_GRPC_PORT` (default `2136`), `YDB_LOCAL_MON_PORT` (default `8765`), `YDB_DATABASE` (default `/local`), `YDB_ANONYMOUS_CREDENTIALS` (default `1`), `YDB_USE_IN_MEMORY_PDISKS`, `YDB_LOCAL_SURVIVE_RESTART`, `YDB_DEFAULT_LOG_LEVEL`, `YDB_FEATURE_FLAGS`, `YDB_ENABLE_COLUMN_TABLES`, `YDB_KAFKA_PROXY_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`.
 - ydb-qdrant config (env, same semantics as standalone image):
-  - `PORT` (default `8080`), `LOG_LEVEL`, `YDB_QDRANT_SEARCH_MODE`.
+  - `PORT` (default `8080`), `LOG_LEVEL`, `YDB_QDRANT_SEARCH_MODE`, `YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE`.
 - Note: `YDB_ENDPOINT` is unconditionally set to `grpc://localhost:<YDB_LOCAL_GRPC_PORT>` by the entrypoint — any user-provided value is ignored. Use the standalone `ydb-qdrant` image to connect to an external YDB.
 
 ## Logging & diagnostics
@@ -173,9 +174,8 @@ Collections are not auto-created: create them explicitly via `PUT /collections/{
 - Upserts: transient `Aborted`/schema metadata errors are retried with bounded backoff.
 
 ## Implementation notes for agents
-- The project uses YDB JS SDK v6 modular packages (`@ydbjs/core`, `@ydbjs/query`, `@ydbjs/value`, `@ydbjs/auth`).
-- Prefer the `@ydbjs/query` tagged-template API via `withSession(fn)`; bind parameters via interpolation or `.parameter(name, value)`.
-- Always set `.timeout(ms)` on retryable operations and use `.idempotent(true)` only when safe-to-retry.
+- ydb-sdk is consumed via CJS interop (`createRequire`) even in ESM TS to avoid ESM default export issues.
+- Use `withSession(fn)` for queries and declare parameters in YQL with `DECLARE`. For per-query timeouts, use `createExecuteQuerySettingsWithTimeout({ timeoutMs })` and pass it to `executeQuery`.
 - Prefer repository layer for YDB access; routes and services should remain thin.
 - Service layer is split by domain: `CollectionService.ts` for collection operations, `PointsService.ts` for points operations, `errors.ts` for error types.
 - Utility functions are extracted to `utils/`: `normalization.ts` (vector extraction), `distance.ts` (KNN/index mapping), `retry.ts` (transient error handling).
@@ -295,5 +295,5 @@ k6 load tests verify HTTP API performance under sustained and increasing load.
 - YQL getting started: https://ydb.tech/docs/en/getting_started/yql/
 - YQL reference (syntax, functions): https://ydb.tech/docs/en/yql/reference/
 - YQL functions index: https://ydb.tech/docs/en/yql/reference/functions/
-- YDB JavaScript/TypeScript SDK: https://github.com/ydb-platform/ydb-js-sdk
+- ydb-sdk (Node.js): https://github.com/ydb-platform/ydb-nodejs-sdk
 - YDB Cloud (endpoints, auth): https://cloud.yandex.com/en/docs/ydb/

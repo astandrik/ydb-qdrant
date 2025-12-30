@@ -1,5 +1,4 @@
 import "dotenv/config";
-import { z } from "zod";
 
 export const YDB_ENDPOINT = process.env.YDB_ENDPOINT ?? "";
 export const YDB_DATABASE = process.env.YDB_DATABASE ?? "";
@@ -48,23 +47,13 @@ function parseBooleanEnv(
   return true;
 }
 
-export enum QueryStatsMode {
-  None = "none",
-  Basic = "basic",
-  Full = "full",
-  Profile = "profile",
-}
-
-const QueryStatsModeSchema = z
-  .nativeEnum(QueryStatsMode)
-  .catch(QueryStatsMode.None);
-
-export const QUERY_STATS_MODE: QueryStatsMode = QueryStatsModeSchema.parse(
-  process.env.YDB_QDRANT_QUERY_STATS_MODE?.trim().toLowerCase()
+export const GLOBAL_POINTS_AUTOMIGRATE_ENABLED = parseBooleanEnv(
+  process.env.YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE,
+  false
 );
 
-export const QUERY_RETRY_LOG_ENABLED = parseBooleanEnv(
-  process.env.YDB_QDRANT_QUERY_RETRY_LOG,
+export const USE_BATCH_DELETE_FOR_COLLECTIONS = parseBooleanEnv(
+  process.env.YDB_QDRANT_USE_BATCH_DELETE,
   false
 );
 
@@ -140,13 +129,13 @@ export const STARTUP_PROBE_SESSION_TIMEOUT_MS = parseIntegerEnv(
 
 export const UPSERT_OPERATION_TIMEOUT_MS = parseIntegerEnv(
   process.env.YDB_QDRANT_UPSERT_TIMEOUT_MS,
-  20000,
+  5000,
   { min: 1000 }
 );
 
 export const SEARCH_OPERATION_TIMEOUT_MS = parseIntegerEnv(
   process.env.YDB_QDRANT_SEARCH_TIMEOUT_MS,
-  20000,
+  10000,
   { min: 1000 }
 );
 

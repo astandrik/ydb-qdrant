@@ -17,7 +17,7 @@ Container_Boundary(repo_layer, "Repository Layer") {
     ComponentDb(ydb_schema, "Schema Manager", "TypeScript Module", "Ensures qdr__collections metadata table exists")
 }
 
-Container(ydb_client, "YDB Client", "@ydbjs/core + @ydbjs/query (v6)", "Driver + query client for executing YQL")
+Container(ydb_client, "YDB Client", "ydb-sdk Driver", "Database session management")
 
 Rel(collections_repo, ydb_client, "Uses", "withSession() for YQL queries")
 Rel(collections_repo, utils_tenant, "Uses", "tableNameFor(), metaKeyFor()")
@@ -85,12 +85,12 @@ note top of ydb_schema
     * collection (PK)
     * table_name, vector_dimension
     * distance, vector_type, created_at, last_accessed_at
-  - Fail fast if required columns are missing (manual migration required)
+  - Auto-migrate: add last_accessed_at column if missing
   
   **ensureGlobalPointsTable():**
   - Check if qdrant_all_points exists
   - If not: create with auto-partitioning (100MB)
-  - Fail fast if required columns are missing (manual migration required)
+  - Auto-migrate embedding_quantized if missing (requires YDB_QDRANT_GLOBAL_POINTS_AUTOMIGRATE)
 end note
 
 @enduml
