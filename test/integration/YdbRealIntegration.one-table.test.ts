@@ -1,6 +1,7 @@
 import { beforeAll, describe, it, expect } from "vitest";
 import { createYdbQdrantClient } from "../../src/package/api.js";
 import { GLOBAL_POINTS_TABLE } from "../../src/ydb/schema.js";
+import { createMetaTableIfMissing } from "./helpers/bootstrap-meta-table.js";
 import {
   withSession,
   TypedValues,
@@ -35,6 +36,7 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
   let client: Awaited<ReturnType<typeof createYdbQdrantClient>>;
 
   beforeAll(async () => {
+    await createMetaTableIfMissing();
     client = await createYdbQdrantClient({ defaultTenant: tenant });
   });
 

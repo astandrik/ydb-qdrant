@@ -9,8 +9,26 @@ import { QdrantServiceError } from "../services/errors.js";
 import { logger } from "../logging/logger.js";
 import { isCompilationTimeoutError } from "../ydb/client.js";
 import { scheduleExit } from "../utils/exit.js";
+import type {
+  QdrantScoredPoint,
+  YdbQdrantScoredPoint,
+} from "../qdrant/QdrantRestTypes.js";
 
 export const pointsRouter = Router();
+
+function toQdrantScoredPoint(p: YdbQdrantScoredPoint): QdrantScoredPoint {
+  // We don't currently track per-point versions or return vectors/shard keys,
+  // but many Qdrant clients expect these fields to exist in the response.
+  return {
+    id: p.id,
+    version: 0,
+    score: p.score,
+    payload: p.payload ?? null,
+    vector: null,
+    shard_key: null,
+    order_value: null,
+  } as unknown as QdrantScoredPoint;
+}
 
 // Qdrant-compatible: PUT /collections/:collection/points (upsert)
 pointsRouter.put("/:collection/points", async (req: Request, res: Response) => {
@@ -91,7 +109,7 @@ pointsRouter.post(
         },
         req.body
       );
-      res.json({ status: "ok", result: points });
+      res.json({ status: "ok", result: points.map(toQdrantScoredPoint) });
     } catch (err: unknown) {
       if (err instanceof QdrantServiceError) {
         return res.status(err.statusCode).json(err.payload);
@@ -126,7 +144,7 @@ pointsRouter.post(
         },
         req.body
       );
-      res.json({ status: "ok", result: points });
+      res.json({ status: "ok", result: points.map(toQdrantScoredPoint) });
     } catch (err: unknown) {
       if (err instanceof QdrantServiceError) {
         return res.status(err.statusCode).json(err.payload);

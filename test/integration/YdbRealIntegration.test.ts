@@ -1,5 +1,6 @@
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import { createYdbQdrantClient } from "../../src/package/api.js";
+import { createMetaTableIfMissing } from "./helpers/bootstrap-meta-table.js";
 
 describe("YDB integration (real database via programmatic API)", () => {
   const tenant = process.env.YDB_QDRANT_INTEGRATION_TENANT ?? "itest_tenant";
@@ -10,6 +11,7 @@ describe("YDB integration (real database via programmatic API)", () => {
   let client: Awaited<ReturnType<typeof createYdbQdrantClient>>;
 
   beforeAll(async () => {
+    await createMetaTableIfMissing();
     client = await createYdbQdrantClient({ defaultTenant: tenant });
   });
 

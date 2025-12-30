@@ -93,7 +93,7 @@ describe("collectionsRepo (with mocked YDB)", () => {
     vi.clearAllMocks();
   });
 
-  it("creates collection table and upserts metadata", async () => {
+  it("upserts collection metadata (one-table; no per-collection table)", async () => {
     const sessionMock = {
       createTable: vi.fn(),
       executeQuery: vi.fn(),
@@ -107,6 +107,11 @@ describe("collectionsRepo (with mocked YDB)", () => {
 
     expect(sessionMock.createTable).not.toHaveBeenCalled();
     expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
+
+    const params = sessionMock.executeQuery.mock.calls[0]?.[1] as
+      | { $table?: { v?: string } }
+      | undefined;
+    expect(params?.$table?.v).toBe("qdrant_all_points");
 
     const { createExecuteQuerySettingsWithTimeout } = ydbClient as unknown as {
       createExecuteQuerySettingsWithTimeout: Mock;
@@ -159,21 +164,5 @@ describe("collectionsRepo (with mocked YDB)", () => {
       distance: "Euclid",
       vectorType: "float",
     });
-  });
-
-  it("skips table creation in one_table mode", async () => {
-    const sessionMock = {
-      createTable: vi.fn(),
-      executeQuery: vi.fn(),
-    };
-
-    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
-      await fn(sessionMock);
-    });
-
-    await createCollection("tenant_a/my_collection", 128, "Cosine", "float");
-
-    expect(sessionMock.createTable).not.toHaveBeenCalled();
-    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
   });
 });

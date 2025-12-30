@@ -235,7 +235,7 @@ describe("collectionsRepo/deleteCollection one-table (with mocked YDB)", () => {
                 {
                   rows: [
                     { items: [{ textValue: "p3" }] },
-                    { items: [{ textValue: undefined as unknown as string }] },
+                    { items: [undefined] },
                   ],
                 },
               ],

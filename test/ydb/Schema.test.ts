@@ -95,7 +95,7 @@ describe("ydb/schema.ensureMetaTable", () => {
     vi.clearAllMocks();
   });
 
-  it("creates metadata table when it does not exist", async () => {
+  it("throws when metadata table does not exist", async () => {
     const { ensureMetaTable } = await resetSchemaModule();
 
     const session = {
@@ -108,16 +108,18 @@ describe("ydb/schema.ensureMetaTable", () => {
       return await fn(session);
     });
 
-    await ensureMetaTable();
+    await expect(ensureMetaTable()).rejects.toThrow(
+      "Metadata table qdr__collections does not exist; please create it before starting the service"
+    );
 
     expect(session.describeTable).toHaveBeenCalledWith("qdr__collections");
-    expect(session.createTable).toHaveBeenCalledTimes(1);
-    expect(loggerInfoMock).toHaveBeenCalledWith(
+    expect(session.createTable).not.toHaveBeenCalled();
+    expect(loggerInfoMock).not.toHaveBeenCalledWith(
       "created metadata table qdr__collections"
     );
   });
 
-  it("creates metadata table when describeTable fails with SchemeError (code 400070): []", async () => {
+  it("throws when describeTable fails with SchemeError (code 400070): []", async () => {
     const { ensureMetaTable } = await resetSchemaModule();
 
     const session = {
@@ -132,11 +134,13 @@ describe("ydb/schema.ensureMetaTable", () => {
       return await fn(session);
     });
 
-    await ensureMetaTable();
+    await expect(ensureMetaTable()).rejects.toThrow(
+      "Metadata table qdr__collections does not exist; please create it before starting the service"
+    );
 
     expect(session.describeTable).toHaveBeenCalledWith("qdr__collections");
-    expect(session.createTable).toHaveBeenCalledTimes(1);
-    expect(loggerInfoMock).toHaveBeenCalledWith(
+    expect(session.createTable).not.toHaveBeenCalled();
+    expect(loggerInfoMock).not.toHaveBeenCalledWith(
       "created metadata table qdr__collections"
     );
   });
@@ -175,7 +179,7 @@ describe("ydb/schema.ensureMetaTable", () => {
     );
   });
 
-  it("does not create metadata table for non-not-found describeTable errors (logs warning, does not throw)", async () => {
+  it("throws for non-not-found describeTable errors", async () => {
     const { ensureMetaTable } = await resetSchemaModule();
 
     const session = {
@@ -190,11 +194,13 @@ describe("ydb/schema.ensureMetaTable", () => {
       return await fn(session);
     });
 
-    await expect(ensureMetaTable()).resolves.toBeUndefined();
+    await expect(ensureMetaTable()).rejects.toThrow(
+      "transport unavailable (ECONNRESET)"
+    );
 
     expect(session.describeTable).toHaveBeenCalledWith("qdr__collections");
     expect(session.createTable).not.toHaveBeenCalled();
-    expect(logger.warn).toHaveBeenCalled();
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 });
 
