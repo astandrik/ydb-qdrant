@@ -4,6 +4,9 @@ vi.mock("../../src/ydb/client.js", () => {
   const createExecuteQuerySettings = vi.fn(() => ({
     kind: "ExecuteQuerySettings",
   }));
+  const createExecuteQuerySettingsWithTimeout = vi.fn(
+    (opts: unknown) => ({ kind: "ExecuteQuerySettings", opts }) as const
+  );
 
   return {
     Types: {
@@ -45,6 +48,7 @@ vi.mock("../../src/ydb/client.js", () => {
       }
     },
     createExecuteQuerySettings,
+    createExecuteQuerySettingsWithTimeout,
   };
 });
 
@@ -80,6 +84,7 @@ import {
   getCollectionMeta,
 } from "../../src/repositories/collectionsRepo.js";
 import * as ydbClient from "../../src/ydb/client.js";
+import { UPSERT_OPERATION_TIMEOUT_MS } from "../../src/config/env.js";
 
 const withSessionMock = ydbClient.withSession as unknown as Mock;
 
@@ -102,6 +107,20 @@ describe("collectionsRepo (with mocked YDB)", () => {
 
     expect(sessionMock.createTable).not.toHaveBeenCalled();
     expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
+
+    const { createExecuteQuerySettingsWithTimeout } = ydbClient as unknown as {
+      createExecuteQuerySettingsWithTimeout: Mock;
+    };
+    expect(createExecuteQuerySettingsWithTimeout).toHaveBeenCalledWith({
+      keepInCache: true,
+      idempotent: true,
+      timeoutMs: UPSERT_OPERATION_TIMEOUT_MS,
+    });
+
+    // Ensure the 4th argument (settings) is passed to executeQuery.
+    const call = sessionMock.executeQuery.mock.calls[0];
+    expect(call?.[2]).toBe(undefined);
+    expect(call?.[3]).toMatchObject({ kind: "ExecuteQuerySettings" });
   });
 
   it("returns null from getCollectionMeta when no rows returned", async () => {

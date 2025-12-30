@@ -15,25 +15,39 @@ function throwMigrationRequired(message: string): never {
   throw new Error(message);
 }
 
+function isMigrationRequiredError(err: unknown): boolean {
+  if (!(err instanceof Error)) {
+    return false;
+  }
+  return (
+    /missing required column/i.test(err.message) ||
+    /manual schema migration/i.test(err.message)
+  );
+}
+
+function isTableNotFoundError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    /table.*not found/i.test(msg) ||
+    /path.*not found/i.test(msg) ||
+    /does not exist/i.test(msg)
+  );
+}
+
 async function ensureMetaTableOnce(): Promise<void> {
   try {
     await withSession(async (s) => {
-      // If table exists, describeTable will succeed
-      try {
-        const tableDescription = await s.describeTable("qdr__collections");
-        const columns = tableDescription.columns ?? [];
-        const hasLastAccessedAt = columns.some(
-          (col) => col.name === "last_accessed_at"
-        );
+      let tableDescription: Awaited<ReturnType<typeof s.describeTable>> | null =
+        null;
 
-        if (!hasLastAccessedAt) {
-          throwMigrationRequired(
-            "Metadata table qdr__collections is missing required column last_accessed_at; please recreate the table or apply a manual schema migration before starting the service"
-          );
+      try {
+        tableDescription = await s.describeTable("qdr__collections");
+      } catch (err: unknown) {
+        if (!isTableNotFoundError(err)) {
+          throw err;
         }
-        return;
-      } catch {
-        // create via schema API
+
+        // Table doesn't exist: create via schema API.
         const desc = new TableDescription()
           .withColumns(
             new Column("collection", Types.UTF8),
@@ -47,10 +61,26 @@ async function ensureMetaTableOnce(): Promise<void> {
           .withPrimaryKey("collection");
         await s.createTable("qdr__collections", desc);
         logger.info("created metadata table qdr__collections");
+        return;
+      }
+
+      // Table exists: validate required columns.
+      const columns = tableDescription.columns ?? [];
+      const hasLastAccessedAt = columns.some(
+        (col) => col.name === "last_accessed_at"
+      );
+
+      if (!hasLastAccessedAt) {
+        throwMigrationRequired(
+          "Metadata table qdr__collections is missing required column last_accessed_at; please recreate the table or apply a manual schema migration before starting the service"
+        );
       }
     });
     metaTableReady = true;
   } catch (err: unknown) {
+    if (isMigrationRequiredError(err)) {
+      throw err;
+    }
     logger.warn(
       { err },
       "ensureMetaTable: failed to verify or migrate qdr__collections; subsequent operations may fail if schema is incomplete"

@@ -17,6 +17,11 @@ vi.mock("../../src/ydb/client.js", () => {
     }
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    withPrimaryKey(..._keys: string[]) {
+      return this;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     withPrimaryKeys(..._keys: string[]) {
       return this;
     }
@@ -63,6 +68,7 @@ const loggerInfoMock = logger.info as unknown as Mock;
 async function resetSchemaModule(
   envOverrides?: Record<string, string>
 ): Promise<{
+  ensureMetaTable: typeof import("../../src/ydb/schema.js")["ensureMetaTable"];
   ensureGlobalPointsTable: typeof import("../../src/ydb/schema.js")["ensureGlobalPointsTable"];
   GLOBAL_POINTS_TABLE: typeof import("../../src/ydb/schema.js")["GLOBAL_POINTS_TABLE"];
 }> {
@@ -83,6 +89,90 @@ async function resetSchemaModule(
 
   return schema;
 }
+
+describe("ydb/schema.ensureMetaTable", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("creates metadata table when it does not exist", async () => {
+    const { ensureMetaTable } = await resetSchemaModule();
+
+    const session = {
+      sessionId: "test-session",
+      describeTable: vi.fn().mockRejectedValue(new Error("Table not found")),
+      createTable: vi.fn().mockResolvedValue(undefined),
+    };
+
+    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
+      return await fn(session);
+    });
+
+    await ensureMetaTable();
+
+    expect(session.describeTable).toHaveBeenCalledWith("qdr__collections");
+    expect(session.createTable).toHaveBeenCalledTimes(1);
+    expect(loggerInfoMock).toHaveBeenCalledWith(
+      "created metadata table qdr__collections"
+    );
+  });
+
+  it("throws when last_accessed_at column is missing (migration required)", async () => {
+    const { ensureMetaTable } = await resetSchemaModule();
+
+    const session = {
+      sessionId: "test-session",
+      describeTable: vi.fn().mockResolvedValue({
+        columns: [
+          { name: "collection" },
+          { name: "table_name" },
+          { name: "vector_dimension" },
+          { name: "distance" },
+          { name: "vector_type" },
+          { name: "created_at" },
+          // intentionally missing last_accessed_at
+        ],
+      }),
+      createTable: vi.fn(),
+    };
+
+    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
+      return await fn(session);
+    });
+
+    await expect(ensureMetaTable()).rejects.toThrow(
+      "Metadata table qdr__collections is missing required column last_accessed_at; please recreate the table or apply a manual schema migration before starting the service"
+    );
+
+    expect(session.describeTable).toHaveBeenCalledWith("qdr__collections");
+    expect(session.createTable).not.toHaveBeenCalled();
+    expect(loggerInfoMock).not.toHaveBeenCalledWith(
+      "created metadata table qdr__collections"
+    );
+  });
+
+  it("does not create metadata table for non-not-found describeTable errors (logs warning, does not throw)", async () => {
+    const { ensureMetaTable } = await resetSchemaModule();
+
+    const session = {
+      sessionId: "test-session",
+      describeTable: vi
+        .fn()
+        .mockRejectedValue(new Error("transport unavailable (ECONNRESET)")),
+      createTable: vi.fn(),
+    };
+
+    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
+      return await fn(session);
+    });
+
+    await expect(ensureMetaTable()).resolves.toBeUndefined();
+
+    expect(session.describeTable).toHaveBeenCalledWith("qdr__collections");
+    expect(session.createTable).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalled();
+  });
+});
 
 describe("ydb/schema.ensureGlobalPointsTable", () => {
   beforeEach(() => {

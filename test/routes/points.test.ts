@@ -155,6 +155,7 @@ describe("pointsRouter (HTTP, mocked service)", () => {
     );
     expect(searchRes.statusCode).toBe(200);
     expect(searchRes.body).toMatchObject({ status: "ok" });
+    expect(searchRes.body?.result).toEqual([]);
 
     const queryBody = {
       query: { vector: [0, 0, 0, 1] },
@@ -176,6 +177,7 @@ describe("pointsRouter (HTTP, mocked service)", () => {
     );
     expect(queryRes.statusCode).toBe(200);
     expect(queryRes.body).toMatchObject({ status: "ok" });
+    expect(queryRes.body?.result).toEqual([]);
 
     const deleteBody = { points: ["p1", "p2"] };
     const deleteReq = createRequest({

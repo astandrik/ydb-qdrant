@@ -82,7 +82,7 @@ pointsRouter.post(
   "/:collection/points/search",
   async (req: Request, res: Response) => {
     try {
-      const result = await searchPoints(
+      const { points } = await searchPoints(
         {
           tenant: req.header("X-Tenant-Id") ?? undefined,
           collection: String(req.params.collection),
@@ -91,7 +91,7 @@ pointsRouter.post(
         },
         req.body
       );
-      res.json({ status: "ok", result });
+      res.json({ status: "ok", result: points });
     } catch (err: unknown) {
       if (err instanceof QdrantServiceError) {
         return res.status(err.statusCode).json(err.payload);
@@ -117,7 +117,7 @@ pointsRouter.post(
   "/:collection/points/query",
   async (req: Request, res: Response) => {
     try {
-      const result = await queryPoints(
+      const { points } = await queryPoints(
         {
           tenant: req.header("X-Tenant-Id") ?? undefined,
           collection: String(req.params.collection),
@@ -126,7 +126,7 @@ pointsRouter.post(
         },
         req.body
       );
-      res.json({ status: "ok", result });
+      res.json({ status: "ok", result: points });
     } catch (err: unknown) {
       if (err instanceof QdrantServiceError) {
         return res.status(err.statusCode).json(err.payload);
