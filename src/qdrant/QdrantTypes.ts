@@ -9,8 +9,6 @@ import type { Schemas } from "@qdrant/js-client-rest";
  * - Internally we support dense vectors only (`number[]`), so we narrow types accordingly.
  */
 
-export type QdrantDistance = Schemas["Distance"];
-
 export type QdrantPointId = Schemas["ExtendedPointId"];
 
 // Qdrant allows multiple vector representations; we currently support only dense vectors.

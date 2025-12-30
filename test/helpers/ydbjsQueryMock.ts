@@ -23,10 +23,8 @@ export type SqlTagMock = ((
   identifier: (value: string) => string;
 };
 
-function createQueryMock<T>(
-  plannedRuns: Array<PlannedRun<T>>,
-  defaultResult: T
-): QueryMock<T> {
+function createQueryMock<T>(plannedRuns: Array<PlannedRun<T>>): QueryMock<T> {
+  const defaultResult = [[]] as unknown as T;
   const params: Record<string, unknown> = {};
 
   const q = (() => {
@@ -54,7 +52,6 @@ export function createSqlHarness(): {
 } {
   const calls: Array<{ yql: string; query: QueryMock<unknown> }> = [];
   const plannedQueries: Array<Array<PlannedRun<unknown>>> = [];
-  const defaultResult: unknown = [[]];
 
   function renderYql(strings: TemplateStringsArray, values: unknown[]): string {
     // Normal tagged templates provide SQL in `strings`, with interpolations in `values`.
@@ -71,7 +68,7 @@ export function createSqlHarness(): {
     const yql = renderYql(strings, values);
 
     const runs = plannedQueries.shift() ?? [{ result: [[]] }];
-    const query = createQueryMock(runs, defaultResult);
+    const query = createQueryMock(runs);
     calls.push({ yql, query });
     return query;
   }) as SqlTagMock;
@@ -104,7 +101,9 @@ export function getQueryParam(
   }
 
   // fallback: parameter() call history
-  const calls = query.parameter.mock.calls as Array<[string, unknown]>;
+  const calls = (query.parameter as unknown as Mock).mock.calls as Array<
+    [string, unknown]
+  >;
   for (const name of names) {
     if (typeof name === "string") {
       const hit = calls.find(([k]) => k === name);

@@ -61,22 +61,6 @@ export class SessionPool {
 
   constructor(private readonly driver: Driver) {}
 
-  /**
-   * Test-only escape hatch to inspect and drive internal state without unsafe casts.
-   * Not part of the public API surface.
-   */
-  __getInternalsForTests(): {
-    available: Array<{ sessionId: string; lastCheckedAtMs: number }>;
-    keepaliveTick: () => Promise<void>;
-    inUse: Set<string>;
-  } {
-    return {
-      available: this.available,
-      keepaliveTick: () => this.keepaliveTick(),
-      inUse: this.inUse,
-    };
-  }
-
   start(): void {
     if (this.keepaliveTimer) return;
     this.keepaliveTimer = setInterval(() => {

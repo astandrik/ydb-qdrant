@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, type Mock } from "vitest";
 import { createSqlHarness } from "../helpers/ydbjsQueryMock.js";
 
 vi.mock("@ydbjs/value/primitive", async () => {
@@ -50,7 +50,7 @@ import * as envConfig from "../../src/config/env.js";
 import { logger } from "../../src/logging/logger.js";
 import { Timestamp } from "@ydbjs/value/primitive";
 
-const withSessionMock = vi.mocked(ydbClient.withSession);
+const withSessionMock = ydbClient.withSession as unknown as Mock;
 
 describe("collectionsRepo/touchCollectionLastAccess (with mocked YDB)", () => {
   it("throttles last_access updates per collection and interval", async () => {
@@ -92,7 +92,7 @@ describe("collectionsRepo/touchCollectionLastAccess (with mocked YDB)", () => {
       customNow
     );
 
-    expect(vi.mocked(Timestamp)).toHaveBeenCalledWith(customNow);
+    expect(Timestamp as unknown as Mock).toHaveBeenCalledWith(customNow);
   });
 
   it("logs and swallows YDB errors during last_access update", async () => {
@@ -103,7 +103,7 @@ describe("collectionsRepo/touchCollectionLastAccess (with mocked YDB)", () => {
         await fn(h.sql, new AbortController().signal)
     );
 
-    const warnMock = vi.mocked(logger.warn);
+    const warnMock = logger.warn as unknown as Mock;
     const metaKey = "tenant_a/my_collection_error";
 
     await expect(

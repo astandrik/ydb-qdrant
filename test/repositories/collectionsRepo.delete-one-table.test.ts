@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi, type Mock } from "vitest";
 import { createSqlHarness } from "../helpers/ydbjsQueryMock.js";
 
 vi.mock("../../src/ydb/client.js", () => {
@@ -21,7 +21,7 @@ import {
 } from "../../src/repositories/collectionsRepo.js";
 import * as ydbClient from "../../src/ydb/client.js";
 
-const withSessionMock = vi.mocked(ydbClient.withSession);
+const withSessionMock = ydbClient.withSession as unknown as Mock;
 
 function planMetaRow(h: ReturnType<typeof createSqlHarness>): void {
   h.plan([

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 
 vi.mock("../../src/logging/logger.js", () => ({
   logger: {
@@ -18,8 +18,8 @@ vi.mock("../../src/ydb/client.js", () => {
 import { withSession } from "../../src/ydb/client.js";
 import { logger } from "../../src/logging/logger.js";
 
-const withSessionMock = vi.mocked(withSession);
-const loggerInfoMock = vi.mocked(logger.info);
+const withSessionMock = withSession as unknown as Mock;
+const loggerInfoMock = logger.info as unknown as Mock;
 
 type SqlTagMock = ReturnType<typeof vi.fn<(...args: unknown[]) => unknown>> & {
   unsafe: (value: string) => string;
@@ -136,9 +136,9 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
     });
 
     let withSessionCallCount = 0;
-    withSessionMock.mockImplementation(async (fn) => {
+    withSessionMock.mockImplementation((fn: (sql: unknown) => unknown) => {
       withSessionCallCount += 1;
-      return await fn(sqlTag as never, new AbortController().signal);
+      return fn(sqlTag);
     });
 
     await ensureGlobalPointsTable();
@@ -161,8 +161,8 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
       return createQueryStub();
     });
 
-    withSessionMock.mockImplementation(async (fn) => {
-      return await fn(sqlTag as never, new AbortController().signal);
+    withSessionMock.mockImplementation((fn: (sql: unknown) => unknown) => {
+      return fn(sqlTag);
     });
 
     await ensureGlobalPointsTable();
@@ -189,8 +189,8 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
       return createQueryStub();
     });
 
-    withSessionMock.mockImplementation(async (fn) => {
-      return await fn(sqlTag as never, new AbortController().signal);
+    withSessionMock.mockImplementation((fn: (sql: unknown) => unknown) => {
+      return fn(sqlTag);
     });
 
     await expect(ensureGlobalPointsTable()).rejects.toThrow(

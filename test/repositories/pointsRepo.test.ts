@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi, type Mock } from "vitest";
 import { createSqlHarness, getQueryParam } from "../helpers/ydbjsQueryMock.js";
 import type {
   QdrantPayload,
@@ -56,7 +56,7 @@ import * as ydbClient from "../../src/ydb/client.js";
 import * as bulkUpsert from "../../src/ydb/bulkUpsert.js";
 import { UPSERT_BATCH_SIZE } from "../../src/ydb/schema.js";
 
-const withSessionMock = vi.mocked(ydbClient.withSession);
+const withSessionMock = ydbClient.withSession as unknown as Mock;
 
 describe("pointsRepo (with mocked YDB)", () => {
   beforeEach(() => {
@@ -64,7 +64,8 @@ describe("pointsRepo (with mocked YDB)", () => {
   });
 
   it("upserts points and notifies scheduler (one_table)", async () => {
-    const bulkUpsertRowsOnceMock = vi.mocked(bulkUpsert.bulkUpsertRowsOnce);
+    const bulkUpsertRowsOnceMock =
+      bulkUpsert.bulkUpsertRowsOnce as unknown as Mock;
 
     const points: QdrantPointStructDense[] = [
       { id: "p1", vector: [0, 0, 0, 1], payload: { a: 1 } },
@@ -274,7 +275,12 @@ describe("pointsRepo (with mocked YDB)", () => {
 
     // Switch mocked env SEARCH_MODE to exact via setter (mock factory must support it).
     const envMock = await import("../../src/config/env.js");
-    Reflect.set(envMock, "SEARCH_MODE", envMock.SearchMode.Exact);
+    (
+      envMock as unknown as {
+        SEARCH_MODE: string;
+        SearchMode: { Exact: string };
+      }
+    ).SEARCH_MODE = envMock.SearchMode.Exact;
 
     const result = await searchPoints(
       "qdrant_all_points",
