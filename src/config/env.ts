@@ -27,31 +27,6 @@ function parseIntegerEnv(
   return result;
 }
 
-function parseBooleanEnv(
-  value: string | undefined,
-  defaultValue: boolean
-): boolean {
-  if (value === undefined) {
-    return defaultValue;
-  }
-  const normalized = value.trim().toLowerCase();
-  if (
-    normalized === "" ||
-    normalized === "0" ||
-    normalized === "false" ||
-    normalized === "no" ||
-    normalized === "off"
-  ) {
-    return false;
-  }
-  return true;
-}
-
-export const USE_BATCH_DELETE_FOR_COLLECTIONS = parseBooleanEnv(
-  process.env.YDB_QDRANT_USE_BATCH_DELETE,
-  false
-);
-
 export enum SearchMode {
   Exact = "exact",
   Approximate = "approximate",

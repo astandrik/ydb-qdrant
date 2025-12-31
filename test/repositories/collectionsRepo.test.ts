@@ -52,25 +52,6 @@ vi.mock("../../src/ydb/client.js", () => {
   };
 });
 
-vi.mock("../../src/config/env.js", async () => {
-  const actual = await vi.importActual<
-    typeof import("../../src/config/env.js")
-  >("../../src/config/env.js");
-
-  let useBatchDeleteForCollections = false;
-
-  return {
-    ...actual,
-    LOG_LEVEL: "info",
-    get USE_BATCH_DELETE_FOR_COLLECTIONS() {
-      return useBatchDeleteForCollections;
-    },
-    __setUseBatchDeleteForCollections(value: boolean) {
-      useBatchDeleteForCollections = value;
-    },
-  };
-});
-
 vi.mock("../../src/logging/logger.js", () => ({
   logger: {
     info: vi.fn(),
