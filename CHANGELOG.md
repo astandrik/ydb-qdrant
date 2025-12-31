@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## [8.1.0](https://github.com/astandrik/ydb-qdrant/compare/v8.0.0...v8.1.0) (2025-12-31)
+
+
+### Features
+
+* bulk upserts ([#184](https://github.com/astandrik/ydb-qdrant/issues/184)) ([27001e4](https://github.com/astandrik/ydb-qdrant/commit/27001e44c52710414b0d5b57927ecdc5bd0e27aa))
+
 ## [8.0.0](https://github.com/astandrik/ydb-qdrant/compare/v7.0.1...v8.0.0) (2025-12-31)
 
 
