@@ -56,7 +56,6 @@ export async function bootstrapMetaTable(): Promise<void> {
 
       try {
         await s.createTable("qdr__collections", td);
-        // eslint-disable-next-line no-console
         console.log("bootstrapMetaTable: created qdr__collections");
       } catch (createErr: unknown) {
         if (!isAlreadyExistsError(createErr)) {
