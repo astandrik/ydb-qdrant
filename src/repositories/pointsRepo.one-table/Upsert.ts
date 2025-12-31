@@ -2,7 +2,7 @@ import {
   TypedValues,
   Types,
   withSession,
-  Ydb as YdbProto,
+  Ydb as YdbRuntime,
   createBulkUpsertSettingsWithTimeout,
 } from "../../ydb/client.js";
 import { buildVectorBinaryParams } from "../../ydb/helpers.js";
@@ -11,7 +11,7 @@ import { UPSERT_BATCH_SIZE } from "../../ydb/schema.js";
 import { UPSERT_OPERATION_TIMEOUT_MS } from "../../config/env.js";
 import { logger } from "../../logging/logger.js";
 import type { UpsertPoint } from "../../types.js";
-import type { Ydb as YdbSdk } from "ydb-sdk";
+import type { Ydb as YdbTypes } from "ydb-sdk";
 
 function assertPointVectorsDimension(args: {
   tableName: string;
@@ -43,18 +43,10 @@ function assertPointVectorsDimension(args: {
   }
 }
 
-function normalizeTablePathForBulkUpsert(tableName: string): string {
-  if (!tableName) {
-    throw new Error("bulkUpsert: tableName is empty");
-  }
-  // ydb-sdk bulkUpsert expects a table path relative to the current database.
-  return tableName.startsWith("/") ? tableName.slice(1) : tableName;
-}
-
 function buildBulkUpsertRowsValue(args: {
   uid: string;
   batch: Array<Pick<UpsertPoint, "id" | "vector" | "payload">>;
-}): YdbSdk.ITypedValue {
+}): YdbTypes.ITypedValue {
   const rowType = Types.struct({
     uid: Types.UTF8,
     point_id: Types.UTF8,
@@ -84,6 +76,9 @@ export async function upsertPointsOneTable(
   dimension: number,
   uid: string
 ): Promise<number> {
+  if (!tableName) {
+    throw new Error("bulkUpsert: tableName is empty");
+  }
   assertPointVectorsDimension({ tableName, uid, points, dimension });
 
   let upserted = 0;
@@ -93,7 +88,6 @@ export async function upsertPointsOneTable(
       timeoutMs: UPSERT_OPERATION_TIMEOUT_MS,
     });
 
-    const tablePath = normalizeTablePathForBulkUpsert(tableName);
     for (let i = 0; i < points.length; i += UPSERT_BATCH_SIZE) {
       const batch = points.slice(i, i + UPSERT_BATCH_SIZE);
 
@@ -122,8 +116,8 @@ export async function upsertPointsOneTable(
         );
       }
 
-      const typedRows = YdbProto.TypedValue.create(rowsValue);
-      await withRetry(() => s.bulkUpsert(tablePath, typedRows, bulkSettings), {
+      const typedRows = YdbRuntime.TypedValue.create(rowsValue);
+      await withRetry(() => s.bulkUpsert(tableName, typedRows, bulkSettings), {
         isTransient: isTransientYdbError,
         context: { tableName, batchSize: batch.length, mode: "bulkUpsert" },
       });

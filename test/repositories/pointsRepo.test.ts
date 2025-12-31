@@ -234,8 +234,18 @@ describe("pointsRepo (with mocked YDB)", () => {
     }
     const [tablePath, rows] = call;
     expect(tablePath).toBe("qdrant_all_points");
-    expect(rows).toBeTruthy();
-    expect(typeof rows).toBe("object");
+    expect(rows).toMatchObject({
+      type: "list",
+      list: [
+        {
+          uid: "qdr_tenant_a__my_collection",
+          point_id: "p1",
+          embedding: { kind: "float-bytes", vec: [0, 0, 0, 1] },
+          embedding_quantized: { kind: "bit-bytes", vec: [0, 0, 0, 1] },
+          payload: JSON.stringify({ a: 1 }),
+        },
+      ],
+    });
   });
 
   it("upserts more than UPSERT_BATCH_SIZE points in multiple batches (one_table)", async () => {
