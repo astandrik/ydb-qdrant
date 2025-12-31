@@ -2,6 +2,7 @@ import {
   Column,
   TableDescription,
   Types,
+  destroyDriver,
   readyOrThrow,
   withSession,
 } from "./client.js";
@@ -13,7 +14,8 @@ function isTableNotFoundError(err: unknown): boolean {
     /path.*not found/i.test(msg) ||
     /does not exist/i.test(msg) ||
     /NotFound\s*\(code\s*400140\)/i.test(msg) ||
-    (/SchemeError\s*\(code\s*400070\)/i.test(msg) && /:\s*\[\s*\]\s*$/i.test(msg))
+    (/SchemeError\s*\(code\s*400070\)/i.test(msg) &&
+      /:\s*\[\s*\]\s*$/i.test(msg))
   );
 }
 
@@ -77,11 +79,24 @@ export async function bootstrapMetaTable(): Promise<void> {
 
 // CLI entrypoint
 if (process.argv[1]?.endsWith("bootstrapMetaTable.js")) {
-  bootstrapMetaTable().catch((err: unknown) => {
-    // eslint-disable-next-line no-console
-    console.error(err);
-    process.exit(1);
-  });
+  const main = async (): Promise<void> => {
+    await bootstrapMetaTable();
+    // Important: ydb-sdk driver/session pool keeps timers alive; explicitly
+    // destroy it so this script can terminate in CI steps.
+    await destroyDriver();
+  };
+
+  main()
+    .then(() => {
+      process.exit(0);
+    })
+    .catch(async (err: unknown) => {
+      console.error(err);
+      try {
+        await destroyDriver();
+      } catch {
+        // ignore cleanup errors
+      }
+      process.exit(1);
+    });
 }
-
-
