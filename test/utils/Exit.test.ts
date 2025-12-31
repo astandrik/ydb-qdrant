@@ -22,7 +22,7 @@ describe("exit utility", () => {
       .spyOn(globalWithSetImmediate, "setImmediate")
       .mockImplementation((fn: () => void) => {
         capturedCallback = fn;
-        return {} as NodeJS.Immediate;
+        return {} as unknown as NodeJS.Immediate;
       });
 
     const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
@@ -50,7 +50,7 @@ describe("exit utility", () => {
       .spyOn(globalWithSetImmediate, "setImmediate")
       .mockImplementation((fn: () => void) => {
         capturedCallback = fn;
-        return {} as NodeJS.Immediate;
+        return {} as unknown as NodeJS.Immediate;
       });
 
     const customExit = vi.fn<(code: number) => void>();

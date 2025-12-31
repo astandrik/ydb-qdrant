@@ -1,3 +1,6 @@
+const IS_LITTLE_ENDIAN =
+  new Uint8Array(new Uint16Array([0x00ff]).buffer)[0] === 0xff;
+
 export function vectorToFloatBinary(vector: number[]): Buffer {
   if (vector.length === 0) {
     return Buffer.from([1]);
@@ -10,7 +13,11 @@ export function vectorToFloatBinary(vector: number[]): Buffer {
     if (!Number.isFinite(value)) {
       throw new Error(`Non-finite value in vector at index ${i}: ${value}`);
     }
-    buffer.writeFloatLE(value, i * 4);
+    if (IS_LITTLE_ENDIAN) {
+      buffer.writeFloatLE(value, i * 4);
+    } else {
+      buffer.writeFloatBE(value, i * 4);
+    }
   }
 
   buffer.writeUInt8(1, vector.length * 4);
@@ -31,13 +38,10 @@ export function vectorToBitBinary(vector: number[]): Buffer {
   const totalLen = dataByteLen + 2; // +1 unused-bit-count +1 format marker
   const buffer = Buffer.alloc(totalLen);
 
-  const isLittleEndian =
-    new Uint8Array(new Uint16Array([0x00ff]).buffer)[0] === 0xff;
-
   let offset = 0;
 
   const writeU64 = (v: bigint) => {
-    if (isLittleEndian) {
+    if (IS_LITTLE_ENDIAN) {
       buffer.writeBigUInt64LE(v, offset);
     } else {
       buffer.writeBigUInt64BE(v, offset);
@@ -46,7 +50,7 @@ export function vectorToBitBinary(vector: number[]): Buffer {
   };
 
   const writeU32 = (v: number) => {
-    if (isLittleEndian) {
+    if (IS_LITTLE_ENDIAN) {
       buffer.writeUInt32LE(v, offset);
     } else {
       buffer.writeUInt32BE(v, offset);
@@ -55,7 +59,7 @@ export function vectorToBitBinary(vector: number[]): Buffer {
   };
 
   const writeU16 = (v: number) => {
-    if (isLittleEndian) {
+    if (IS_LITTLE_ENDIAN) {
       buffer.writeUInt16LE(v, offset);
     } else {
       buffer.writeUInt16BE(v, offset);

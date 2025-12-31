@@ -1,4 +1,4 @@
-export { searchPointsOneTable } from "./pointsRepo.one-table/Search/index.js";
+export { searchPointsOneTable } from "./pointsRepo.one-table/Search.js";
 export { upsertPointsOneTable } from "./pointsRepo.one-table/Upsert.js";
 export {
   deletePointsOneTable,

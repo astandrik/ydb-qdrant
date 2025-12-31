@@ -23,20 +23,9 @@ import {
   normalizeSearchBodyForQuery,
   type SearchNormalizationResult,
 } from "../utils/normalization.js";
-import { isRecord } from "../utils/typeGuards.js";
-import type {
-  QdrantPayload,
-  QdrantPointStructDense,
-} from "../qdrant/QdrantTypes.js";
+import type { YdbQdrantScoredPoint } from "../qdrant/QdrantRestTypes.js";
 
 type PointsContextInput = CollectionContextInput;
-
-type InternalScoredPoint = {
-  // We always return point ids as strings (we store point_id as Utf8).
-  id: string;
-  score: number;
-  payload?: QdrantPayload;
-};
 
 function parsePathSegmentsFilterToPaths(
   filter: unknown
@@ -45,18 +34,20 @@ function parsePathSegmentsFilterToPaths(
     if (!Array.isArray(must) || must.length === 0) return null;
     const pairs: Array<{ idx: number; value: string }> = [];
     for (const cond of must) {
-      if (!isRecord(cond)) return null;
-      const key = cond.key;
-      if (typeof key !== "string") return null;
-      const m = /^pathSegments\.(\d+)$/.exec(key);
+      if (typeof cond !== "object" || cond === null) return null;
+      const c = cond as {
+        key?: unknown;
+        match?: unknown;
+      };
+      if (typeof c.key !== "string") return null;
+      const m = /^pathSegments\.(\d+)$/.exec(c.key);
       if (!m) return null;
       const idx = Number(m[1]);
       if (!Number.isInteger(idx) || idx < 0) return null;
-      const match = cond.match;
-      if (!isRecord(match)) return null;
-      const value = match.value;
-      if (typeof value !== "string") return null;
-      pairs.push({ idx, value });
+      if (typeof c.match !== "object" || c.match === null) return null;
+      const match = c.match as { value?: unknown };
+      if (typeof match.value !== "string") return null;
+      pairs.push({ idx, value: match.value });
     }
     pairs.sort((a, b) => a.idx - b.idx);
     // Require contiguous indexes starting from 0 to avoid ambiguous matches.
@@ -66,19 +57,19 @@ function parsePathSegmentsFilterToPaths(
     return pairs.map((p) => p.value);
   };
 
-  if (!isRecord(filter)) return null;
-  const must = filter.must;
-  if (must !== undefined) {
-    const path = extractMust(must);
+  if (typeof filter !== "object" || filter === null) return null;
+  const f = filter as { must?: unknown; should?: unknown };
+  if (f.must !== undefined) {
+    const path = extractMust(f.must);
     return path ? [path] : null;
   }
-  const should = filter.should;
-  if (should !== undefined) {
-    if (!Array.isArray(should) || should.length === 0) return null;
+  if (f.should !== undefined) {
+    if (!Array.isArray(f.should) || f.should.length === 0) return null;
     const paths: Array<Array<string>> = [];
-    for (const g of should) {
-      if (!isRecord(g)) return null;
-      const path = extractMust(g.must);
+    for (const g of f.should) {
+      if (typeof g !== "object" || g === null) return null;
+      const group = g as { must?: unknown };
+      const path = extractMust(group.must);
       if (!path) return null;
       paths.push(path);
     }
@@ -117,9 +108,12 @@ export async function upsertPoints(
   const { tableName, uid } = await resolvePointsTableAndUidOneTable(normalized);
   let upserted: number;
   try {
-    // Narrow Qdrant OpenAPI types to the dense-vector subset we support.
-    const points: QdrantPointStructDense[] = parsed.data.points;
-    upserted = await repoUpsertPoints(tableName, points, meta.dimension, uid);
+    upserted = await repoUpsertPoints(
+      tableName,
+      parsed.data.points,
+      meta.dimension,
+      uid
+    );
   } catch (err: unknown) {
     if (isVectorDimensionMismatchError(err)) {
       logger.warn(
@@ -149,7 +143,7 @@ async function executeSearch(
   normalizedSearch: SearchNormalizationResult,
   source: "search" | "query"
 ): Promise<{
-  points: InternalScoredPoint[];
+  points: YdbQdrantScoredPoint[];
 }> {
   await ensureMetaTable();
   const normalized = normalizeCollectionContextShared(
@@ -293,7 +287,7 @@ export async function searchPoints(
   ctx: PointsContextInput,
   body: unknown
 ): Promise<{
-  points: InternalScoredPoint[];
+  points: YdbQdrantScoredPoint[];
 }> {
   const normalizedSearch = normalizeSearchBodyForSearch(body);
   return await executeSearch(ctx, normalizedSearch, "search");
@@ -303,7 +297,7 @@ export async function queryPoints(
   ctx: PointsContextInput,
   body: unknown
 ): Promise<{
-  points: InternalScoredPoint[];
+  points: YdbQdrantScoredPoint[];
 }> {
   const normalizedSearch = normalizeSearchBodyForQuery(body);
   return await executeSearch(ctx, normalizedSearch, "query");

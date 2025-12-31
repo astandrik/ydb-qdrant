@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 
 vi.mock("../../src/logging/logger.js", () => ({
   logger: {
@@ -10,7 +10,50 @@ vi.mock("../../src/logging/logger.js", () => ({
 }));
 
 vi.mock("../../src/ydb/client.js", () => {
+  class FakeTableDescription {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    withColumns(..._cols: unknown[]) {
+      return this;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    withPrimaryKey(..._keys: string[]) {
+      return this;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    withPrimaryKeys(..._keys: string[]) {
+      return this;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    withPartitioningSettings(..._settings: unknown[]) {
+      return this;
+    }
+  }
+
+  class FakeColumn {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    constructor(_name: string, _type: unknown) {}
+  }
+
   return {
+    TableDescription: FakeTableDescription,
+    Column: FakeColumn,
+    Types: {
+      UTF8: "UTF8",
+      BYTES: "BYTES",
+      JSON_DOCUMENT: "JSON_DOCUMENT",
+      UINT32: "UINT32",
+      TIMESTAMP: "TIMESTAMP",
+    },
+    Ydb: {
+      FeatureFlag: {
+        Status: {
+          ENABLED: 1,
+        },
+      },
+    },
     withSession: vi.fn(),
   };
 });
@@ -18,82 +61,14 @@ vi.mock("../../src/ydb/client.js", () => {
 import { withSession } from "../../src/ydb/client.js";
 import { logger } from "../../src/logging/logger.js";
 
-const withSessionMock = vi.mocked(withSession);
-const loggerInfoMock = vi.mocked(logger.info);
-
-type SqlTagMock = ReturnType<typeof vi.fn<(...args: unknown[]) => unknown>> & {
-  unsafe: (value: string) => string;
-  identifier: (value: string) => string;
-};
-
-function createSqlTagMock(): SqlTagMock {
-  const fn = vi.fn() as SqlTagMock;
-  fn.unsafe = (value: string) => value;
-  fn.identifier = (value: string) => value;
-  return fn;
-}
-
-function renderYql(strings: unknown, values: unknown[]): string {
-  if (Array.isArray(strings)) {
-    let out = "";
-    for (let i = 0; i < strings.length; i += 1) {
-      out += String(strings[i]);
-      if (i < values.length) {
-        const v = values[i];
-        // In these tests, interpolations are expected to be strings produced by sql.unsafe/sql.identifier.
-        // Avoid Object default stringification to keep eslint @typescript-eslint/no-base-to-string happy.
-        if (typeof v === "string") {
-          out += v;
-        } else if (typeof v === "number" || typeof v === "boolean") {
-          out += String(v);
-        } else {
-          out += "";
-        }
-      }
-    }
-    return out;
-  }
-  if (typeof strings === "string") {
-    return strings;
-  }
-  // Fallback: if template strings are not provided, just join values.
-  return values.map((v) => (typeof v === "string" ? v : "")).join("");
-}
-
-type QueryStub = {
-  idempotent: () => QueryStub;
-  timeout: () => QueryStub;
-  signal: () => QueryStub;
-  parameter: () => QueryStub;
-  then: (
-    onFulfilled: (v: unknown) => unknown,
-    onRejected?: (e: unknown) => unknown
-  ) => unknown;
-};
-
-function createQueryStub(options?: {
-  resolve?: unknown;
-  reject?: unknown;
-}): QueryStub {
-  const stub: QueryStub = {
-    idempotent: () => stub,
-    timeout: () => stub,
-    signal: () => stub,
-    parameter: () => stub,
-    then: (onFulfilled, onRejected) => {
-      if (options?.reject !== undefined) {
-        return onRejected ? onRejected(options.reject) : undefined;
-      }
-      return onFulfilled(options?.resolve ?? [[]]);
-    },
-  };
-  return stub;
-}
+const withSessionMock = withSession as unknown as Mock;
+const loggerInfoMock = logger.info as unknown as Mock;
 
 // Reset module state between tests
 async function resetSchemaModule(
   envOverrides?: Record<string, string>
 ): Promise<{
+  ensureMetaTable: typeof import("../../src/ydb/schema.js")["ensureMetaTable"];
   ensureGlobalPointsTable: typeof import("../../src/ydb/schema.js")["ensureGlobalPointsTable"];
   GLOBAL_POINTS_TABLE: typeof import("../../src/ydb/schema.js")["GLOBAL_POINTS_TABLE"];
 }> {
@@ -115,58 +90,182 @@ async function resetSchemaModule(
   return schema;
 }
 
+describe("ydb/schema.ensureMetaTable", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("throws when metadata table does not exist", async () => {
+    const { ensureMetaTable } = await resetSchemaModule();
+
+    const session = {
+      sessionId: "test-session",
+      describeTable: vi.fn().mockRejectedValue(new Error("Table not found")),
+      createTable: vi.fn().mockResolvedValue(undefined),
+    };
+
+    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
+      return await fn(session);
+    });
+
+    await expect(ensureMetaTable()).rejects.toThrow(
+      "Metadata table qdr__collections does not exist; please create it before starting the service"
+    );
+
+    expect(session.describeTable).toHaveBeenCalledWith("qdr__collections");
+    expect(session.createTable).not.toHaveBeenCalled();
+    expect(loggerInfoMock).not.toHaveBeenCalledWith(
+      "created metadata table qdr__collections"
+    );
+  });
+
+  it("throws when describeTable fails with SchemeError (code 400070): []", async () => {
+    const { ensureMetaTable } = await resetSchemaModule();
+
+    const session = {
+      sessionId: "test-session",
+      describeTable: vi
+        .fn()
+        .mockRejectedValue(new Error("SchemeError (code 400070): []")),
+      createTable: vi.fn().mockResolvedValue(undefined),
+    };
+
+    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
+      return await fn(session);
+    });
+
+    await expect(ensureMetaTable()).rejects.toThrow(
+      "Metadata table qdr__collections does not exist; please create it before starting the service"
+    );
+
+    expect(session.describeTable).toHaveBeenCalledWith("qdr__collections");
+    expect(session.createTable).not.toHaveBeenCalled();
+    expect(loggerInfoMock).not.toHaveBeenCalledWith(
+      "created metadata table qdr__collections"
+    );
+  });
+
+  it("throws when last_accessed_at column is missing (migration required)", async () => {
+    const { ensureMetaTable } = await resetSchemaModule();
+
+    const session = {
+      sessionId: "test-session",
+      describeTable: vi.fn().mockResolvedValue({
+        columns: [
+          { name: "collection" },
+          { name: "table_name" },
+          { name: "vector_dimension" },
+          { name: "distance" },
+          { name: "vector_type" },
+          { name: "created_at" },
+          // intentionally missing last_accessed_at
+        ],
+      }),
+      createTable: vi.fn(),
+    };
+
+    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
+      return await fn(session);
+    });
+
+    await expect(ensureMetaTable()).rejects.toThrow(
+      "Metadata table qdr__collections is missing required column last_accessed_at; please recreate the table or apply a manual schema migration before starting the service"
+    );
+
+    expect(session.describeTable).toHaveBeenCalledWith("qdr__collections");
+    expect(session.createTable).not.toHaveBeenCalled();
+    expect(loggerInfoMock).not.toHaveBeenCalledWith(
+      "created metadata table qdr__collections"
+    );
+  });
+
+  it("throws for non-not-found describeTable errors", async () => {
+    const { ensureMetaTable } = await resetSchemaModule();
+
+    const session = {
+      sessionId: "test-session",
+      describeTable: vi
+        .fn()
+        .mockRejectedValue(new Error("transport unavailable (ECONNRESET)")),
+      createTable: vi.fn(),
+    };
+
+    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
+      return await fn(session);
+    });
+
+    await expect(ensureMetaTable()).rejects.toThrow(
+      "transport unavailable (ECONNRESET)"
+    );
+
+    expect(session.describeTable).toHaveBeenCalledWith("qdr__collections");
+    expect(session.createTable).not.toHaveBeenCalled();
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+});
+
 describe("ydb/schema.ensureGlobalPointsTable", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("is idempotent after first successful create/verify", async () => {
+  it("is idempotent after first successful describeTable with all columns", async () => {
     const { ensureGlobalPointsTable, GLOBAL_POINTS_TABLE } =
       await resetSchemaModule();
 
-    const calls: string[] = [];
-    const sqlTag = createSqlTagMock();
+    const session = {
+      sessionId: "test-session",
+      describeTable: vi.fn().mockResolvedValue({
+        columns: [
+          { name: "uid" },
+          { name: "point_id" },
+          { name: "embedding" },
+          { name: "embedding_quantized" },
+          { name: "payload" },
+        ],
+      }),
+      createTable: vi.fn(),
+      api: {
+        executeSchemeQuery: vi.fn().mockResolvedValue(undefined),
+      },
+    };
 
-    // First call: CREATE TABLE succeeds; column probe succeeds.
-    // Second call: function is idempotent and should not execute again.
-    sqlTag.mockImplementation((strings: unknown, ...values: unknown[]) => {
-      const text = renderYql(strings, values);
-      calls.push(text);
-      return createQueryStub();
-    });
-
-    let withSessionCallCount = 0;
-    withSessionMock.mockImplementation(async (fn) => {
-      withSessionCallCount += 1;
-      return await fn(sqlTag as never, new AbortController().signal);
+    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
+      return await fn(session);
     });
 
     await ensureGlobalPointsTable();
-    const callsAfterFirst = calls.length;
     await ensureGlobalPointsTable();
 
-    expect(withSessionMock).toHaveBeenCalledTimes(1);
-    expect(withSessionCallCount).toBe(1);
-    expect(calls).toHaveLength(callsAfterFirst);
-    expect(calls.join("\n")).toContain(`CREATE TABLE ${GLOBAL_POINTS_TABLE}`);
+    expect(session.describeTable).toHaveBeenCalledWith(GLOBAL_POINTS_TABLE);
+    expect(session.describeTable).toHaveBeenCalledTimes(1);
+    expect(session.createTable).not.toHaveBeenCalled();
+    expect(session.api.executeSchemeQuery).not.toHaveBeenCalled();
   });
 
   it("creates table when it does not exist", async () => {
     const { ensureGlobalPointsTable, GLOBAL_POINTS_TABLE } =
       await resetSchemaModule();
 
-    const sqlTag = createSqlTagMock();
+    const session = {
+      sessionId: "test-session",
+      describeTable: vi.fn().mockRejectedValue(new Error("Table not found")),
+      createTable: vi.fn().mockResolvedValue(undefined),
+      executeQuery: vi.fn(),
+      api: {
+        executeSchemeQuery: vi.fn().mockResolvedValue(undefined),
+      },
+    };
 
-    sqlTag.mockImplementation(() => {
-      return createQueryStub();
-    });
-
-    withSessionMock.mockImplementation(async (fn) => {
-      return await fn(sqlTag as never, new AbortController().signal);
+    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
+      return await fn(session);
     });
 
     await ensureGlobalPointsTable();
 
+    expect(session.describeTable).toHaveBeenCalledWith(GLOBAL_POINTS_TABLE);
+    expect(session.createTable).toHaveBeenCalledTimes(1);
+    expect(session.executeQuery).not.toHaveBeenCalled();
     expect(loggerInfoMock).toHaveBeenCalledWith(
       `created global points table ${GLOBAL_POINTS_TABLE}`
     );
@@ -176,25 +275,31 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
     const { ensureGlobalPointsTable, GLOBAL_POINTS_TABLE } =
       await resetSchemaModule();
 
-    const sqlTag = createSqlTagMock();
+    const session = {
+      sessionId: "test-session",
+      describeTable: vi.fn().mockResolvedValue({
+        columns: [
+          { name: "uid" },
+          { name: "point_id" },
+          { name: "embedding" },
+          { name: "payload" },
+        ],
+      }),
+      createTable: vi.fn(),
+      api: {
+        executeSchemeQuery: vi.fn().mockResolvedValue(undefined),
+      },
+    };
 
-    sqlTag.mockImplementation((strings: unknown, ...values: unknown[]) => {
-      const text = renderYql(strings, values);
-      const isProbe = /SELECT\s+embedding_quantized/i.test(text);
-      if (isProbe) {
-        return createQueryStub({
-          reject: new Error("Unknown column: embedding_quantized"),
-        });
-      }
-      return createQueryStub();
-    });
-
-    withSessionMock.mockImplementation(async (fn) => {
-      return await fn(sqlTag as never, new AbortController().signal);
+    withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
+      return await fn(session);
     });
 
     await expect(ensureGlobalPointsTable()).rejects.toThrow(
-      `Global points table ${GLOBAL_POINTS_TABLE} is missing required column embedding_quantized; apply a manual migration (ALTER TABLE ${GLOBAL_POINTS_TABLE} ADD COLUMN embedding_quantized String). If your legacy schema used embedding_bit, rename it or recreate the table.`
+      `Global points table ${GLOBAL_POINTS_TABLE} is missing required column embedding_quantized; please recreate the table or apply a manual schema migration before starting the service`
     );
+
+    expect(session.describeTable).toHaveBeenCalledWith(GLOBAL_POINTS_TABLE);
+    expect(session.createTable).not.toHaveBeenCalled();
   });
 });

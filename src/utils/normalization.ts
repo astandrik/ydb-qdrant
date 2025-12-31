@@ -1,5 +1,3 @@
-import { isRecord } from "./typeGuards.js";
-
 export interface SearchNormalizationResult {
   vector: number[] | undefined;
   top: number | undefined;
@@ -16,25 +14,25 @@ export function extractVectorLoose(
   body: unknown,
   depth = 0
 ): number[] | undefined {
-  if (!isRecord(body) || depth > 3) {
+  if (!body || typeof body !== "object" || depth > 3) {
     return undefined;
   }
-  const obj = body;
+  const obj = body as Record<string, unknown>;
 
   if (isNumberArray(obj.vector)) return obj.vector;
   if (isNumberArray(obj.embedding)) return obj.embedding;
 
-  const query = isRecord(obj.query) ? obj.query : undefined;
+  const query = obj.query as Record<string, unknown> | undefined;
   if (query) {
-    const queryVector = query.vector;
+    const queryVector = query["vector"];
     if (isNumberArray(queryVector)) return queryVector;
-    const nearest = isRecord(query.nearest) ? query.nearest : undefined;
+    const nearest = query["nearest"] as Record<string, unknown> | undefined;
     if (nearest && isNumberArray(nearest.vector)) {
       return nearest.vector;
     }
   }
 
-  const nearest = isRecord(obj.nearest) ? obj.nearest : undefined;
+  const nearest = obj.nearest as Record<string, unknown> | undefined;
   if (nearest && isNumberArray(nearest.vector)) {
     return nearest.vector;
   }
@@ -62,7 +60,7 @@ export function extractVectorLoose(
 export function normalizeSearchBodyForSearch(
   body: unknown
 ): SearchNormalizationResult {
-  if (!isRecord(body)) {
+  if (!body || typeof body !== "object") {
     return {
       vector: undefined,
       top: undefined,
@@ -70,8 +68,8 @@ export function normalizeSearchBodyForSearch(
       scoreThreshold: undefined,
     };
   }
-  const b = body;
-  const rawVector = b.vector;
+  const b = body as Record<string, unknown>;
+  const rawVector = b["vector"];
   const vector = isNumberArray(rawVector) ? rawVector : undefined;
 
   return normalizeSearchCommon(b, vector);
@@ -80,7 +78,7 @@ export function normalizeSearchBodyForSearch(
 export function normalizeSearchBodyForQuery(
   body: unknown
 ): SearchNormalizationResult {
-  if (!isRecord(body)) {
+  if (!body || typeof body !== "object") {
     return {
       vector: undefined,
       top: undefined,
@@ -88,7 +86,7 @@ export function normalizeSearchBodyForQuery(
       scoreThreshold: undefined,
     };
   }
-  const b = body;
+  const b = body as Record<string, unknown>;
   const vector = extractVectorLoose(b);
 
   return normalizeSearchCommon(b, vector);
@@ -98,16 +96,16 @@ function normalizeSearchCommon(
   b: Record<string, unknown>,
   vector: number[] | undefined
 ): SearchNormalizationResult {
-  const rawTop = b.top;
-  const rawLimit = b.limit;
+  const rawTop = b["top"];
+  const rawLimit = b["limit"];
   const topFromTop = typeof rawTop === "number" ? rawTop : undefined;
   const topFromLimit = typeof rawLimit === "number" ? rawLimit : undefined;
   const top = topFromTop ?? topFromLimit;
 
-  const filter = b.filter;
+  const filter = b["filter"];
 
   let withPayload: boolean | undefined;
-  const rawWithPayload = b.with_payload;
+  const rawWithPayload = b["with_payload"];
   if (typeof rawWithPayload === "boolean") {
     withPayload = rawWithPayload;
   } else if (
@@ -117,7 +115,7 @@ function normalizeSearchCommon(
     withPayload = true;
   }
 
-  const thresholdRaw = b.score_threshold;
+  const thresholdRaw = b["score_threshold"];
   const thresholdValue =
     typeof thresholdRaw === "number" ? thresholdRaw : Number(thresholdRaw);
   const scoreThreshold = Number.isFinite(thresholdValue)

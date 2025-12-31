@@ -1,8 +1,4 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import type {
-  QdrantPayload,
-  QdrantPointStructDense,
-} from "../../src/qdrant/QdrantTypes.js";
 
 vi.mock("../../src/ydb/schema.js", () => ({
   ensureMetaTable: vi.fn().mockResolvedValue(undefined),
@@ -224,15 +220,13 @@ describe("QdrantService (with mocked YDB)", () => {
     });
     vi.mocked(pointsRepo.upsertPoints).mockResolvedValueOnce(2);
 
-    const points: QdrantPointStructDense[] = [
-      { id: "p1", vector: [0, 0, 0, 1] },
-      { id: "p2", vector: [0, 0, 1, 0] },
-    ];
-
     const result = await upsertPoints(
       { tenant, collection },
       {
-        points,
+        points: [
+          { id: "p1", vector: [0, 0, 0, 1] },
+          { id: "p2", vector: [0, 0, 1, 0] },
+        ],
       }
     );
 
@@ -255,7 +249,7 @@ describe("QdrantService (with mocked YDB)", () => {
       upsertPoints(
         { tenant, collection },
         {
-          points: [{ id: "p1", vector: [0, 0, 0, 1] }] as QdrantPointStructDense[],
+          points: [{ id: "p1", vector: [0, 0, 0, 1] }],
         }
       )
     ).rejects.toMatchObject({
@@ -274,7 +268,7 @@ describe("QdrantService (with mocked YDB)", () => {
       upsertPoints(
         { tenant, collection },
         {
-          points: [{ id: "p1", vector: [0, 0, 0, 1] }] as QdrantPointStructDense[],
+          points: [{ id: "p1", vector: [0, 0, 0, 1] }],
         }
       )
     ).rejects.toHaveProperty("statusCode", 404);
@@ -306,11 +300,10 @@ describe("QdrantService (with mocked YDB)", () => {
       distance: "Cosine",
       vectorType: "float",
     });
-    const hits: Array<{ id: string; score: number; payload?: QdrantPayload }> = [
+    vi.mocked(pointsRepo.searchPoints).mockResolvedValueOnce([
       { id: "p1", score: 0.9, payload: { a: 1 } },
       { id: "p2", score: 0.7, payload: { b: 2 } },
-    ];
-    vi.mocked(pointsRepo.searchPoints).mockResolvedValueOnce(hits);
+    ]);
 
     const result = await searchPoints(
       { tenant, collection },
@@ -332,11 +325,10 @@ describe("QdrantService (with mocked YDB)", () => {
       distance: "Dot",
       vectorType: "float",
     });
-    const hits: Array<{ id: string; score: number; payload?: QdrantPayload }> = [
+    vi.mocked(pointsRepo.searchPoints).mockResolvedValueOnce([
       { id: "p1", score: 0.9, payload: { a: 1 } },
       { id: "p2", score: 0.4, payload: { b: 2 } },
-    ];
-    vi.mocked(pointsRepo.searchPoints).mockResolvedValueOnce(hits);
+    ]);
 
     const result = await searchPoints(
       { tenant, collection },

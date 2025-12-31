@@ -65,9 +65,8 @@ Key env vars (all optional; the image provides sensible defaults, override only 
   - `PORT` (default `8080`): HTTP port inside the container.
   - `LOG_LEVEL` (default `info`).
   - `YDB_QDRANT_SEARCH_MODE` (`approximate` or `exact`) and `YDB_QDRANT_OVERFETCH_MULTIPLIER` (candidate multiplier in approximate mode).
-  - `YDB_QDRANT_UPSERT_BATCH_SIZE` (default `100`): number of points per YDB UPSERT statement (smaller batches reduce per-query load but increase query count).
-  - `YDB_QDRANT_UPSERT_TIMEOUT_MS` (default `20000`): per‑query YDB operation timeout in milliseconds for batched upserts; long‑running UPSERT statements are cancelled when this bound is exceeded.
-- `YDB_QDRANT_SEARCH_TIMEOUT_MS` (default `20000`): per‑query YDB operation timeout in milliseconds for search operations; long‑running search statements are cancelled when this bound is exceeded.
+  - `YDB_QDRANT_UPSERT_TIMEOUT_MS` (default `5000`): per‑query YDB operation timeout in milliseconds for batched upserts; long‑running UPSERT statements are cancelled when this bound is exceeded.
+  - `YDB_QDRANT_SEARCH_TIMEOUT_MS` (default `10000`): per‑query YDB operation timeout in milliseconds for search operations; long‑running search statements are cancelled when this bound is exceeded.
   - `YDB_QDRANT_LOCAL_MAX_YDB_FAILURES` (default `5`): number of consecutive embedded YDB TCP health check failures in the local monitor before exiting with a non-zero status (used to trigger container restart under a restart policy).
   - `YDB_QDRANT_LOCAL_YDB_CHECK_INTERVAL` (default `10`): interval in seconds between embedded YDB TCP health checks performed by the local monitor.
 

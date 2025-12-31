@@ -1,10 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type {
-  QdrantPayload,
-  QdrantPointStructDense,
-  QdrantQueryResponse,
-  QdrantScoredPoint,
-} from "../../src/qdrant/QdrantTypes.js";
 
 const loggerErrorMock = vi.fn();
 
@@ -85,7 +79,7 @@ describe("pointsRouter (HTTP, mocked service)", () => {
       "/:collection/points/upsert"
     );
 
-    const body: { points: QdrantPointStructDense[] } = {
+    const body = {
       points: [{ id: "p1", vector: [0, 0, 0, 1] }],
     };
 
@@ -153,15 +147,8 @@ describe("pointsRouter (HTTP, mocked service)", () => {
     });
     const searchRes = createMockRes();
 
-    const payload: QdrantPayload = { filePath: "src/test.ts" };
     vi.mocked(pointsService.searchPoints).mockResolvedValueOnce({
-      points: [
-        {
-          id: "p1",
-          score: 0.85,
-          payload,
-        },
-      ],
+      points: [{ id: "p1", score: 0.9, payload: { label: "p1" } }],
     });
 
     await searchHandler(searchReq, searchRes);
@@ -172,19 +159,17 @@ describe("pointsRouter (HTTP, mocked service)", () => {
     );
     expect(searchRes.statusCode).toBe(200);
     expect(searchRes.body).toMatchObject({ status: "ok" });
-    if (!searchRes.body) {
-      throw new Error("Expected response body to be set by res.json()");
-    }
-    const expectedSearchHit: QdrantScoredPoint = {
-      id: "p1",
-      version: 0,
-      score: 0.85,
-      payload,
-      vector: null,
-      shard_key: null,
-      order_value: null,
-    };
-    expect(searchRes.body.result).toEqual([expectedSearchHit]);
+    expect(searchRes.body?.result).toEqual([
+      expect.objectContaining({
+        id: "p1",
+        score: 0.9,
+        version: 0,
+        payload: { label: "p1" },
+        vector: null,
+        shard_key: null,
+        order_value: null,
+      }),
+    ]);
 
     const queryBody = {
       query: { vector: [0, 0, 0, 1] },
@@ -199,7 +184,7 @@ describe("pointsRouter (HTTP, mocked service)", () => {
     const queryRes = createMockRes();
 
     vi.mocked(pointsService.queryPoints).mockResolvedValueOnce({
-      points: [{ id: "p2", score: 0.5 }],
+      points: [{ id: "p2", score: 0.8 }],
     });
 
     await queryHandler(queryReq, queryRes);
@@ -210,22 +195,17 @@ describe("pointsRouter (HTTP, mocked service)", () => {
     );
     expect(queryRes.statusCode).toBe(200);
     expect(queryRes.body).toMatchObject({ status: "ok" });
-    if (!queryRes.body) {
-      throw new Error("Expected response body to be set by res.json()");
-    }
-    const expectedQueryHit: QdrantScoredPoint = {
-      id: "p2",
-      version: 0,
-      score: 0.5,
-      payload: null,
-      vector: null,
-      shard_key: null,
-      order_value: null,
-    };
-    const expectedQueryResult: QdrantQueryResponse = {
-      points: [expectedQueryHit],
-    };
-    expect(queryRes.body.result).toEqual(expectedQueryResult);
+    expect(queryRes.body?.result).toEqual([
+      expect.objectContaining({
+        id: "p2",
+        score: 0.8,
+        version: 0,
+        payload: null,
+        vector: null,
+        shard_key: null,
+        order_value: null,
+      }),
+    ]);
 
     const deleteBody = { points: ["p1", "p2"] };
     const deleteReq = createRequest({

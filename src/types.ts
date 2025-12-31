@@ -1,28 +1,17 @@
 import { z } from "zod";
+
 import type {
   QdrantDistance,
-  QdrantPointId,
-  QdrantDenseVector,
-} from "./qdrant/QdrantTypes.js";
+  QdrantPayload,
+  QdrantWithPayloadInterface,
+  YdbQdrantPointId,
+  YdbQdrantUpsertPoint,
+} from "./qdrant/QdrantRestTypes.js";
 
-const DISTANCE_KIND_VALUES = [
-  "Cosine",
-  "Euclid",
-  "Dot",
-  "Manhattan",
-] as const satisfies readonly QdrantDistance[];
-
-export const DistanceKindSchema = z.enum(DISTANCE_KIND_VALUES);
 export type DistanceKind = QdrantDistance;
-
-export const VectorTypeSchema = z.literal("float");
-export type VectorType = z.infer<typeof VectorTypeSchema>;
-
-export const PointIdSchema = z.union([z.string(), z.number()]);
-export type PointId = QdrantPointId;
-
-export const DenseVectorSchema = z.array(z.number());
-export type DenseVector = QdrantDenseVector;
+export type VectorType = "float";
+export type Payload = QdrantPayload;
+export type WithPayload = QdrantWithPayloadInterface;
 
 /**
  * Collection metadata from qdr__collections table.
@@ -41,29 +30,51 @@ export interface CollectionMeta {
 export const CreateCollectionReq = z.object({
   vectors: z.object({
     size: z.number().int().positive(),
-    distance: DistanceKindSchema,
-    data_type: VectorTypeSchema.optional(),
+    distance: z.enum([
+      "Cosine",
+      "Euclid",
+      "Dot",
+      "Manhattan",
+    ]) as z.ZodType<DistanceKind>,
+    data_type: z.enum(["float"]).optional(),
   }),
 });
 
-export const UpsertPointSchema = z.object({
-  id: PointIdSchema,
-  vector: DenseVectorSchema,
-  payload: z.record(z.string(), z.unknown()).optional(),
+export const UpsertPointsReq = z.object({
+  points: z
+    .array(
+      z.object({
+        id: z.union([z.string(), z.number()]) as z.ZodType<YdbQdrantPointId>,
+        vector: z.array(z.number()),
+        payload: z.record(z.string(), z.unknown()).optional() as z.ZodType<
+          Payload | undefined
+        >,
+      })
+    )
+    .min(1),
 });
 
-export const UpsertPointsReq = z.object({
-  points: z.array(UpsertPointSchema).min(1),
-});
+export type UpsertPoint = YdbQdrantUpsertPoint;
+export type UpsertPointsBody = { points: UpsertPoint[] };
 
 export const SearchReq = z.object({
-  vector: DenseVectorSchema.min(1),
+  vector: z.array(z.number()).min(1),
   top: z.number().int().positive().max(1000),
   with_payload: z.boolean().optional(),
 });
 
+export type SearchPointsBody = {
+  vector: number[];
+  top?: number;
+  limit?: number;
+  with_payload?: WithPayload;
+  score_threshold?: number | null;
+};
+
 export const DeletePointsByIdsReq = z.object({
-  points: z.array(PointIdSchema).min(1),
+  points: z
+    .array(z.union([z.string(), z.number()]) as z.ZodType<YdbQdrantPointId>)
+    .min(1),
 });
 
 const DeletePointsFilterCondition = z.object({
@@ -92,9 +103,3 @@ export const DeletePointsReq = z.union([
   DeletePointsByIdsReq,
   DeletePointsByFilterReq,
 ]);
-
-// Schema-driven request body types (preferred).
-export type CreateCollectionBody = z.infer<typeof CreateCollectionReq>;
-export type UpsertPointsBody = z.infer<typeof UpsertPointsReq>;
-export type SearchBody = z.infer<typeof SearchReq>;
-export type DeletePointsBody = z.infer<typeof DeletePointsReq>;
