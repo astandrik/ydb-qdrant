@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767167602551,
+  "lastUpdate": 1767167603790,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (one_table, 768D)": [
@@ -5228,6 +5228,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Soak: Throughput",
             "value": 68.84499602201807,
+            "unit": "ops/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "52bd21ef493a1ecb56a5c14b76cf6d9843419868",
+          "message": "feat!: revert to v5 (#182)\n\n* Revert \"fix: improve typing (#178)\"\n\nThis reverts commit cf12fa4498538ee3a87aacf357aec480a7f072b9.\n\n* fix: review fixes\n\n* fix: test\n\n* fix: tests\n\n* fix: nanofix",
+          "timestamp": "2025-12-31T10:49:35+03:00",
+          "tree_id": "269ebcebaf4f77d7290be63567839b550d082259",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/52bd21ef493a1ecb56a5c14b76cf6d9843419868"
+        },
+        "date": 1767167603393,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Soak: Throughput",
+            "value": 71.4347406440184,
             "unit": "ops/s"
           }
         ]
