@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767205007802,
+  "lastUpdate": 1767205009566,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (one_table, 768D)": [
@@ -5666,6 +5666,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Soak: Throughput",
             "value": 72.26419555185389,
+            "unit": "ops/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "41898282+github-actions[bot]@users.noreply.github.com",
+            "name": "github-actions[bot]",
+            "username": "github-actions[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0bde4c48ed3207897c99402752747884717634c9",
+          "message": "chore(main): release 8.1.0 (#185)\n\nCo-authored-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>",
+          "timestamp": "2025-12-31T21:12:53+03:00",
+          "tree_id": "1e31a960ed2489c1261c2917af87a081637bdfee",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/0bde4c48ed3207897c99402752747884717634c9"
+        },
+        "date": 1767205008882,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Soak: Throughput",
+            "value": 68.71992108976568,
             "unit": "ops/s"
           }
         ]
