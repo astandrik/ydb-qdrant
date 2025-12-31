@@ -2,6 +2,7 @@ import {
   TypedValues,
   Types,
   withSession,
+  withQuerySession,
   createExecuteQuerySettings,
 } from "../ydb/client.js";
 import type { DistanceKind, VectorType } from "../types";
@@ -134,29 +135,29 @@ export async function deleteCollectionOneTable(
   `;
 
   await withRetry(
-    () =>
-      withSession(async (s) => {
-        const settings = createExecuteQuerySettings();
-        try {
-          await s.executeQuery(
-            batchDeletePointsYql,
-            {
+    async () => {
+      try {
+        await withQuerySession(async (qs) => {
+          await qs.execute({
+            text: batchDeletePointsYql,
+            parameters: {
               $uid: TypedValues.utf8(uid),
             },
-            undefined,
-            settings
-          );
-        } catch (err: unknown) {
-          if (!isOutOfBufferMemoryYdbError(err)) {
-            throw err;
-          }
-
-          // BATCH DELETE already deletes in chunks per partition, but if YDB
-          // still reports an out-of-buffer-memory condition, fall back to
-          // per-uid chunked deletion strategy to complete the deletion.
-          await deletePointsForUidInChunks(s, uid);
+          });
+        });
+      } catch (err: unknown) {
+        if (!isOutOfBufferMemoryYdbError(err)) {
+          throw err;
         }
-      }),
+
+        // BATCH DELETE already deletes in chunks per partition, but if YDB
+        // still reports an out-of-buffer-memory condition, fall back to
+        // per-uid chunked deletion strategy to complete the deletion.
+        await withSession(async (s) => {
+          await deletePointsForUidInChunks(s, uid);
+        });
+      }
+    },
     {
       isTransient: isTransientYdbError,
       context: {

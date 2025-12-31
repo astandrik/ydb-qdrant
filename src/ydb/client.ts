@@ -3,6 +3,7 @@ import type {
   IAuthService,
   ExecuteQuerySettings as YdbExecuteQuerySettings,
   BulkUpsertSettings as YdbBulkUpsertSettings,
+  QuerySession,
 } from "ydb-sdk";
 import { createRequire } from "module";
 import {
@@ -272,6 +273,24 @@ export async function withSession<T>(
   try {
     return await d.tableClient.withSession(fn, TABLE_SESSION_TIMEOUT_MS);
   } catch (err) {
+    void maybeRefreshDriverOnSessionError(err);
+    throw err;
+  }
+}
+
+export async function withQuerySession<T>(
+  fn: (s: QuerySession) => Promise<T>,
+  options?: { timeoutMs?: number; idempotent?: boolean }
+): Promise<T> {
+  const d = getOrCreateDriver();
+  try {
+    return await d.queryClient.do({
+      fn,
+      timeout: options?.timeoutMs ?? TABLE_SESSION_TIMEOUT_MS,
+      idempotent: options?.idempotent,
+    });
+  } catch (err) {
+    // Query sessions can also get stuck/busy; reuse the same driver refresh path.
     void maybeRefreshDriverOnSessionError(err);
     throw err;
   }
