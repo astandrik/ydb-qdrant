@@ -12,6 +12,13 @@ vi.mock("../../src/ydb/client.js", () => {
     })
   );
 
+  const createBulkUpsertSettingsWithTimeout = vi.fn(
+    (options?: { timeoutMs: number }) => ({
+      kind: "BulkUpsertSettingsWithTimeout",
+      timeoutMs: options?.timeoutMs,
+    })
+  );
+
   return {
     Types: {
       UTF8: "UTF8",
@@ -31,9 +38,15 @@ vi.mock("../../src/ydb/client.js", () => {
       list: vi.fn((t: unknown, list: unknown[]) => ({ type: "list", t, list })),
       bytes: vi.fn((v: unknown) => ({ type: "bytes", v })),
     },
+    Ydb: {
+      TypedValue: {
+        create: vi.fn((v: unknown) => v),
+      },
+    },
     withSession: vi.fn(),
     createExecuteQuerySettings,
     createExecuteQuerySettingsWithTimeout,
+    createBulkUpsertSettingsWithTimeout,
   };
 });
 
@@ -76,7 +89,7 @@ describe("pointsRepo (with mocked YDB)", () => {
 
   it("upserts points and notifies scheduler (one_table)", async () => {
     const sessionMock = {
-      executeQuery: vi.fn(),
+      bulkUpsert: vi.fn(),
     };
 
     withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
@@ -93,13 +106,13 @@ describe("pointsRepo (with mocked YDB)", () => {
       "qdr_tenant_a__my_collection"
     );
 
-    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
+    expect(sessionMock.bulkUpsert).toHaveBeenCalledTimes(1);
     expect(result).toBe(2);
   });
 
   it("throws on vector dimension mismatch in upsertPoints", async () => {
     const sessionMock = {
-      executeQuery: vi.fn(),
+      bulkUpsert: vi.fn(),
     };
 
     withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
@@ -114,7 +127,7 @@ describe("pointsRepo (with mocked YDB)", () => {
         "qdr_tenant_a__my_collection"
       )
     ).rejects.toThrow(/Vector dimension mismatch/);
-    expect(sessionMock.executeQuery).not.toHaveBeenCalled();
+    expect(sessionMock.bulkUpsert).not.toHaveBeenCalled();
   });
 
   it("parses payload and score from search results", async () => {
@@ -191,7 +204,14 @@ describe("pointsRepo (with mocked YDB)", () => {
 
   it("upserts points with uid parameter for one_table mode", async () => {
     const sessionMock = {
-      executeQuery: vi.fn(),
+      bulkUpsert:
+        vi.fn<
+          (
+            tablePath: string,
+            rows: unknown,
+            settings?: unknown
+          ) => Promise<unknown>
+        >(),
     };
 
     withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
@@ -206,21 +226,28 @@ describe("pointsRepo (with mocked YDB)", () => {
     );
 
     expect(result).toBe(1);
-    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
-    const yql = sessionMock.executeQuery.mock.calls[0][0] as string;
-    expect(yql).toContain("DECLARE $rows AS List<Struct<");
-    expect(yql).toContain(
-      "UPSERT INTO qdrant_all_points (uid, point_id, embedding, embedding_quantized, payload)"
-    );
-    expect(yql).toContain("embedding: String");
-    expect(yql).toContain("embedding_quantized: String");
-    expect(yql).not.toContain("Knn::ToBinaryStringFloat");
-    expect(yql).not.toContain("Knn::ToBinaryStringBit");
+    expect(sessionMock.bulkUpsert).toHaveBeenCalledTimes(1);
+    const call = sessionMock.bulkUpsert.mock.calls[0];
+    expect(call).toBeDefined();
+    if (!call) {
+      throw new Error("expected bulkUpsert to have at least one call");
+    }
+    const [tablePath, rows] = call;
+    expect(tablePath).toBe("qdrant_all_points");
+    expect(rows).toBeTruthy();
+    expect(typeof rows).toBe("object");
   });
 
   it("upserts more than UPSERT_BATCH_SIZE points in multiple batches (one_table)", async () => {
     const sessionMock = {
-      executeQuery: vi.fn(),
+      bulkUpsert:
+        vi.fn<
+          (
+            tablePath: string,
+            rows: unknown,
+            settings?: unknown
+          ) => Promise<unknown>
+        >(),
     };
 
     withSessionMock.mockImplementation(async (fn: (s: unknown) => unknown) => {
@@ -242,7 +269,7 @@ describe("pointsRepo (with mocked YDB)", () => {
     );
 
     expect(result).toBe(total);
-    expect(sessionMock.executeQuery).toHaveBeenCalledTimes(
+    expect(sessionMock.bulkUpsert).toHaveBeenCalledTimes(
       Math.ceil(total / UPSERT_BATCH_SIZE)
     );
   });

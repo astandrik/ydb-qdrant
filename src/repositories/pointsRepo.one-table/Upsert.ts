@@ -2,17 +2,16 @@ import {
   TypedValues,
   Types,
   withSession,
-  createExecuteQuerySettingsWithTimeout,
+  Ydb as YdbProto,
+  createBulkUpsertSettingsWithTimeout,
 } from "../../ydb/client.js";
 import { buildVectorBinaryParams } from "../../ydb/helpers.js";
 import { withRetry, isTransientYdbError } from "../../utils/retry.js";
 import { UPSERT_BATCH_SIZE } from "../../ydb/schema.js";
 import { UPSERT_OPERATION_TIMEOUT_MS } from "../../config/env.js";
 import { logger } from "../../logging/logger.js";
-import type { Ydb } from "ydb-sdk";
 import type { UpsertPoint } from "../../types.js";
-
-type QueryParams = { [key: string]: Ydb.ITypedValue };
+import type { Ydb as YdbSdk } from "ydb-sdk";
 
 function assertPointVectorsDimension(args: {
   tableName: string;
@@ -44,30 +43,18 @@ function assertPointVectorsDimension(args: {
   }
 }
 
-function buildUpsertQueryAndParams(args: {
-  tableName: string;
+function normalizeTablePathForBulkUpsert(tableName: string): string {
+  if (!tableName) {
+    throw new Error("bulkUpsert: tableName is empty");
+  }
+  // ydb-sdk bulkUpsert expects a table path relative to the current database.
+  return tableName.startsWith("/") ? tableName.slice(1) : tableName;
+}
+
+function buildBulkUpsertRowsValue(args: {
   uid: string;
   batch: Array<Pick<UpsertPoint, "id" | "vector" | "payload">>;
-}): { ddl: string; params: QueryParams; debugMode: string } {
-  const ddl = `
-          DECLARE $rows AS List<Struct<
-            uid: Utf8,
-            point_id: Utf8,
-            embedding: String,
-            embedding_quantized: String,
-            payload: JsonDocument
-          >>;
-
-          UPSERT INTO ${args.tableName} (uid, point_id, embedding, embedding_quantized, payload)
-          SELECT
-            uid,
-            point_id,
-            embedding,
-            embedding_quantized,
-            payload
-          FROM AS_TABLE($rows);
-        `;
-
+}): YdbSdk.ITypedValue {
   const rowType = Types.struct({
     uid: Types.UTF8,
     point_id: Types.UTF8,
@@ -76,7 +63,7 @@ function buildUpsertQueryAndParams(args: {
     payload: Types.JSON_DOCUMENT,
   });
 
-  const rowsValue = TypedValues.list(
+  return TypedValues.list(
     rowType,
     args.batch.map((p) => {
       const binaries = buildVectorBinaryParams(p.vector);
@@ -89,12 +76,6 @@ function buildUpsertQueryAndParams(args: {
       };
     })
   );
-
-  return {
-    ddl,
-    params: { $rows: rowsValue },
-    debugMode: "one_table_upsert_client_side_serialization",
-  };
 }
 
 export async function upsertPointsOneTable(
@@ -108,16 +89,15 @@ export async function upsertPointsOneTable(
   let upserted = 0;
 
   await withSession(async (s) => {
-    const settings = createExecuteQuerySettingsWithTimeout({
-      keepInCache: true,
-      idempotent: true,
+    const bulkSettings = createBulkUpsertSettingsWithTimeout({
       timeoutMs: UPSERT_OPERATION_TIMEOUT_MS,
     });
+
+    const tablePath = normalizeTablePathForBulkUpsert(tableName);
     for (let i = 0; i < points.length; i += UPSERT_BATCH_SIZE) {
       const batch = points.slice(i, i + UPSERT_BATCH_SIZE);
 
-      const { ddl, params, debugMode } = buildUpsertQueryAndParams({
-        tableName,
+      const rowsValue = buildBulkUpsertRowsValue({
         uid,
         batch,
       });
@@ -126,9 +106,8 @@ export async function upsertPointsOneTable(
         logger.debug(
           {
             tableName,
-            mode: debugMode,
+            mode: "one_table_bulk_upsert_client_side_serialization",
             batchSize: batch.length,
-            yql: ddl,
             params: {
               rows: batch.map((p) => ({
                 uid,
@@ -139,13 +118,14 @@ export async function upsertPointsOneTable(
               })),
             },
           },
-          "one_table upsert: executing YQL"
+          "one_table upsert: executing BulkUpsert"
         );
       }
 
-      await withRetry(() => s.executeQuery(ddl, params, undefined, settings), {
+      const typedRows = YdbProto.TypedValue.create(rowsValue);
+      await withRetry(() => s.bulkUpsert(tablePath, typedRows, bulkSettings), {
         isTransient: isTransientYdbError,
-        context: { tableName, batchSize: batch.length },
+        context: { tableName, batchSize: batch.length, mode: "bulkUpsert" },
       });
       upserted += batch.length;
     }

@@ -2,6 +2,7 @@ import type {
   Session,
   IAuthService,
   ExecuteQuerySettings as YdbExecuteQuerySettings,
+  BulkUpsertSettings as YdbBulkUpsertSettings,
 } from "ydb-sdk";
 import { createRequire } from "module";
 import {
@@ -23,6 +24,7 @@ const {
   TableDescription,
   Column,
   ExecuteQuerySettings,
+  BulkUpsertSettings,
   OperationParams,
   Ydb,
 } = require("ydb-sdk") as typeof import("ydb-sdk");
@@ -33,6 +35,7 @@ export {
   TableDescription,
   Column,
   ExecuteQuerySettings,
+  BulkUpsertSettings,
   Ydb,
 };
 
@@ -61,6 +64,18 @@ export function createExecuteQuerySettingsWithTimeout(options: {
   const seconds = Math.max(1, Math.ceil(options.timeoutMs / 1000));
   // Limit both overall operation processing time and cancellation time on the
   // server side so the probe fails fast instead of hanging for the default.
+  op.withOperationTimeoutSeconds(seconds);
+  op.withCancelAfterSeconds(seconds);
+  settings.withOperationParams(op);
+  return settings;
+}
+
+export function createBulkUpsertSettingsWithTimeout(options: {
+  timeoutMs: number;
+}): YdbBulkUpsertSettings {
+  const settings = new BulkUpsertSettings();
+  const op = new OperationParams();
+  const seconds = Math.max(1, Math.ceil(options.timeoutMs / 1000));
   op.withOperationTimeoutSeconds(seconds);
   op.withCancelAfterSeconds(seconds);
   settings.withOperationParams(op);
