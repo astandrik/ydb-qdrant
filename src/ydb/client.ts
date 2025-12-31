@@ -2,6 +2,8 @@ import type {
   Session,
   IAuthService,
   ExecuteQuerySettings as YdbExecuteQuerySettings,
+  BulkUpsertSettings as YdbBulkUpsertSettings,
+  QuerySession,
 } from "ydb-sdk";
 import { createRequire } from "module";
 import {
@@ -23,6 +25,7 @@ const {
   TableDescription,
   Column,
   ExecuteQuerySettings,
+  BulkUpsertSettings,
   OperationParams,
   Ydb,
 } = require("ydb-sdk") as typeof import("ydb-sdk");
@@ -33,6 +36,7 @@ export {
   TableDescription,
   Column,
   ExecuteQuerySettings,
+  BulkUpsertSettings,
   Ydb,
 };
 
@@ -61,6 +65,18 @@ export function createExecuteQuerySettingsWithTimeout(options: {
   const seconds = Math.max(1, Math.ceil(options.timeoutMs / 1000));
   // Limit both overall operation processing time and cancellation time on the
   // server side so the probe fails fast instead of hanging for the default.
+  op.withOperationTimeoutSeconds(seconds);
+  op.withCancelAfterSeconds(seconds);
+  settings.withOperationParams(op);
+  return settings;
+}
+
+export function createBulkUpsertSettingsWithTimeout(options: {
+  timeoutMs: number;
+}): YdbBulkUpsertSettings {
+  const settings = new BulkUpsertSettings();
+  const op = new OperationParams();
+  const seconds = Math.max(1, Math.ceil(options.timeoutMs / 1000));
   op.withOperationTimeoutSeconds(seconds);
   op.withCancelAfterSeconds(seconds);
   settings.withOperationParams(op);
@@ -257,6 +273,24 @@ export async function withSession<T>(
   try {
     return await d.tableClient.withSession(fn, TABLE_SESSION_TIMEOUT_MS);
   } catch (err) {
+    void maybeRefreshDriverOnSessionError(err);
+    throw err;
+  }
+}
+
+export async function withQuerySession<T>(
+  fn: (s: QuerySession) => Promise<T>,
+  options?: { timeoutMs?: number; idempotent?: boolean }
+): Promise<T> {
+  const d = getOrCreateDriver();
+  try {
+    return await d.queryClient.do({
+      fn,
+      timeout: options?.timeoutMs ?? TABLE_SESSION_TIMEOUT_MS,
+      idempotent: options?.idempotent,
+    });
+  } catch (err) {
+    // Query sessions can also get stuck/busy; reuse the same driver refresh path.
     void maybeRefreshDriverOnSessionError(err);
     throw err;
   }

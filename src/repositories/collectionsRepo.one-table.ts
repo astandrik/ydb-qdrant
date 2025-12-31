@@ -2,13 +2,13 @@ import {
   TypedValues,
   Types,
   withSession,
+  withQuerySession,
   createExecuteQuerySettings,
 } from "../ydb/client.js";
 import type { DistanceKind, VectorType } from "../types";
 import { GLOBAL_POINTS_TABLE, ensureGlobalPointsTable } from "../ydb/schema.js";
 import { upsertCollectionMeta } from "./collectionsRepo.shared.js";
 import { withRetry, isTransientYdbError } from "../utils/retry.js";
-import { USE_BATCH_DELETE_FOR_COLLECTIONS } from "../config/env.js";
 
 const DELETE_COLLECTION_BATCH_SIZE = 10000;
 
@@ -128,87 +128,47 @@ export async function deleteCollectionOneTable(
   uid: string
 ): Promise<void> {
   await ensureGlobalPointsTable();
-  if (USE_BATCH_DELETE_FOR_COLLECTIONS) {
-    const batchDeletePointsYql = `
-      DECLARE $uid AS Utf8;
-      BATCH DELETE FROM ${GLOBAL_POINTS_TABLE}
-      WHERE uid = $uid;
-    `;
+  const batchDeletePointsYql = `
+    DECLARE $uid AS Utf8;
+    BATCH DELETE FROM ${GLOBAL_POINTS_TABLE}
+    WHERE uid = $uid;
+  `;
 
-    await withRetry(
-      () =>
-        withSession(async (s) => {
-          const settings = createExecuteQuerySettings();
-          try {
-            await s.executeQuery(
-              batchDeletePointsYql,
-              {
-                $uid: TypedValues.utf8(uid),
-              },
-              undefined,
-              settings
-            );
-          } catch (err: unknown) {
-            if (!isOutOfBufferMemoryYdbError(err)) {
-              throw err;
-            }
+  await withRetry(
+    async () => {
+      try {
+        await withQuerySession(async (qs) => {
+          await qs.execute({
+            text: batchDeletePointsYql,
+            parameters: {
+              $uid: TypedValues.utf8(uid),
+            },
+          });
+        });
+      } catch (err: unknown) {
+        if (!isOutOfBufferMemoryYdbError(err)) {
+          throw err;
+        }
 
-            // BATCH DELETE already deletes in chunks per partition, but if YDB
-            // still reports an out-of-buffer-memory condition, fall back to
-            // the same per-uid chunked deletion strategy as the legacy path.
-            await deletePointsForUidInChunks(s, uid);
-          }
-        }),
-      {
-        isTransient: isTransientYdbError,
-        context: {
-          operation: "deleteCollectionOneTable",
-          tableName: GLOBAL_POINTS_TABLE,
-          metaKey,
-          uid,
-          mode: "batch_delete",
-        },
+        // BATCH DELETE already deletes in chunks per partition, but if YDB
+        // still reports an out-of-buffer-memory condition, fall back to
+        // per-uid chunked deletion strategy to complete the deletion.
+        await withSession(async (s) => {
+          await deletePointsForUidInChunks(s, uid);
+        });
       }
-    );
-  } else {
-    const deletePointsYql = `
-      DECLARE $uid AS Utf8;
-      DELETE FROM ${GLOBAL_POINTS_TABLE} WHERE uid = $uid;
-    `;
-
-    await withRetry(
-      () =>
-        withSession(async (s) => {
-          const settings = createExecuteQuerySettings();
-          try {
-            await s.executeQuery(
-              deletePointsYql,
-              {
-                $uid: TypedValues.utf8(uid),
-              },
-              undefined,
-              settings
-            );
-          } catch (err: unknown) {
-            if (!isOutOfBufferMemoryYdbError(err)) {
-              throw err;
-            }
-
-            await deletePointsForUidInChunks(s, uid);
-          }
-        }),
-      {
-        isTransient: isTransientYdbError,
-        context: {
-          operation: "deleteCollectionOneTable",
-          tableName: GLOBAL_POINTS_TABLE,
-          metaKey,
-          uid,
-          mode: "legacy_chunked",
-        },
-      }
-    );
-  }
+    },
+    {
+      isTransient: isTransientYdbError,
+      context: {
+        operation: "deleteCollectionOneTable",
+        tableName: GLOBAL_POINTS_TABLE,
+        metaKey,
+        uid,
+        mode: "batch_delete",
+      },
+    }
+  );
 
   const delMeta = `
     DECLARE $collection AS Utf8;
