@@ -144,7 +144,11 @@ pointsRouter.post(
         },
         req.body
       );
-      res.json({ status: "ok", result: points.map(toQdrantScoredPoint) });
+      // Qdrant-compatible: /points/query returns QueryResponse with { points: ScoredPoint[] }.
+      res.json({
+        status: "ok",
+        result: { points: points.map(toQdrantScoredPoint) },
+      });
     } catch (err: unknown) {
       if (err instanceof QdrantServiceError) {
         return res.status(err.statusCode).json(err.payload);

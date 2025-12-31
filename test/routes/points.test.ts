@@ -195,17 +195,19 @@ describe("pointsRouter (HTTP, mocked service)", () => {
     );
     expect(queryRes.statusCode).toBe(200);
     expect(queryRes.body).toMatchObject({ status: "ok" });
-    expect(queryRes.body?.result).toEqual([
-      expect.objectContaining({
-        id: "p2",
-        score: 0.8,
-        version: 0,
-        payload: null,
-        vector: null,
-        shard_key: null,
-        order_value: null,
-      }),
-    ]);
+    expect(queryRes.body?.result).toEqual({
+      points: [
+        expect.objectContaining({
+          id: "p2",
+          score: 0.8,
+          version: 0,
+          payload: null,
+          vector: null,
+          shard_key: null,
+          order_value: null,
+        }),
+      ],
+    });
 
     const deleteBody = { points: ["p1", "p2"] };
     const deleteReq = createRequest({
