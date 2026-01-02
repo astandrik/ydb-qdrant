@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767345673685,
+  "lastUpdate": 1767345676445,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (one_table, 768D)": [
@@ -9958,6 +9958,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "Stress: Error Rate",
             "value": 0,
+            "unit": "%"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "41898282+github-actions[bot]@users.noreply.github.com",
+            "name": "github-actions[bot]",
+            "username": "github-actions[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dc2dd0f33fd7679338975ae69a55199236c9e1be",
+          "message": "chore(main): release 8.1.1 (#187)\n\nCo-authored-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>",
+          "timestamp": "2026-01-02T12:13:31+03:00",
+          "tree_id": "103802c923a151fa953d3d62d68cca724e1b07f6",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/dc2dd0f33fd7679338975ae69a55199236c9e1be"
+        },
+        "date": 1767345675183,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Stress: Search Latency p95",
+            "value": 4271,
+            "unit": "ms"
+          },
+          {
+            "name": "Stress: Search Latency p99",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Stress: Search Latency max",
+            "value": 5672,
+            "unit": "ms"
+          },
+          {
+            "name": "Stress: Upsert Latency p95",
+            "value": 3675.2000000000003,
+            "unit": "ms"
+          },
+          {
+            "name": "Stress: Error Rate",
+            "value": 0.041,
             "unit": "%"
           }
         ]
