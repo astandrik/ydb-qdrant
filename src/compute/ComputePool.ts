@@ -6,6 +6,7 @@ import {
     WORKERS_MAX_THREADS,
     WORKERS_MIN_THREADS,
 } from "../config/env.js";
+import { logger } from "../logging/logger.js";
 import type {
     PrepareUpsertBatchTask,
     PreparedUpsertRow,
@@ -50,6 +51,9 @@ function createPool(): Piscina {
             : {}),
         ...(WORKERS_MAX_QUEUE !== undefined ? { maxQueue: WORKERS_MAX_QUEUE } : {}),
     });
+    p.on("error", (err) => {
+        logger.error({ err }, "Compute worker pool emitted an error");
+    });
 
     return p;
 }
@@ -92,4 +96,3 @@ export async function runVerifySearchRows(
         name: "verifySearchRows" satisfies PoolTaskName,
     })) as VerifySearchRowsResult;
 }
-

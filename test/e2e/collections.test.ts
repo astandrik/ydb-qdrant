@@ -41,7 +41,7 @@ describe("e2e: collection lifecycle", () => {
             const get2 = await getCollection(baseUrl, collection);
             assertOkResponse(get2.response, get2.body, "get with points");
             const info2 = get2.body.result as JsonObject;
-            expect(info2.points_count).toBe(1);
+            expect(info2.points_count).toBe(2);
         } finally {
             await cleanupCollection(baseUrl, collection);
         }

@@ -7,14 +7,13 @@ import type {
 } from "ydb-sdk";
 import { createRequire } from "module";
 import {
-    YDB_DATABASE,
-    YDB_ENDPOINT,
     SESSION_POOL_MIN_SIZE,
     SESSION_POOL_MAX_SIZE,
     SESSION_KEEPALIVE_PERIOD_MS,
     STARTUP_PROBE_SESSION_TIMEOUT_MS,
     YDB_SESSION_RETRY_MAX_RETRIES,
     TABLE_SESSION_TIMEOUT_MS,
+    resolveYdbConnectionConfig,
 } from "../config/env.js";
 import { logger } from "../logging/logger.js";
 
@@ -222,13 +221,11 @@ export function configureDriver(config: DriverConfig): void {
 }
 
 function getDriverConfig(): ConstructorParameters<typeof Driver>[0] {
-    const base =
-        overrideConfig?.connectionString != null
-            ? { connectionString: overrideConfig.connectionString }
-            : {
-                  endpoint: overrideConfig?.endpoint ?? YDB_ENDPOINT,
-                  database: overrideConfig?.database ?? YDB_DATABASE,
-              };
+    const base = resolveYdbConnectionConfig({
+        endpoint: overrideConfig?.endpoint,
+        database: overrideConfig?.database,
+        connectionString: overrideConfig?.connectionString,
+    });
 
     return {
         ...base,

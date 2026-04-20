@@ -1,12 +1,12 @@
 ## Summary
 
-**Project**: `ydb-qdrant` – Qdrant-compatible Node.js/TypeScript service and npm library that stores and searches embedding vectors in YDB using a global one-table layout (`qdrant_all_points`) with exact KNN search by default and an optional approximate two-phase mode.
+**Project**: `ydb-qdrant` – Qdrant-compatible Node.js/TypeScript service and npm library that stores and searches embedding vectors in YDB using a global one-table layout (`qdrant_all_points`) with exact KNN search.
 
 **Usage modes**:
 - HTTP server exposing a minimal Qdrant-compatible REST API (`/collections`, `/collections/{collection}/points/*`).
 - Programmatic Node.js client via `createYdbQdrantClient` that uses the same service/repository logic without running a separate HTTP server.
 
-**Core features**: multi-tenant isolation via `X-Tenant-Id`, global `qdrant_all_points` table, float vectors serialized to binary (`embedding`, `embedding_quantized`), approximate and exact search over YDB KNN functions.
+**Core features**: namespace isolation via `api-key` / `userUid`, global `qdrant_all_points` table, float vectors serialized to binary (`embedding`), exact search over YDB KNN functions.
 
 ## Tech stack and layout
 
@@ -36,10 +36,10 @@ When you need to change behavior, prefer **services** + **repositories** as the 
 - The project uses `package-lock.json`; prefer `npm ci` for reproducible installs.
 
 **Required env for real YDB access** (HTTP server, integration tests, smoke tests, programmatic client):
-- `YDB_ENDPOINT`, `YDB_DATABASE`.
+- `YDB_QDRANT_ENDPOINT`, `YDB_QDRANT_DATABASE`.
 - One of the credential envs: `YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS`, `YDB_METADATA_CREDENTIALS`, `YDB_ACCESS_TOKEN_CREDENTIALS`, or `YDB_ANONYMOUS_CREDENTIALS` (dev only).
 
-**Optional env** (common): `PORT`, `LOG_LEVEL`, `YDB_QDRANT_SEARCH_MODE`, `YDB_QDRANT_OVERFETCH_MULTIPLIER`, YDB session pool settings.
+**Optional env** (common): `PORT`, `LOG_LEVEL`, YDB session pool settings.
 
 For many **unit tests, lint, and typecheck**, a live YDB instance is not required because YDB is mocked; the **integration and recall tests** do require a reachable YDB per the docs.
 
@@ -63,7 +63,7 @@ For any substantial change, aim for `npm run lint && npm test && npm run build` 
   - `npm test` – runs Vitest over `test/**` excluding `test/integration/**`.
   - `npm run test:coverage` – same as above with coverage collection.
 - **Integration tests** (real YDB):
-  - `npm run test:integration` – runs end-to-end flows against YDB, including the one-table layout; requires `YDB_ENDPOINT`, `YDB_DATABASE`, and credentials.
+  - `npm run test:integration` – runs end-to-end flows against YDB, including the one-table layout; requires `YDB_QDRANT_ENDPOINT`, `YDB_QDRANT_DATABASE`, and credentials.
 - **Recall / F1 evaluation** (one-table search quality):
   - `npm run test:recall` – runs the recall benchmark suite for approximate and exact modes.
 - **Load tests (k6)** – HTTP-level performance tests; usually run manually or in dedicated workflows:
@@ -92,7 +92,7 @@ Assume CI will at minimum run `npm ci`, `npm test`, `npm run lint`, and `npm run
 
 **HTTP vs programmatic API**:
 - HTTP routes in `src/routes/collections.ts` and `src/routes/points.ts` delegate to services; do not put business logic directly in routes.
-- The npm package entrypoint (`dist/package/api.js`) exposes `createYdbQdrantClient` and `client.forTenant(...)`; keep these shapes and semantics stable unless performing a deliberate breaking change.
+- The npm package entrypoint (`dist/package/api.js`) exposes `createYdbQdrantClient`; it requires exactly one of `apiKey` or `userUid`.
 
 **Repositories and YDB access**:
 - Access YDB through repository functions in `src/repositories/*.ts` and YDB helpers in `src/ydb/*.ts`.

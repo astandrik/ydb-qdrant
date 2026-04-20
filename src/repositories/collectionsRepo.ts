@@ -226,6 +226,70 @@ export async function hasPointsForCollection(
     return (rowset?.rows?.length ?? 0) > 0;
 }
 
+function parsePointCountValue(value: unknown): number {
+    if (typeof value === "number" && Number.isFinite(value)) {
+        return value;
+    }
+    if (typeof value === "string") {
+        const parsed = Number(value);
+        if (Number.isFinite(parsed)) {
+            return parsed;
+        }
+    }
+    if (typeof value === "bigint") {
+        return Number(value);
+    }
+    throw new Error("Unable to parse points_count from YDB result.");
+}
+
+export async function countPointsForCollection(
+    uid: string
+): Promise<number> {
+    const qry = `
+    DECLARE $collection AS Utf8;
+    SELECT CAST(COUNT(*) AS Uint64) AS points_count
+    FROM ${GLOBAL_POINTS_TABLE}
+    WHERE collection = $collection;
+  `;
+    const res = await withSession(async (s) => {
+        const settings = createExecuteQuerySettings();
+        return await s.executeQuery(
+            qry,
+            {
+                $collection: TypedValues.utf8(uid),
+            },
+            undefined,
+            settings
+        );
+    });
+    const rowset = res.resultSets?.[0];
+    const row = rowset?.rows?.[0] as
+        | {
+              items?: Array<
+                  | {
+                        uint64Value?: unknown;
+                        int64Value?: unknown;
+                        uint32Value?: unknown;
+                        int32Value?: unknown;
+                        textValue?: string;
+                    }
+                  | undefined
+              >;
+          }
+        | undefined;
+    const cell = row?.items?.[0];
+    if (!cell) {
+        return 0;
+    }
+    return parsePointCountValue(
+        cell.uint64Value ??
+            cell.int64Value ??
+            cell.uint32Value ??
+            cell.int32Value ??
+            cell.textValue
+    );
+}
+
 /**
  * Best-effort metadata update for a collection's last_accessed_at timestamp.
  *

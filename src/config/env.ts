@@ -4,30 +4,53 @@ import { parseBooleanEnv, parseIntegerEnv } from "../utils/EnvParsers.js";
 export const YDB_QDRANT_ENDPOINT = process.env.YDB_QDRANT_ENDPOINT?.trim() ?? "";
 export const YDB_QDRANT_DATABASE = process.env.YDB_QDRANT_DATABASE?.trim() ?? "";
 
-const LEGACY_YDB_ENDPOINT = process.env.YDB_ENDPOINT?.trim() ?? "";
-const LEGACY_YDB_DATABASE = process.env.YDB_DATABASE?.trim() ?? "";
-
-if (LEGACY_YDB_ENDPOINT || LEGACY_YDB_DATABASE) {
-    throw new Error(
-        [
-            "Legacy env vars YDB_ENDPOINT/YDB_DATABASE are not supported by ydb-qdrant.",
-            "Reason: ydb-sdk uses process.env.YDB_ENDPOINT as a dev-only override that forces all discovered endpoints to that host, breaking discovery and potentially causing session hangs/timeouts.",
-            "Fix: set YDB_QDRANT_ENDPOINT and YDB_QDRANT_DATABASE instead.",
-        ].join(" ")
-    );
-}
+export const LEGACY_YDB_ENDPOINT = process.env.YDB_ENDPOINT?.trim() ?? "";
+export const LEGACY_YDB_DATABASE = process.env.YDB_DATABASE?.trim() ?? "";
 
 export const YDB_ENDPOINT = YDB_QDRANT_ENDPOINT;
 export const YDB_DATABASE = YDB_QDRANT_DATABASE;
 
-if (!YDB_ENDPOINT || !YDB_DATABASE) {
-    throw new Error(
-        [
-            "Missing YDB connection settings.",
-            "Set YDB_QDRANT_ENDPOINT (grpc(s)://host:port) and YDB_QDRANT_DATABASE (/path/to/db).",
-            "Legacy YDB_ENDPOINT/YDB_DATABASE are not supported.",
-        ].join(" ")
-    );
+const LEGACY_YDB_ENDPOINT_ERROR = [
+    "Legacy env var YDB_ENDPOINT is not supported by ydb-qdrant.",
+    "Reason: ydb-sdk uses process.env.YDB_ENDPOINT as a dev-only override that forces all discovered endpoints to that host, breaking discovery and potentially causing session hangs/timeouts.",
+    "Fix: set YDB_QDRANT_ENDPOINT instead.",
+].join(" ");
+
+const MISSING_YDB_CONNECTION_SETTINGS_ERROR = [
+    "Missing YDB connection settings.",
+    "Set YDB_QDRANT_ENDPOINT (grpc(s)://host:port) and YDB_QDRANT_DATABASE (/path/to/db).",
+    "Legacy YDB_ENDPOINT/YDB_DATABASE are not supported as application config.",
+].join(" ");
+
+export function resolveYdbConnectionConfig(options?: {
+    endpoint?: string;
+    database?: string;
+    connectionString?: string;
+}):
+    | {
+          connectionString: string;
+      }
+    | {
+          endpoint: string;
+          database: string;
+      } {
+    if (LEGACY_YDB_ENDPOINT) {
+        throw new Error(LEGACY_YDB_ENDPOINT_ERROR);
+    }
+
+    const connectionString = options?.connectionString?.trim();
+    if (connectionString) {
+        return { connectionString };
+    }
+
+    const endpoint = options?.endpoint?.trim() || YDB_QDRANT_ENDPOINT;
+    const database = options?.database?.trim() || YDB_QDRANT_DATABASE;
+
+    if (!endpoint || !database) {
+        throw new Error(MISSING_YDB_CONNECTION_SETTINGS_ERROR);
+    }
+
+    return { endpoint, database };
 }
 export const PORT = process.env.PORT ? Number(process.env.PORT) : 8080;
 export const LOG_LEVEL = process.env.LOG_LEVEL ?? "info";

@@ -129,4 +129,31 @@ describe("index startup", () => {
 
         expect(mocks.listenMock).not.toHaveBeenCalled();
     });
+
+    it("mirrors stderr writes to structured logs and the original stderr stream", async () => {
+        const originalStderrWrite = process.stderr.write.bind(process.stderr);
+        const forwardedWrite = vi.fn(() => true);
+        process.stderr.write = forwardedWrite as typeof process.stderr.write;
+
+        mocks.readyOrThrowMock.mockResolvedValue(undefined);
+        mocks.isCompilationTimeoutErrorMock.mockReturnValue(false);
+        mocks.ensureMetaTableMock.mockResolvedValue(undefined);
+        mocks.ensureGlobalPointsTableMock.mockResolvedValue(undefined);
+        mocks.ensurePointsByFileTableMock.mockResolvedValue(undefined);
+        mocks.verifyCollectionsQueryCompilationForStartupMock.mockResolvedValue(
+            undefined
+        );
+
+        const indexModule = await import("../src/index.ts");
+
+        expect(process.stderr.write("native boom\n")).toBe(true);
+        expect(mocks.errorMock).toHaveBeenCalledWith(
+            { stream: "stderr" },
+            "native boom"
+        );
+        expect(forwardedWrite).toHaveBeenCalled();
+
+        indexModule.__restoreStderrWriteForTests();
+        process.stderr.write = originalStderrWrite;
+    });
 });

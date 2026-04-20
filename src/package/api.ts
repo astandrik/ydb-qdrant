@@ -39,14 +39,26 @@ type SearchPointsResult = Awaited<ReturnType<typeof serviceSearchPoints>>;
 type DeletePointsResult = Awaited<ReturnType<typeof serviceDeletePoints>>;
 type RetrievePointsResult = Awaited<ReturnType<typeof serviceRetrievePoints>>;
 
-export interface YdbQdrantClientOptions {
-    userUid?: string;
-    apiKey?: string;
+type YdbQdrantClientDriverOptions = {
     endpoint?: string;
     database?: string;
     connectionString?: string;
     authService?: IAuthService;
-}
+};
+
+type YdbQdrantClientApiKeyOptions = YdbQdrantClientDriverOptions & {
+    apiKey: string;
+    userUid?: never;
+};
+
+type YdbQdrantClientUserUidOptions = YdbQdrantClientDriverOptions & {
+    userUid: string;
+    apiKey?: never;
+};
+
+export type YdbQdrantClientOptions =
+    | YdbQdrantClientApiKeyOptions
+    | YdbQdrantClientUserUidOptions;
 
 export interface YdbQdrantClient {
     createCollection(
@@ -145,15 +157,31 @@ function buildClient(userUid: string, apiKey: string): YdbQdrantClient {
     };
 }
 
-function resolveClientUserUid(options: YdbQdrantClientOptions): string {
+function resolveClientIdentity(options: YdbQdrantClientOptions): {
+    signingKey: string;
+    userUid: string;
+} {
     const providedUserUid = options.userUid?.trim();
-    if (providedUserUid) {
-        return providedUserUid;
+    const apiKey = options.apiKey?.trim();
+
+    if (providedUserUid && apiKey) {
+        throw new Error(
+            "createYdbQdrantClient accepts exactly one of apiKey or userUid"
+        );
     }
 
-    const apiKey = options.apiKey?.trim();
     if (apiKey) {
-        return deriveUserUidFromApiKey(apiKey);
+        return {
+            userUid: deriveUserUidFromApiKey(apiKey),
+            signingKey: apiKey,
+        };
+    }
+
+    if (providedUserUid) {
+        return {
+            userUid: providedUserUid,
+            signingKey: providedUserUid,
+        };
     }
 
     throw new Error(
@@ -162,7 +190,7 @@ function resolveClientUserUid(options: YdbQdrantClientOptions): string {
 }
 
 export async function createYdbQdrantClient(
-    options: YdbQdrantClientOptions = {}
+    options: YdbQdrantClientOptions
 ): Promise<YdbQdrantClient> {
     if (
         options.endpoint !== undefined ||
@@ -181,8 +209,7 @@ export async function createYdbQdrantClient(
     await readyOrThrow();
     await ensureMetaTable();
 
-    const userUid = resolveClientUserUid(options);
-    const signingKey = options.apiKey?.trim() || userUid;
+    const { userUid, signingKey } = resolveClientIdentity(options);
 
     return buildClient(userUid, signingKey);
 }

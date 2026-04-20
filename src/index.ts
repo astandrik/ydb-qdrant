@@ -43,16 +43,25 @@ function isFatalStartupSchemaError(err: unknown): boolean {
     );
 }
 
-function installStderrAsErrorLogger(): void {
+let originalStderrWrite: typeof process.stderr.write | undefined;
+let stderrAsErrorLoggerInstalled = false;
+
+export function installStderrAsErrorLogger(): void {
+    if (stderrAsErrorLoggerInstalled) {
+        return;
+    }
+
     // Some infra log collectors treat raw stderr lines as DEBUG by default.
-    // Redirect stderr writes into structured error logs so severity is preserved.
-    // NOTE: This intentionally suppresses the original stderr output.
+    // Mirror stderr writes into structured error logs while preserving the
+    // original stream so native/runtime diagnostics still reach stderr.
+    originalStderrWrite = process.stderr.write.bind(process.stderr);
     process.stderr.write = ((
         chunk: string | Uint8Array,
-        encoding?: BufferEncoding | ((err?: Error) => void),
-        cb?: (err?: Error) => void
+        encoding?:
+            | BufferEncoding
+            | ((err?: Error | null) => void),
+        cb?: (err?: Error | null) => void
     ): boolean => {
-        const callback = typeof encoding === "function" ? encoding : cb;
         const enc = typeof encoding === "string" ? encoding : undefined;
 
         const text =
@@ -66,11 +75,20 @@ function installStderrAsErrorLogger(): void {
             }
         }
 
-        if (callback) {
-            callback();
+        if (!originalStderrWrite) {
+            return true;
         }
-        return true;
+        return originalStderrWrite(chunk, encoding as BufferEncoding, cb);
     }) as typeof process.stderr.write;
+    stderrAsErrorLoggerInstalled = true;
+}
+
+export function __restoreStderrWriteForTests(): void {
+    if (!stderrAsErrorLoggerInstalled || !originalStderrWrite) {
+        return;
+    }
+    process.stderr.write = originalStderrWrite;
+    stderrAsErrorLoggerInstalled = false;
 }
 
 installStderrAsErrorLogger();

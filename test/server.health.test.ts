@@ -6,6 +6,7 @@ const isYdbAvailableMock = vi.fn<() => Promise<boolean>>();
 const verifyCollectionsQueryCompilationForStartupMock =
     vi.fn<() => Promise<void>>();
 const isCompilationTimeoutErrorMock = vi.fn<(err: unknown) => boolean>();
+const scheduleExitMock = vi.fn<(code: number) => void>();
 
 vi.mock("../src/ydb/client.js", () => ({
     isYdbAvailable: (...args: unknown[]) => isYdbAvailableMock(...(args as [])),
@@ -27,6 +28,10 @@ vi.mock("../src/logging/logger.js", () => ({
     },
 }));
 
+vi.mock("../src/utils/exit.js", () => ({
+    scheduleExit: (...args: unknown[]) => scheduleExitMock(...(args as [number])),
+}));
+
 import { healthHandler, rootHandler } from "../src/server.js";
 
 describe("GET /health", () => {
@@ -44,9 +49,10 @@ describe("GET /health", () => {
 
         expect(res.statusCode).toBe(200);
         expect(res.body).toMatchObject({ status: "ok" });
+        expect(scheduleExitMock).not.toHaveBeenCalled();
     });
 
-    it("returns 503 when YDB is unavailable", async () => {
+    it("returns 503 and schedules exit when YDB is unavailable", async () => {
         isYdbAvailableMock.mockResolvedValueOnce(false);
         const res = createMockRes();
 
@@ -57,9 +63,10 @@ describe("GET /health", () => {
             status: "error",
             error: "YDB unavailable",
         });
+        expect(scheduleExitMock).toHaveBeenCalledWith(1);
     });
 
-    it("returns 503 when the compilation probe fails", async () => {
+    it("returns 503 and schedules exit when the compilation probe fails", async () => {
         isYdbAvailableMock.mockResolvedValueOnce(true);
         verifyCollectionsQueryCompilationForStartupMock.mockRejectedValueOnce(
             new Error("compilation timeout")
@@ -74,6 +81,7 @@ describe("GET /health", () => {
             status: "error",
             error: "YDB health probe failed",
         });
+        expect(scheduleExitMock).toHaveBeenCalledWith(1);
     });
 });
 

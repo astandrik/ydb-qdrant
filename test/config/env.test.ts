@@ -6,6 +6,10 @@ describe("env.ts configuration", () => {
   beforeEach(() => {
     vi.resetModules();
     // Clear relevant env vars before each test
+    delete process.env.YDB_QDRANT_ENDPOINT;
+    delete process.env.YDB_QDRANT_DATABASE;
+    delete process.env.YDB_ENDPOINT;
+    delete process.env.YDB_DATABASE;
     delete process.env.YDB_QDRANT_UPSERT_BATCH_SIZE;
     delete process.env.YDB_SESSION_POOL_MIN_SIZE;
     delete process.env.YDB_SESSION_POOL_MAX_SIZE;
@@ -18,6 +22,59 @@ describe("env.ts configuration", () => {
 
   afterEach(() => {
     process.env = { ...originalEnv };
+  });
+
+  describe("YDB connection config", () => {
+    it("does not throw on import when YDB connection env vars are unset", async () => {
+      const env = await import("../../src/config/env.js");
+
+      expect(env.YDB_ENDPOINT).toBe("");
+      expect(env.YDB_DATABASE).toBe("");
+    });
+
+    it("resolves explicit endpoint and database without global env", async () => {
+      const env = await import("../../src/config/env.js");
+
+      expect(
+        env.resolveYdbConnectionConfig({
+          endpoint: "grpc://localhost:2136",
+          database: "/local",
+        })
+      ).toEqual({
+        endpoint: "grpc://localhost:2136",
+        database: "/local",
+      });
+    });
+
+    it("prefers explicit config over env", async () => {
+      process.env.YDB_QDRANT_ENDPOINT = "grpc://env:2136";
+      process.env.YDB_QDRANT_DATABASE = "/env";
+
+      const env = await import("../../src/config/env.js");
+
+      expect(
+        env.resolveYdbConnectionConfig({
+          endpoint: "grpc://explicit:2136",
+          database: "/explicit",
+        })
+      ).toEqual({
+        endpoint: "grpc://explicit:2136",
+        database: "/explicit",
+      });
+    });
+
+    it("throws only when legacy YDB_ENDPOINT is used at resolution time", async () => {
+      process.env.YDB_ENDPOINT = "grpc://legacy:2136";
+
+      const env = await import("../../src/config/env.js");
+
+      expect(() =>
+        env.resolveYdbConnectionConfig({
+          endpoint: "grpc://localhost:2136",
+          database: "/local",
+        })
+      ).toThrow(/Legacy env var YDB_ENDPOINT/);
+    });
   });
 
   describe("UPSERT_BATCH_SIZE", () => {

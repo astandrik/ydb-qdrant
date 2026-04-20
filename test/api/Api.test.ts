@@ -38,6 +38,7 @@ vi.mock("../../src/services/PointsService.js", () => ({
     upsertPoints: vi.fn().mockResolvedValue({ upserted: 1 }),
     searchPoints: vi.fn().mockResolvedValue({ points: [] }),
     deletePoints: vi.fn().mockResolvedValue({ deleted: 1 }),
+    retrievePoints: vi.fn().mockResolvedValue({ points: [] }),
 }));
 
 import * as ydbClient from "../../src/ydb/client.js";
@@ -45,16 +46,18 @@ import * as schema from "../../src/ydb/schema.js";
 import * as collectionService from "../../src/services/CollectionService.js";
 import * as pointsService from "../../src/services/PointsService.js";
 import { createYdbQdrantClient } from "../../src/package/api.js";
+import { deriveUserUidFromApiKey } from "../../src/utils/tenant.js";
 
 beforeEach(() => {
     vi.clearAllMocks();
 });
 
 describe("YdbQdrantClient (programmatic API, mocked YDB)", () => {
-    it("forwards all client methods to service (single-tenant)", async () => {
+    it("forwards all client methods to service when initialized with apiKey", async () => {
+        const apiKey = "test-api-key";
+        const userUid = deriveUserUidFromApiKey(apiKey);
         const client = await createYdbQdrantClient({
-            userUid: "test_user",
-            apiKey: "test-api-key",
+            apiKey,
         });
 
         await client.createCollection("col_all", {
@@ -77,43 +80,71 @@ describe("YdbQdrantClient (programmatic API, mocked YDB)", () => {
 
         const deleteBody = { points: ["p1", "p2"] };
         await client.deletePoints("col_all", deleteBody);
+        const retrieveBody = { ids: ["p1"], with_payload: true };
+        await client.retrievePoints("col_all", retrieveBody);
 
         expect(collectionService.createCollection).toHaveBeenCalledWith(
-            { userUid: "test_user", collection: "col_all", apiKey: "test-api-key" },
+            { userUid, collection: "col_all", apiKey },
             expect.anything()
         );
         expect(collectionService.getCollection).toHaveBeenCalledWith({
-            userUid: "test_user",
+            userUid,
             collection: "col_all",
-            apiKey: "test-api-key",
+            apiKey,
         });
         expect(collectionService.deleteCollection).toHaveBeenCalledWith({
-            userUid: "test_user",
+            userUid,
             collection: "col_all",
-            apiKey: "test-api-key",
+            apiKey,
         });
         expect(collectionService.putCollectionIndex).toHaveBeenCalledWith({
-            userUid: "test_user",
+            userUid,
             collection: "col_all",
-            apiKey: "test-api-key",
+            apiKey,
         });
         expect(pointsService.upsertPoints).toHaveBeenCalledWith(
-            { userUid: "test_user", collection: "col_all", apiKey: "test-api-key" },
+            { userUid, collection: "col_all", apiKey },
             upsertBody
         );
         expect(pointsService.searchPoints).toHaveBeenCalledWith(
-            { userUid: "test_user", collection: "col_all", apiKey: "test-api-key" },
+            { userUid, collection: "col_all", apiKey },
             searchBody
         );
         expect(pointsService.deletePoints).toHaveBeenCalledWith(
-            { userUid: "test_user", collection: "col_all", apiKey: "test-api-key" },
+            { userUid, collection: "col_all", apiKey },
             deleteBody
+        );
+        expect(pointsService.retrievePoints).toHaveBeenCalledWith(
+            { userUid, collection: "col_all", apiKey },
+            retrieveBody
+        );
+    });
+
+    it("uses userUid as signing key when initialized with userUid only", async () => {
+        const client = await createYdbQdrantClient({
+            userUid: "test_user",
+        });
+
+        await client.searchPoints("col_user", {
+            vector: [0, 0, 0, 1],
+            top: 1,
+        });
+
+        expect(pointsService.searchPoints).toHaveBeenCalledWith(
+            {
+                userUid: "test_user",
+                collection: "col_user",
+                apiKey: "test_user",
+            },
+            {
+                vector: [0, 0, 0, 1],
+                top: 1,
+            }
         );
     });
 
     it("configures the YDB driver and ensures metadata table before returning a client", async () => {
         const client = await createYdbQdrantClient({
-            userUid: "test_user",
             apiKey: "test-api-key",
             endpoint: "grpc://localhost:2136",
             database: "/local",
@@ -129,5 +160,14 @@ describe("YdbQdrantClient (programmatic API, mocked YDB)", () => {
         expect(schema.ensureMetaTable).toHaveBeenCalledTimes(1);
 
         await client.getCollection("col_driver");
+    });
+
+    it("rejects ambiguous identity when apiKey and userUid are both provided", async () => {
+        await expect(
+            createYdbQdrantClient({
+                userUid: "test_user",
+                apiKey: "test-api-key",
+            })
+        ).rejects.toThrow(/exactly one of apiKey or userUid/);
     });
 });

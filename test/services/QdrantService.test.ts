@@ -32,7 +32,7 @@ vi.mock("../../src/repositories/collectionsRepo.js", () => ({
     deleteCollection: vi.fn(),
     deleteAllPointsForCollection: vi.fn().mockResolvedValue(undefined),
     touchCollectionLastAccess: vi.fn().mockResolvedValue(undefined),
-    hasPointsForCollection: vi.fn().mockResolvedValue(false),
+    countPointsForCollection: vi.fn().mockResolvedValue(0),
 }));
 
 vi.mock("../../src/repositories/pointsRepo.js", () => ({
@@ -152,15 +152,13 @@ describe("QdrantService (with mocked YDB)", () => {
             distance: "Cosine",
             vectorType: "float",
         });
-        vi.mocked(collectionsRepo.hasPointsForCollection).mockResolvedValueOnce(
-            true
-        );
+        vi.mocked(collectionsRepo.countPointsForCollection).mockResolvedValueOnce(2);
 
         const result = await getCollection({ userUid, collection, apiKey });
 
         expect(result).toEqual({
             status: "green",
-            points_count: 1,
+            points_count: 2,
             name: "my_collection",
             vectors: {
                 size: 128,

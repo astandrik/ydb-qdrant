@@ -97,6 +97,9 @@ export YDB_QDRANT_SEARCH_TIMEOUT_MS=10000
 
 The package entrypoint exports a programmatic API that mirrors the Qdrant HTTP semantics.
 
+- `createYdbQdrantClient()` requires exactly one namespace/signing identifier:
+  pass either `apiKey` or `userUid`, but not both.
+
 - Import and initialize a client (reuses the same YDB env vars as the server):
   ```ts
   import { createYdbQdrantClient } from "ydb-qdrant";
@@ -145,7 +148,7 @@ The package entrypoint exports a programmatic API that mirrors the Qdrant HTTP s
   });
   ```
 
-The request/response shapes follow the same schemas as the HTTP API (`CreateCollectionReq`, `UpsertPointsReq`, `SearchReq`, `DeletePointsReq`, `RetrievePointsReq`), so code written against the REST API can usually be translated directly to the library calls. `createYdbQdrantClient` now requires either `apiKey` or `userUid`.
+The request/response shapes follow the same schemas as the HTTP API (`CreateCollectionReq`, `UpsertPointsReq`, `SearchReq`, `DeletePointsReq`, `RetrievePointsReq`), so code written against the REST API can usually be translated directly to the library calls. `createYdbQdrantClient` requires exactly one of `apiKey` or `userUid`.
 
 ### Example: in-process points search with a shared client
 

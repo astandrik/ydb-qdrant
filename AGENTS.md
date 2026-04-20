@@ -29,7 +29,7 @@ Notes
 - Collection and tenant names are sanitized to `[a-z0-9_]` before use.
 
 ## Environment & credentials
-- Required env: `YDB_ENDPOINT`, `YDB_DATABASE`.
+- Required env: `YDB_QDRANT_ENDPOINT`, `YDB_QDRANT_DATABASE`.
 - Auth (first that matches via ydb-sdk getCredentialsFromEnv):
   - `YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS=/abs/path/sa.json`
   - `YDB_METADATA_CREDENTIALS=1` (YC VM/Functions)
@@ -58,9 +58,9 @@ Notes
 ## Docker images & compose
 - Published image: `ghcr.io/astandrik/ydb-qdrant:latest` (public, pull-only), package page: https://github.com/users/astandrik/packages/container/package/ydb-qdrant.
 - Typical `docker run`:
-  - `docker run -d --name ydb-qdrant -p 8080:8080 ghcr.io/astandrik/ydb-qdrant:latest` + required YDB env (`YDB_ENDPOINT`, `YDB_DATABASE`, and one of `YDB_*_CREDENTIALS`; optionally mount an SA JSON at `/sa-key.json` and set `YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS=/sa-key.json`).
+  - `docker run -d --name ydb-qdrant -p 8080:8080 ghcr.io/astandrik/ydb-qdrant:latest` + required YDB env (`YDB_QDRANT_ENDPOINT`, `YDB_QDRANT_DATABASE`, and one of `YDB_*_CREDENTIALS`; optionally mount an SA JSON at `/sa-key.json` and set `YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS=/sa-key.json`).
 - Minimal `docker-compose.yml` (for users/tools that prefer compose):
-  - Service `ydb-qdrant` with `image: ghcr.io/astandrik/ydb-qdrant:latest`, `ports: ["8080:8080"]`, `env_file: [.env]`, env keys `YDB_ENDPOINT`, `YDB_DATABASE`, `YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS=/sa-key.json`, and a volume `${YDB_SA_KEY_PATH}:/sa-key.json:ro`.
+  - Service `ydb-qdrant` with `image: ghcr.io/astandrik/ydb-qdrant:latest`, `ports: ["8080:8080"]`, `env_file: [.env]`, env keys `YDB_QDRANT_ENDPOINT`, `YDB_QDRANT_DATABASE`, `YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS=/sa-key.json`, and a volume `${YDB_SA_KEY_PATH}:/sa-key.json:ro`.
 - Updating to a newer image when using compose (no rebuild):
   - `docker-compose pull ydb-qdrant && docker-compose up -d ydb-qdrant`.
 - For agents that need a Qdrant base URL, point them at `http://localhost:8080` when this container/compose stack is running.
@@ -88,7 +88,7 @@ Notes
   - `embedding` is encoded client-side using the binary format expected by YDB `Knn::*` functions.
 
 ## Project structure (src/)
-- `config/env.ts` — loads env (`dotenv/config`), exports `YDB_ENDPOINT`, `YDB_DATABASE`, `PORT`, `LOG_LEVEL`, and YDB session pool settings.
+- `config/env.ts` — loads env (`dotenv/config`), exports `YDB_QDRANT_ENDPOINT`, `YDB_QDRANT_DATABASE`, `PORT`, `LOG_LEVEL`, and YDB session pool settings.
 - `logging/logger.ts` — pino logger (level from env).
 - `utils/tenant.ts` — `sanitizeTenantId`, `sanitizeCollectionName`, `metaKeyFor`, `tableNameFor`, `uidFor`, API key and User-Agent hashing for collection names.
 - `utils/normalization.ts` — vector extraction (`extractVectorLoose`, `isNumberArray`) and search body normalization (`normalizeSearchBodyForSearch`, `normalizeSearchBodyForQuery`).
@@ -108,7 +108,7 @@ Notes
 - `services/PointsService.ts` — points operations (`upsertPoints`, `searchPoints`, `queryPoints`, `deletePoints`); uses normalization utilities and collection metadata.
 - `package/api.ts` — public programmatic API (`createYdbQdrantClient`) exposing Qdrant‑like operations directly to Node.js callers.
 - `SmokeTest.ts` — minimal example/smoke test using the programmatic API to create a collection, upsert points, and run a search.
-- `test/api/Api.test.ts` — Vitest unit tests for the programmatic API client (`createYdbQdrantClient`, `forTenant`, driver/schema wiring; YDB and service mocked).
+- `test/api/Api.test.ts` — Vitest unit tests for the programmatic API client (`createYdbQdrantClient`, driver/schema wiring; YDB and service mocked).
 - `test/services/QdrantService.test.ts` — service‑layer tests for collections and points (create/get/delete, upsert/search/delete, query alias, thresholds, error paths; repositories/YDB mocked).
 - `test/routes/collections.test.ts`, `test/routes/points.test.ts` — HTTP route tests for Express routers (status codes, payload shapes, `QdrantServiceError` handling; service and logger mocked).
 - `test/repositories/collectionsRepo.test.ts`, `test/repositories/pointsRepo.test.ts` — repository tests for YDB integration (`withSession`, YQL, delete/migration flows, one-table upsert/search/delete).
@@ -162,7 +162,7 @@ Collections are not auto-created: create them explicitly via `PUT /collections/{
   - `YDB_LOCAL_GRPC_PORT` (default `2136`), `YDB_LOCAL_MON_PORT` (default `8765`), `YDB_DATABASE` (default `/local`), `YDB_ANONYMOUS_CREDENTIALS` (default `1`), `YDB_USE_IN_MEMORY_PDISKS`, `YDB_LOCAL_SURVIVE_RESTART`, `YDB_DEFAULT_LOG_LEVEL`, `YDB_FEATURE_FLAGS`, `YDB_ENABLE_COLUMN_TABLES`, `YDB_KAFKA_PROXY_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`.
 - ydb-qdrant config (env, same semantics as standalone image):
   - `PORT` (default `8080`), `LOG_LEVEL`.
-- Note: `YDB_ENDPOINT` is unconditionally set to `grpc://localhost:<YDB_LOCAL_GRPC_PORT>` by the entrypoint — any user-provided value is ignored. Use the standalone `ydb-qdrant` image to connect to an external YDB.
+- Note: `YDB_QDRANT_ENDPOINT` is unconditionally set to `grpc://localhost:<YDB_LOCAL_GRPC_PORT>` by the entrypoint, and `YDB_QDRANT_DATABASE` defaults to the embedded `YDB_DATABASE`. Use the standalone `ydb-qdrant` image to connect to an external YDB.
 
 ## Logging & diagnostics
 - JSON logs via pino middleware (method, url, tenant, status, ms).
@@ -177,15 +177,15 @@ Collections are not auto-created: create them explicitly via `PUT /collections/{
 - Utility functions are extracted to `utils/`: `normalization.ts` (vector extraction), `distance.ts` (KNN/index mapping), `retry.ts` (transient error handling).
 - Keep edits behavior‑preserving; avoid changing endpoint contracts without approval.
 - The npm package entrypoint is the programmatic API (`dist/package/api.js`); HTTP server entry (`dist/server.js` and `dist/index.js`) must remain stable so that `npm start` and existing deployments continue to work.
-- Programmatic API consumers are expected to use `createYdbQdrantClient(options?)` and optional `client.forTenant(tenantId)`; keep these names and shapes stable unless doing a major version bump.
+- Programmatic API consumers are expected to use `createYdbQdrantClient(options)` with exactly one of `apiKey` or `userUid`; keep this shape stable unless doing a major version bump.
 
 ## Programmatic npm package
 
 - Package name: `ydb-qdrant`.
 - Default entry: programmatic API (`createYdbQdrantClient`) that:
-  - Reuses the same YDB env configuration as the server (`YDB_ENDPOINT`, `YDB_DATABASE`, `YDB_*_CREDENTIALS`).
+  - Reuses the same YDB env configuration as the server (`YDB_QDRANT_ENDPOINT`, `YDB_QDRANT_DATABASE`, `YDB_*_CREDENTIALS`).
   - Exposes Qdrant‑like methods: `createCollection`, `getCollection`, `deleteCollection`, `upsertPoints`, `searchPoints`, `deletePoints`.
-  - Supports multi‑tenant usage via `defaultTenant` option and `forTenant(tenantId)`.
+  - Uses exactly one namespace/signing identifier via `apiKey` or `userUid`.
 - HTTP routes delegate to `CollectionService` and `PointsService`, so the same logic is used by both HTTP and programmatic paths.
 
 ## CI and release

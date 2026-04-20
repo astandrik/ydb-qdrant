@@ -64,12 +64,13 @@ Key env vars (all optional; the image provides sensible defaults, override only 
 - ydb-qdrant:
   - `PORT` (default `8080`): HTTP port inside the container.
   - `LOG_LEVEL` (default `info`).
+  - `YDB_QDRANT_DATABASE` (defaults to embedded `YDB_DATABASE`, usually `/local`).
   - `YDB_QDRANT_UPSERT_TIMEOUT_MS` (default `5000`): per‑query YDB operation timeout in milliseconds for batched upserts; long‑running UPSERT statements are cancelled when this bound is exceeded.
   - `YDB_QDRANT_SEARCH_TIMEOUT_MS` (default `10000`): per‑query YDB operation timeout in milliseconds for search operations; long‑running search statements are cancelled when this bound is exceeded.
   - `YDB_QDRANT_LOCAL_MAX_YDB_FAILURES` (default `5`): number of consecutive embedded YDB TCP health check failures in the local monitor before exiting with a non-zero status (used to trigger container restart under a restart policy).
   - `YDB_QDRANT_LOCAL_YDB_CHECK_INTERVAL` (default `10`): interval in seconds between embedded YDB TCP health checks performed by the local monitor.
 
-> Note: In the `ydb-qdrant-local` image, `YDB_QDRANT_ENDPOINT` is unconditionally set to `grpc://127.0.0.1:<YDB_LOCAL_GRPC_PORT>` by the entrypoint — any user-provided value is ignored. Use the standalone `ydb-qdrant` image if you need to connect to an external YDB.
+> Note: In the `ydb-qdrant-local` image, `YDB_QDRANT_ENDPOINT` is unconditionally set to `grpc://127.0.0.1:<YDB_LOCAL_GRPC_PORT>` by the entrypoint, and `YDB_QDRANT_DATABASE` defaults to the embedded `YDB_DATABASE`. Use the standalone `ydb-qdrant` image if you need to connect to an external YDB.
 
 #### Health checks and self-healing (`ydb-qdrant-local`)
 

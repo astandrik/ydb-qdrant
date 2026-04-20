@@ -3,10 +3,10 @@ import type { DistanceKind } from "../qdrant/QdrantRestTypes.js";
 import { ensureMetaTable } from "../ydb/schema.js";
 import {
     createCollection as repoCreateCollection,
+    countPointsForCollection,
     deleteCollection as repoDeleteCollection,
     getCollectionMeta,
     touchCollectionLastAccess,
-    hasPointsForCollection,
 } from "../repositories/collectionsRepo.js";
 import { QdrantServiceError } from "./errors.js";
 import { normalizeCollectionContextShared } from "./CollectionService.shared.js";
@@ -123,11 +123,11 @@ export async function getCollection(ctx: CollectionContextInput): Promise<{
             error: "collection not found",
         });
     }
-    const hasPoints = await hasPointsForCollection(normalized.metaKey);
+    const pointsCount = await countPointsForCollection(normalized.uid);
     await touchCollectionLastAccess(normalized.metaKey);
     return {
         status: "green",
-        points_count: hasPoints ? 1 : 0,
+        points_count: pointsCount,
         name: normalized.collection,
         vectors: {
             size: meta.dimension,

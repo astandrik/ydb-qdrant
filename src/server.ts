@@ -17,6 +17,7 @@ import {
 import { isYdbAvailable, isCompilationTimeoutError } from "./ydb/client.js";
 import { verifyCollectionsQueryCompilationForStartup } from "./repositories/collectionsRepo.js";
 import { logger } from "./logging/logger.js";
+import { scheduleExit } from "./utils/exit.js";
 
 export async function healthHandler(
     _req: Request,
@@ -26,6 +27,7 @@ export async function healthHandler(
     if (!ok) {
         logger.error("YDB unavailable during health check");
         res.status(503).json({ status: "error", error: "YDB unavailable" });
+        scheduleExit(1);
         return;
     }
 
@@ -43,6 +45,7 @@ export async function healthHandler(
             status: "error",
             error: "YDB health probe failed",
         });
+        scheduleExit(1);
         return;
     }
 

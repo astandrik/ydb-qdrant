@@ -70,6 +70,7 @@ vi.mock("../../src/logging/logger.js", () => ({
     },
 }));
 import {
+    countPointsForCollection,
     createCollection,
     getCollectionMeta,
     hasPointsForCollection,
@@ -193,5 +194,25 @@ describe("collectionsRepo (with mocked YDB)", () => {
         const hasPoints = await hasPointsForCollection("tenant_a/my_collection");
 
         expect(hasPoints).toBe(false);
+    });
+
+    it("returns exact point count for a collection", async () => {
+        withSessionMock.mockResolvedValueOnce({
+            resultSets: [
+                {
+                    rows: [
+                        {
+                            items: [{ textValue: "2" }],
+                        },
+                    ],
+                },
+            ],
+        } as unknown as never);
+
+        const pointsCount = await countPointsForCollection(
+            "tenant_a/my_collection"
+        );
+
+        expect(pointsCount).toBe(2);
     });
 });
