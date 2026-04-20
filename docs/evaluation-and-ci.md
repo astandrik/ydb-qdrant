@@ -9,7 +9,7 @@ GitHub Actions workflows cover:
 - Build and typecheck.
 - Unit and integration tests.
 - Integration tests against YDB using the integration suite.
-- Recall and F1 evaluation for the one-table global layout (approximate and exact search modes).
+- Recall and F1 evaluation for the one-table global layout in exact-only mode.
 
 Badges in the root README link to:
 
@@ -20,11 +20,11 @@ Badges in the root README link to:
 
 ### Recall and F1 Evaluation
 
-Semantic recall and F1 metrics are computed following [ANN-benchmarks](https://github.com/erikbern/ann-benchmarks) methodology.
+Semantic recall and F1 metrics are computed following [ANN-benchmarks](https://github.com/erikbern/ann-benchmarks) methodology, but now serve as an exact-search correctness guard rather than an approximate-quality benchmark.
 
 #### Benchmark Parameters
 
-The recall benchmark uses realistic parameters designed to measure actual approximate search quality:
+The recall benchmark uses realistic parameters designed to validate exact retrieval correctness on realistic vectors:
 
 | Parameter | Value | Rationale |
 |-----------|-------|-----------|
@@ -33,7 +33,7 @@ The recall benchmark uses realistic parameters designed to measure actual approx
 | Query count | 50 | Statistical significance |
 | K (top-K) | 10 | Standard ANN-benchmarks setting |
 | Distance | Cosine | Angular/cosine similarity |
-| Pass threshold | 30% | Realistic for approximate search |
+| Pass threshold | 100% | Exact search should match brute-force ground truth |
 
 #### Ground Truth Computation
 
@@ -46,13 +46,13 @@ Ground truth is computed via **exact brute-force k-NN**:
 This methodology ensures:
 - No artificial cluster separation (random vectors)
 - Realistic similarity distributions
-- Meaningful recall measurements (30-70% expected)
+- Exact search stays aligned with brute-force ground truth
 
 #### Metrics
 
 - **Recall@K**: `|retrieved ∩ ground_truth| / K`
 - **F1**: Harmonic mean of precision and recall
-- **Pass threshold**: Mean recall ≥ 30%
+- **Pass threshold**: Mean recall = 100%
 
 High-level IR evaluation background follows:
 - [Manning et al., *Introduction to Information Retrieval*, Chapter 8](https://nlp.stanford.edu/IR-book/pdf/08eval.pdf)
@@ -103,5 +103,4 @@ npm test
 npm run build
 npm publish
 ```
-
 

@@ -60,7 +60,6 @@ vi.mock("../../src/ydb/helpers.js", () => {
     return {
         buildVectorBinaryParams: vi.fn((vec: number[]) => ({
             float: { kind: "float-bytes", vec },
-            bit: { kind: "bit-bytes", vec },
         })),
     };
 });
@@ -73,7 +72,6 @@ vi.mock("../../src/config/env.js", async () => {
     return {
         ...actual,
         LOG_LEVEL: "info",
-        SEARCH_MODE: actual.SearchMode.Approximate,
     };
 });
 
@@ -478,10 +476,6 @@ describe("pointsRepo (with mocked YDB)", () => {
                     collection: "qdr_tenant_a__my_collection",
                     point_id: "p1",
                     embedding: { kind: "float-bytes", vec: [0, 0, 0, 1] },
-                    embedding_quantized: {
-                        kind: "bit-bytes",
-                        vec: [0, 0, 0, 1],
-                    },
                     payload: JSON.stringify({ a: 1 }),
                     payload_sign: computePayloadSign({ apiKey, payload: { a: 1 } }),
                 },
@@ -620,8 +614,6 @@ describe("pointsRepo (with mocked YDB)", () => {
         expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
         const yql = sessionMock.executeQuery.mock.calls[0][0] as string;
         expect(yql).toContain("FROM qdrant_all_points");
-        expect(yql).toContain("embedding_quantized");
-        expect(yql).toContain("ORDER BY Knn::CosineSimilarity");
         expect(yql).toContain("Knn::CosineDistance");
         expect(yql).toContain("ORDER BY score ASC");
         expect(yql).toContain("DECLARE $ppfx0 AS Utf8;");
@@ -673,15 +665,12 @@ describe("pointsRepo (with mocked YDB)", () => {
         expect(result).toEqual([{ id: "p1", score: 0.5 }]);
         expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
         const yql = sessionMock.executeQuery.mock.calls[0][0] as string;
-        // Approximate phase should use EuclideanDistance for Euclid metric
-        expect(yql).toContain("ORDER BY Knn::EuclideanDistance");
-        expect(yql).toContain("embedding_quantized");
-        // Exact phase should use EuclideanDistance for re-ranking
         expect(yql).toContain("Knn::EuclideanDistance");
         expect(yql).toContain("ORDER BY score ASC");
+        expect(yql).not.toContain("embedding_quantized");
     });
 
-    it("uses exact mode when SEARCH_MODE is exact for one_table", async () => {
+    it("uses exact one_table search", async () => {
         const payload = {};
         const payloadSign = computePayloadSign({ apiKey, payload });
         const sessionMock = {
@@ -708,123 +697,7 @@ describe("pointsRepo (with mocked YDB)", () => {
                 return await fn(sessionMock);
             }
         );
-
-        const envMock = await import("../../src/config/env.js");
-        const envState = envMock as unknown as { SEARCH_MODE: string };
-        const previousSearchMode = envState.SEARCH_MODE;
-        envState.SEARCH_MODE = "exact";
-
-        try {
-            const result = await searchPoints(
-                "qdrant_all_points",
-                [0, 0, 0, 1],
-                5,
-                false,
-                "Cosine",
-                4,
-                "qdr_tenant_a__my_collection",
-                apiKey,
-                undefined
-            );
-
-            expect(result).toEqual([{ id: "p1", score: 0.9 }]);
-            expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
-            const yql = sessionMock.executeQuery.mock.calls[0][0] as string;
-            expect(yql).toContain("FROM qdrant_all_points");
-            expect(yql).not.toContain("embedding_quantized");
-        } finally {
-            envState.SEARCH_MODE = previousSearchMode;
-        }
-    });
-
-    it("uses path_prefix filter when SEARCH_MODE is exact", async () => {
-        const payload = {};
-        const payloadSign = computePayloadSign({ apiKey, payload });
-        const sessionMock = {
-            executeQuery: vi.fn().mockResolvedValue({
-                resultSets: [
-                    {
-                        rows: [
-                            {
-                                items: [
-                                    { textValue: "p1" },
-                                    { textValue: JSON.stringify(payload) },
-                                    { textValue: payloadSign },
-                                    { floatValue: 0.9 },
-                                ],
-                            },
-                        ],
-                    },
-                ],
-            }),
-        };
-
-        withSessionMock.mockImplementation(
-            async (fn: (s: unknown) => unknown) => {
-                return await fn(sessionMock);
-            }
-        );
-
-        const envMock = await import("../../src/config/env.js");
-        const envState = envMock as unknown as { SEARCH_MODE: string };
-        const previousSearchMode = envState.SEARCH_MODE;
-        envState.SEARCH_MODE = "exact";
-
-        try {
-            await searchPoints(
-                "qdrant_all_points",
-                [0, 0, 0, 1],
-                5,
-                false,
-                "Cosine",
-                4,
-                "qdr_tenant_a__my_collection",
-                apiKey,
-                [["src", "hooks"]]
-            );
-
-            const yql = sessionMock.executeQuery.mock.calls[0][0] as string;
-            expect(yql).not.toContain("embedding_quantized");
-            expect(yql).toContain("path_prefix = $ppfx0");
-            expect(yql).toContain("StartsWith(path_prefix, $ppfxd0)");
-            expect(yql).not.toContain("path_prefix IS NULL");
-            expect(yql).not.toContain("JSON_VALUE(");
-            expect(yql).not.toContain("DECLARE $p0_0 AS Utf8;");
-            expect(yql).not.toContain("DECLARE $p0_1 AS Utf8;");
-        } finally {
-            envState.SEARCH_MODE = previousSearchMode;
-        }
-    });
-
-    it("uses path_prefix filter in approximate search", async () => {
-        const payload = {};
-        const payloadSign = computePayloadSign({ apiKey, payload });
-        const sessionMock = {
-            executeQuery: vi.fn().mockResolvedValue({
-                resultSets: [
-                    {
-                        rows: [
-                            {
-                                items: [
-                                    { textValue: "p1" },
-                                    { textValue: JSON.stringify(payload) },
-                                    { textValue: payloadSign },
-                                    { floatValue: 0.9 },
-                                ],
-                            },
-                        ],
-                    },
-                ],
-            }),
-        };
-
-        withSessionMock.mockImplementation(
-            async (fn: (s: unknown) => unknown) => {
-                return await fn(sessionMock);
-            }
-        );
-
-        await searchPoints(
+        const result = await searchPoints(
             "qdrant_all_points",
             [0, 0, 0, 1],
             5,
@@ -836,16 +709,17 @@ describe("pointsRepo (with mocked YDB)", () => {
             [["src", "hooks"]]
         );
 
+        expect(result).toEqual([{ id: "p1", score: 0.9 }]);
+        expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
         const yql = sessionMock.executeQuery.mock.calls[0][0] as string;
-        expect(yql).toContain("embedding_quantized");
+        expect(yql).toContain("FROM qdrant_all_points");
+        expect(yql).not.toContain("embedding_quantized");
         expect(yql).toContain("path_prefix = $ppfx0");
         expect(yql).toContain("StartsWith(path_prefix, $ppfxd0)");
         expect(yql).not.toContain("path_prefix IS NULL");
         expect(yql).not.toContain("JSON_VALUE(");
         expect(yql).not.toContain("DECLARE $p0_0 AS Utf8;");
         expect(yql).not.toContain("DECLARE $p0_1 AS Utf8;");
-        expect(yql.split("path_prefix = $ppfx0").length - 1).toBe(2);
-        expect(yql.split("StartsWith(path_prefix, $ppfxd0)").length - 1).toBe(2);
     });
 
     it("deletes points with collection parameter for one_table mode", async () => {

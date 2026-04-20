@@ -5,15 +5,11 @@ import {
     createExecuteQuerySettingsWithTimeout,
 } from "../../ydb/client.js";
 import type { Ydb } from "ydb-sdk";
-import { buildVectorBinaryParams } from "../../ydb/helpers.js";
 import type { DistanceKind, Payload } from "../../qdrant/QdrantRestTypes.js";
-import {
-    mapDistanceToKnnFn,
-    mapDistanceToBitKnnFn,
-} from "../../utils/distance.js";
+import { mapDistanceToKnnFn } from "../../utils/distance.js";
 import { vectorToFloatBinary } from "../../utils/vectorBinary.js";
 import { logger } from "../../logging/logger.js";
-import { SearchMode, SEARCH_OPERATION_TIMEOUT_MS } from "../../config/env.js";
+import { SEARCH_OPERATION_TIMEOUT_MS } from "../../config/env.js";
 import { buildPrefixPathSegmentsFilter } from "./PathSegmentsFilter.js";
 import type { YdbQdrantScoredPoint } from "../../qdrant/QdrantRestTypes.js";
 import { computePayloadSign } from "../../utils/PayloadSign.js";
@@ -259,76 +255,6 @@ function buildExactSearchQueryAndParams(args: {
     };
 }
 
-function buildApproxSearchQueryAndParams(args: {
-    tableName: string;
-    queryVector: number[];
-    top: number;
-    distance: DistanceKind;
-    collection: string;
-    overfetchMultiplier: number;
-    filterPaths?: Array<Array<string>>;
-}): {
-    yql: string;
-    params: QueryParams;
-    safeTop: number;
-    candidateLimit: number;
-    modeLog: string;
-} {
-    const { fn, order } = mapDistanceToKnnFn(args.distance);
-    const { fn: bitFn, order: bitOrder } = mapDistanceToBitKnnFn(args.distance);
-
-    const safeTop = args.top > 0 ? args.top : 1;
-    const rawCandidateLimit = safeTop * args.overfetchMultiplier;
-    const candidateLimit = Math.max(safeTop, rawCandidateLimit);
-
-    const filter = buildPrefixPathSegmentsFilter(args.filterPaths, "path_prefix");
-    const filterWhere = filter ? ` AND ${filter.whereSql}` : "";
-
-    const binaries = buildVectorBinaryParams(args.queryVector);
-    const yql = `
-        DECLARE $qbin_bit AS String;
-        DECLARE $qbinf AS String;
-        DECLARE $candidateLimit AS Uint32;
-        DECLARE $safeTop AS Uint32;
-        DECLARE $collection AS Utf8;
-        ${filter?.whereParamDeclarations ?? ""}
-
-        $candidates = (
-          SELECT point_id
-          FROM ${args.tableName}
-          WHERE collection = $collection AND embedding_quantized IS NOT NULL
-            ${filterWhere}
-          ORDER BY ${bitFn}(embedding_quantized, $qbin_bit) ${bitOrder}
-          LIMIT $candidateLimit
-        );
-
-        SELECT point_id, payload, payload_sign, ${fn}(embedding, $qbinf) AS score
-        FROM ${args.tableName}
-        WHERE collection = $collection
-          AND point_id IN $candidates
-          ${filterWhere}
-        ORDER BY score ${order}
-        LIMIT $safeTop;
-      `;
-
-    const params: QueryParams = {
-        ...(filter?.whereParams ?? {}),
-        $qbin_bit: typedBytesOrFallback(binaries.bit),
-        $qbinf: typedBytesOrFallback(binaries.float),
-        $candidateLimit: TypedValues.uint32(candidateLimit),
-        $safeTop: TypedValues.uint32(safeTop),
-        $collection: TypedValues.utf8(args.collection),
-    };
-
-    return {
-        yql,
-        params,
-        safeTop,
-        candidateLimit,
-        modeLog: "one_table_approximate_client_side_serialization",
-    };
-}
-
 async function searchPointsOneTableExact(
     tableName: string,
     queryVector: number[],
@@ -399,81 +325,6 @@ async function searchPointsOneTableExact(
     return results;
 }
 
-async function searchPointsOneTableApproximate(
-    tableName: string,
-    queryVector: number[],
-    top: number,
-    withPayload: boolean | undefined,
-    apiKey: string,
-    distance: DistanceKind,
-    dimension: number,
-    collection: string,
-    overfetchMultiplier: number,
-    filterPaths?: Array<Array<string>>
-): Promise<YdbQdrantScoredPoint[]> {
-    assertVectorDimension(queryVector, dimension);
-
-    const results = await withSession(async (s) => {
-        const { yql, params, safeTop, candidateLimit, modeLog } =
-            buildApproxSearchQueryAndParams({
-                tableName,
-                queryVector,
-                top,
-                distance,
-                collection,
-                overfetchMultiplier,
-                filterPaths,
-            });
-
-        if (logger.isLevelEnabled("debug")) {
-            logger.debug(
-                {
-                    tableName,
-                    distance,
-                    top,
-                    safeTop,
-                    candidateLimit,
-                    mode: modeLog,
-                    yql,
-                    params: {
-                        collection,
-                        safeTop,
-                        candidateLimit,
-                        vectorLength: queryVector.length,
-                        vectorPreview: queryVector.slice(0, 3),
-                    },
-                },
-                "one_table search (approximate): executing YQL"
-            );
-        }
-
-        const settings = createExecuteQuerySettingsWithTimeout({
-            keepInCache: true,
-            idempotent: true,
-            timeoutMs: SEARCH_OPERATION_TIMEOUT_MS,
-        });
-        const rs = await s.executeQuery(yql, params, undefined, settings);
-        const rowset = rs.resultSets?.[0];
-        const rows = (rowset?.rows ?? []) as Array<{
-            items?: Array<
-                | {
-                      textValue?: string;
-                      floatValue?: number;
-                  }
-                | undefined
-            >;
-        }>;
-
-        return await parseSearchRowsMaybeWithWorkers(rows, {
-            collection,
-            withPayload,
-            apiKey,
-        });
-    });
-
-    return results;
-}
-
 export async function searchPointsOneTable(
     tableName: string,
     queryVector: number[],
@@ -482,26 +333,10 @@ export async function searchPointsOneTable(
     distance: DistanceKind,
     dimension: number,
     collection: string,
-    mode: SearchMode | undefined,
-    overfetchMultiplier: number,
     apiKey: string,
     filterPaths?: Array<Array<string>>
 ): Promise<YdbQdrantScoredPoint[]> {
-    if (mode === SearchMode.Exact) {
-        return await searchPointsOneTableExact(
-            tableName,
-            queryVector,
-            top,
-            withPayload,
-            apiKey,
-            distance,
-            dimension,
-            collection,
-            filterPaths
-        );
-    }
-
-    return await searchPointsOneTableApproximate(
+    return await searchPointsOneTableExact(
         tableName,
         queryVector,
         top,
@@ -510,7 +345,6 @@ export async function searchPointsOneTable(
         distance,
         dimension,
         collection,
-        overfetchMultiplier,
         filterPaths
     );
 }

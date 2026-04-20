@@ -139,7 +139,6 @@ async function ensureGlobalPointsTableOnce(): Promise<void> {
                     new Column("collection", Types.UTF8),
                     new Column("point_id", Types.UTF8),
                     new Column("embedding", Types.BYTES),
-                    new Column("embedding_quantized", Types.BYTES),
                     new Column("payload", Types.JSON_DOCUMENT),
                     new Column("payload_sign", Types.UTF8),
                     new Column("path_prefix", Types.optional(Types.UTF8))
@@ -173,19 +172,11 @@ async function ensureGlobalPointsTableOnce(): Promise<void> {
         // Table exists: validate required columns for the current schema.
         const columns = tableDescription.columns ?? [];
         const hasCollection = columns.some((col) => col.name === "collection");
-        const hasEmbeddingQuantized = columns.some(
-            (col) => col.name === "embedding_quantized"
-        );
         const hasPayloadSign = columns.some((col) => col.name === "payload_sign");
 
         if (!hasCollection) {
             throwMigrationRequired(
                 `Global points table ${GLOBAL_POINTS_TABLE} is missing required column collection; please recreate the table before starting the service`
-            );
-        }
-        if (!hasEmbeddingQuantized) {
-            throwMigrationRequired(
-                `Global points table ${GLOBAL_POINTS_TABLE} is missing required column embedding_quantized; please recreate the table or apply a manual schema migration before starting the service`
             );
         }
         if (!hasPayloadSign) {

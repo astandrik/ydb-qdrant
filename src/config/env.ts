@@ -32,37 +32,6 @@ if (!YDB_ENDPOINT || !YDB_DATABASE) {
 export const PORT = process.env.PORT ? Number(process.env.PORT) : 8080;
 export const LOG_LEVEL = process.env.LOG_LEVEL ?? "info";
 
-export enum SearchMode {
-    Exact = "exact",
-    Approximate = "approximate",
-}
-
-export function resolveSearchMode(raw: string | undefined): SearchMode {
-    const normalized = raw?.trim().toLowerCase();
-
-    if (normalized === SearchMode.Exact) {
-        return SearchMode.Exact;
-    }
-    if (normalized === SearchMode.Approximate) {
-        return SearchMode.Approximate;
-    }
-
-    // Default: exact search (single-phase over full-precision embedding) for the one-table layout.
-    return SearchMode.Exact;
-}
-
-function resolveSearchModeEnv(): SearchMode {
-    return resolveSearchMode(process.env.YDB_QDRANT_SEARCH_MODE);
-}
-
-export const SEARCH_MODE: SearchMode = resolveSearchModeEnv();
-
-export const OVERFETCH_MULTIPLIER = parseIntegerEnv(
-    process.env.YDB_QDRANT_OVERFETCH_MULTIPLIER,
-    10,
-    { min: 1 }
-);
-
 export const UPSERT_BATCH_SIZE = parseIntegerEnv(
     process.env.YDB_QDRANT_UPSERT_BATCH_SIZE,
     100,

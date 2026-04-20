@@ -286,7 +286,6 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
                     { name: "collection" },
                     { name: "point_id" },
                     { name: "embedding" },
-                    { name: "embedding_quantized" },
                     { name: "payload" },
                     { name: "payload_sign" },
                     { name: "path_prefix" },
@@ -338,37 +337,6 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
         );
     });
 
-    it("throws when embedding_quantized column is missing", async () => {
-        const { ensureGlobalPointsTable, GLOBAL_POINTS_TABLE } =
-            await resetSchemaModule();
-
-        const session = {
-            sessionId: "test-session",
-            describeTable: vi.fn().mockResolvedValue({
-                columns: [
-                    { name: "collection" },
-                    { name: "point_id" },
-                    { name: "embedding" },
-                    { name: "payload" },
-                ],
-            }),
-            createTable: vi.fn(),
-        };
-
-        withSessionMock.mockImplementation(
-            async (fn: (s: unknown) => unknown) => {
-                return await fn(session);
-            }
-        );
-
-        await expect(ensureGlobalPointsTable()).rejects.toThrow(
-            `Global points table ${GLOBAL_POINTS_TABLE} is missing required column embedding_quantized; please recreate the table or apply a manual schema migration before starting the service`
-        );
-
-        expect(session.describeTable).toHaveBeenCalledWith(GLOBAL_POINTS_TABLE);
-        expect(session.createTable).not.toHaveBeenCalled();
-    });
-
     it("throws when path_prefix column is missing", async () => {
         const { ensureGlobalPointsTable, GLOBAL_POINTS_TABLE } =
             await resetSchemaModule();
@@ -380,7 +348,6 @@ describe("ydb/schema.ensureGlobalPointsTable", () => {
                     { name: "collection" },
                     { name: "point_id" },
                     { name: "embedding" },
-                    { name: "embedding_quantized" },
                     { name: "payload" },
                     { name: "payload_sign" },
                 ],

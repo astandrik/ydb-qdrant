@@ -162,11 +162,11 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
       points: [{ id: "uid_test_point", vector: [1, 0, 0, 0], payload: {} }],
     });
 
-    // Query the global table directly to verify the uid and quantized column
+    // Query the global table directly to verify the uid and stored embedding
     const query = `
       DECLARE $collection AS Utf8;
       DECLARE $point_id AS Utf8;
-      SELECT collection, point_id, embedding, embedding_quantized FROM ${GLOBAL_POINTS_TABLE}
+      SELECT collection, point_id, embedding FROM ${GLOBAL_POINTS_TABLE}
       WHERE collection = $collection AND point_id = $point_id;
     `;
 
@@ -180,12 +180,11 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     const rowset = res.resultSets?.[0];
     expect(rowset?.rows?.length).toBe(1);
     const row = rowset?.rows?.[0];
-    // items: [collection, point_id, embedding, embedding_quantized]
+    // items: [collection, point_id, embedding]
     expect(row?.items?.[0]?.textValue).toBe(expectedUid);
     expect(row?.items?.[1]?.textValue).toBe("uid_test_point");
-    // Just verify that both binary columns are present and non-empty
+    // Verify the stored binary embedding is present and non-empty.
     expect(row?.items?.[2]).toBeDefined();
-    expect(row?.items?.[3]).toBeDefined();
 
     // Cleanup
     try {
@@ -458,14 +457,10 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     }
   });
 
-  it("rejects legacy layouts without embedding_quantized column (no automatic migrations)", async () => {
-    // This test simulates an old deployment schema.
-    // The project does not perform automatic migrations, so queries that rely on
-    // embedding_quantized should fail against such a table.
-
+  it("rejects legacy layouts without payload_sign column (no automatic migrations)", async () => {
     const legacyTable = `qdrant_migration_test_${Date.now()}`;
 
-    // Step 1: Create a legacy table without embedding_quantized column
+    // Step 1: Create a legacy table without payload_sign column
     await withSession(async (s) => {
       const desc = new TableDescription()
         .withColumns(
@@ -478,7 +473,7 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
       await s.createTable(legacyTable, desc);
     });
 
-    // Step 2: Insert a test row with only embedding (no embedding_quantized)
+    // Step 2: Insert a test row with only embedding/payload (no payload_sign)
     const testUid = "migration_test_uid";
     const testVector = [1.0, 0.0, 0.0, 0.0];
     await withSession(async (s) => {
@@ -503,31 +498,26 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
       });
     });
 
-    // Step 3: Verify the table has no embedding_quantized column initially
+    // Step 3: Verify the table has no payload_sign column initially
     const descBefore = await withSession(async (s) => {
       return await s.describeTable(legacyTable);
     });
     const columnsBefore = descBefore.columns?.map((c) => c.name) ?? [];
     expect(columnsBefore).toContain("embedding");
-    expect(columnsBefore).not.toContain("embedding_quantized");
+    expect(columnsBefore).not.toContain("payload_sign");
 
-    // Step 4: Verify a query that requires embedding_quantized fails.
+    // Step 4: Verify a query that requires payload_sign fails.
     await expect(
       withSession(async (s) => {
         const q = `
           DECLARE $uid AS Utf8;
-          DECLARE $qbin_bit AS String;
-          SELECT point_id
+          SELECT point_id, payload, payload_sign
           FROM ${legacyTable}
-          WHERE uid = $uid AND embedding_quantized IS NOT NULL
-          ORDER BY Knn::CosineSimilarity(embedding_quantized, $qbin_bit) DESC
+          WHERE uid = $uid
           LIMIT 1;
         `;
         await s.executeQuery(q, {
           $uid: TypedValues.utf8(testUid),
-          // Any BYTES payload is fine here: the query should fail at compilation
-          // because embedding_quantized does not exist in the legacy schema.
-          $qbin_bit: TypedValues.bytes(Buffer.from([10])),
         });
       })
     ).rejects.toThrow();

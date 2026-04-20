@@ -4,11 +4,6 @@ import type {
     YdbQdrantScoredPoint,
 } from "../qdrant/QdrantRestTypes.js";
 import {
-    SEARCH_MODE,
-    OVERFETCH_MULTIPLIER,
-    type SearchMode,
-} from "../config/env.js";
-import {
     upsertPointsOneTable,
     searchPointsOneTable,
     deletePointsOneTable,
@@ -38,7 +33,6 @@ export async function searchPoints(
     apiKey: string,
     filterPaths?: Array<Array<string>>
 ): Promise<YdbQdrantScoredPoint[]> {
-    const mode: SearchMode | undefined = SEARCH_MODE;
     return await searchPointsOneTable(
         tableName,
         queryVector,
@@ -47,8 +41,6 @@ export async function searchPoints(
         distance,
         dimension,
         uid,
-        mode,
-        OVERFETCH_MULTIPLIER,
         apiKey,
         filterPaths
     );

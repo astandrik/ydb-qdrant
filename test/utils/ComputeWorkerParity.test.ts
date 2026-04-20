@@ -33,7 +33,6 @@ describe("ComputeWorker parity", () => {
                 collection: task.collection,
                 point_id: String(p.id),
                 embedding: binaries.float,
-                embedding_quantized: binaries.bit,
                 payload: JSON.stringify(payloadObj),
                 payload_sign: computePayloadSign({
                     apiKey: task.apiKey.trim(),
@@ -148,4 +147,3 @@ describe("ComputeWorker parity", () => {
         expect(actual.dropped).toEqual(expectedDropped);
     });
 });
-

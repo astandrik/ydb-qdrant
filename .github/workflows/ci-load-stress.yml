@@ -11,19 +11,11 @@ on:
 
 jobs:
   stress_test:
-    name: Stress test (${{ matrix.storage_mode }}, mode=${{ matrix.search_mode }}, ramping load)
+    name: Stress test (one_table, exact-only, ramping load)
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - storage_mode: one_table
-            search_mode: approximate
-          - storage_mode: one_table
-            search_mode: exact
 
     services:
       ydb:
@@ -85,7 +77,6 @@ jobs:
           YDB_QDRANT_ENDPOINT: grpc://localhost:2136
           YDB_QDRANT_DATABASE: /local
           YDB_ANONYMOUS_CREDENTIALS: "1"
-          YDB_QDRANT_SEARCH_MODE: ${{ matrix.search_mode }}
           PORT: 8080
           LOG_LEVEL: warn
 
@@ -125,7 +116,7 @@ jobs:
         uses: benchmark-action/github-action-benchmark@v1
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
-          name: "Load Test - Stress (${{ matrix.storage_mode }}, 768D)"
+          name: "Load Test - Stress (one_table exact, 768D)"
           tool: "customSmallerIsBetter"
           output-file-path: stress-benchmark.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -141,7 +132,7 @@ jobs:
         uses: benchmark-action/github-action-benchmark@v1
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
-          name: "Load Test - Stress Capacity (${{ matrix.storage_mode }}, 768D)"
+          name: "Load Test - Stress Capacity (one_table exact, 768D)"
           tool: "customBiggerIsBetter"
           output-file-path: stress-benchmark-capacity.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -209,7 +200,7 @@ jobs:
         # Skip gracefully if gh-pages branch doesn't exist yet (first run)
         continue-on-error: true
         with:
-          name: "Load Test - Stress (${{ matrix.storage_mode }}, 768D)"
+          name: "Load Test - Stress (one_table exact, 768D)"
           tool: "customSmallerIsBetter"
           output-file-path: stress-benchmark.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -227,7 +218,7 @@ jobs:
         # Skip gracefully if gh-pages branch doesn't exist yet (first run)
         continue-on-error: true
         with:
-          name: "Load Test - Stress Capacity (${{ matrix.storage_mode }}, 768D)"
+          name: "Load Test - Stress Capacity (one_table exact, 768D)"
           tool: "customBiggerIsBetter"
           output-file-path: stress-benchmark-capacity.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -350,7 +341,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stress-test-log-${{ matrix.storage_mode }}-${{ matrix.search_mode }}
+          name: stress-test-log-one_table-exact
           path: stress.log
           retention-days: 7
 
@@ -421,7 +412,6 @@ jobs:
           YDB_QDRANT_ENDPOINT: grpc://localhost:2136
           YDB_QDRANT_DATABASE: /local
           YDB_ANONYMOUS_CREDENTIALS: "1"
-          YDB_QDRANT_SEARCH_MODE: exact
           PORT: 8080
           LOG_LEVEL: warn
 

@@ -8,8 +8,8 @@ A small Node.js service and npm library that exposes a minimal Qdrant‑compatib
   - Public demo: `http://ydb-qdrant.tech:8080` (no setup, free to use)
   - Self-hosted: `http://localhost:8080` (default)
 - **Tenancy**: per‑client isolation via header `X-Tenant-Id`; collection names are additionally namespaced by a short hash of `api-key` and normalized `User-Agent` (when present). Each tenant+collection is stored under a unique `uid` partition in the global points table.
-- **Search**: one-table global search over `qdrant_all_points` using either approximate two-phase KNN (bit‑quantized `embedding_quantized` + exact re‑ranking over `embedding`) or exact table scan, controlled by `YDB_QDRANT_SEARCH_MODE` (`approximate` or `exact`).
-- **Vectors**: stored as binary strings (`embedding` full-precision, `embedding_quantized` bit-quantized) and serialized client-side before being sent to YDB.
+- **Search**: one-table global exact KNN search over `qdrant_all_points` using `embedding`.
+- **Vectors**: stored as binary float strings in `embedding` and serialized client-side before being sent to YDB.
 
 ## API (Qdrant‑compatible subset)
 - PUT `/collections/{collection}`
@@ -38,8 +38,6 @@ Notes
 - Optional:
 - `PORT` (default 8080)
 - `LOG_LEVEL`
-- `YDB_QDRANT_SEARCH_MODE` — `"exact"` (default) or `"approximate"`; in approximate mode searches use a two-phase flow over `embedding_quantized` + `embedding`, in exact mode they scan `embedding` only.
-- `YDB_QDRANT_OVERFETCH_MULTIPLIER` — candidate overfetch multiplier for approximate search phase 1 (default `10`, min `1`).
 - `YDB_QDRANT_UPSERT_BATCH_SIZE` — upsert batch size per YDB query (default `100`, min `1`).
 - Collection delete uses YDB `BATCH DELETE` over the global points table (requires YDB batch updates support enabled in the cluster configuration; available since YDB v25.1).
 - `YDB_SESSION_POOL_MIN_SIZE` — minimum number of sessions in the pool (default `5`, range 1–500).
@@ -78,28 +76,27 @@ Notes
   - Row key `collection`: tenant/collection string in form `<tenant>/<collection>`
   - Fields: `table_name`, `vector_dimension`, `distance`, `vector_type`, `created_at`, `last_accessed_at`
 - Global points table (one-table layout only): `qdrant_all_points`
-  - `uid Utf8`, `point_id Utf8`, `embedding String` (binary float), `embedding_quantized String` (bit‑quantized), `payload JsonDocument`
+  - `uid Utf8`, `point_id Utf8`, `embedding String` (binary float), `payload JsonDocument`
   - Primary key: `(uid, point_id)` where `uid` is derived from tenant+collection (uses the same naming as the historical per‑collection tables).
-  - Vector indexes are not used; searches are executed directly over `embedding` / `embedding_quantized`.
+  - Vector indexes are not used; searches are executed directly over `embedding`.
   - Created via YDB SDK table profile with auto-partitioning enabled (by load and size) and a target partition size of 100 MB.
 
 ## YDB vector specifics (YQL)
 - Search (one-table layout):
-  - Exact mode (`YDB_QDRANT_SEARCH_MODE=exact`, default): single-phase top‑k over `embedding` using `Knn::<Fn>(embedding, $qbinf)` with the appropriate distance/similarity (`CosineDistance`, `InnerProductSimilarity`, `EuclideanDistance`, `ManhattanDistance`).
-  - Approximate mode (`YDB_QDRANT_SEARCH_MODE=approximate`): two‑phase flow — phase 1 selects candidates using bit‑quantized `embedding_quantized` (`CosineSimilarity` DESC for Cosine, distance ASC for Euclid/Manhattan, `CosineDistance` ASC as proxy for Dot); phase 2 re‑ranks candidates over `embedding` with the exact metric.
+  - Exact mode only: single-phase top‑k over `embedding` using `Knn::<Fn>(embedding, $qbinf)` with the appropriate distance/similarity (`CosineDistance`, `InnerProductSimilarity`, `EuclideanDistance`, `ManhattanDistance`).
 - Serialization:
-  - `embedding` and `embedding_quantized` are encoded client-side using the binary formats expected by YDB `Knn::*` functions.
+  - `embedding` is encoded client-side using the binary format expected by YDB `Knn::*` functions.
 
 ## Project structure (src/)
-- `config/env.ts` — loads env (`dotenv/config`), exports `YDB_ENDPOINT`, `YDB_DATABASE`, `PORT`, `LOG_LEVEL`, search mode/config (`SearchMode`, `SEARCH_MODE`, `OVERFETCH_MULTIPLIER`), and YDB session pool settings.
+- `config/env.ts` — loads env (`dotenv/config`), exports `YDB_ENDPOINT`, `YDB_DATABASE`, `PORT`, `LOG_LEVEL`, and YDB session pool settings.
 - `logging/logger.ts` — pino logger (level from env).
 - `utils/tenant.ts` — `sanitizeTenantId`, `sanitizeCollectionName`, `metaKeyFor`, `tableNameFor`, `uidFor`, API key and User-Agent hashing for collection names.
 - `utils/normalization.ts` — vector extraction (`extractVectorLoose`, `isNumberArray`) and search body normalization (`normalizeSearchBodyForSearch`, `normalizeSearchBodyForQuery`).
-- `utils/distance.ts` — distance mapping functions (`mapDistanceToKnnFn` for exact search, `mapDistanceToBitKnnFn` for one-table phase 1 approximate search).
+- `utils/distance.ts` — distance mapping functions (`mapDistanceToKnnFn` for exact search).
 - `utils/retry.ts` — generic retry wrapper (`withRetry`) with exponential backoff for transient YDB errors.
 - `types.ts` — shared types and Zod schemas (CreateCollectionReq, UpsertPointsReq, SearchReq, DeletePointsReq).
 - `ydb/client.ts` — ydb-sdk Driver init (CJS interop), `readyOrThrow`, `withSession`, `destroyDriver`, `refreshDriver`, and re‑exports `Types`, `TypedValues`. Session pool size and keepalive period are configurable via environment variables.
-- `ydb/schema.ts` — `ensureMetaTable()` (creates `qdr__collections` if missing) and `ensureGlobalPointsTable()` (creates/migrates `qdrant_all_points` with `embedding_quantized`).
+- `ydb/schema.ts` — `ensureMetaTable()` (creates `qdr__collections` if missing) and `ensureGlobalPointsTable()` (creates/migrates `qdrant_all_points`).
 - `repositories/collectionsRepo.ts` — facade for collection metadata operations and delete‑collection logic over the global points table.
 - `repositories/pointsRepo.ts` — facade for point upsert/search/delete; routes calls to the one-table strategy (`pointsRepo.one-table.ts`) and uses `withRetry` for transient errors.
 - `routes/collections.ts` — Express router for collection endpoints; uses `X-Tenant-Id`.
@@ -164,12 +161,12 @@ Collections are not auto-created: create them explicitly via `PUT /collections/{
 - YDB config (env, all optional):
   - `YDB_LOCAL_GRPC_PORT` (default `2136`), `YDB_LOCAL_MON_PORT` (default `8765`), `YDB_DATABASE` (default `/local`), `YDB_ANONYMOUS_CREDENTIALS` (default `1`), `YDB_USE_IN_MEMORY_PDISKS`, `YDB_LOCAL_SURVIVE_RESTART`, `YDB_DEFAULT_LOG_LEVEL`, `YDB_FEATURE_FLAGS`, `YDB_ENABLE_COLUMN_TABLES`, `YDB_KAFKA_PROXY_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`.
 - ydb-qdrant config (env, same semantics as standalone image):
-  - `PORT` (default `8080`), `LOG_LEVEL`, `YDB_QDRANT_SEARCH_MODE`.
+  - `PORT` (default `8080`), `LOG_LEVEL`.
 - Note: `YDB_ENDPOINT` is unconditionally set to `grpc://localhost:<YDB_LOCAL_GRPC_PORT>` by the entrypoint — any user-provided value is ignored. Use the standalone `ydb-qdrant` image to connect to an external YDB.
 
 ## Logging & diagnostics
 - JSON logs via pino middleware (method, url, tenant, status, ms).
-- Search logs: vector len, dimension, metric/type, hits, validation issues, search mode ("exact" or "approximate").
+- Search logs: vector len, dimension, metric/type, hits, validation issues.
 - Upserts: transient `Aborted`/schema metadata errors are retried with bounded backoff.
 
 ## Implementation notes for agents
@@ -211,7 +208,7 @@ Integration tests include realistic recall benchmarks following [ANN-benchmarks]
   - K: 10 (top-K retrieval)
   - Distance: Cosine (angular)
   - Ground truth: exact brute-force k-NN computation
-  - Pass threshold: 30% mean recall (realistic for approximate search)
+  - Pass threshold: 100% mean recall (exact search should match brute-force)
 
 - **Methodology**:
   - Random vectors instead of trivially-separated clusters
@@ -224,7 +221,7 @@ Integration tests include realistic recall benchmarks following [ANN-benchmarks]
 
 - **CI execution** via `npm run test:integration`:
   - Runs `YdbRealIntegration.test.ts` (basic end-to-end programmatic API flow).
-  - Runs `YdbRealIntegration.one-table.test.ts` twice with `YDB_QDRANT_SEARCH_MODE=approximate` and `=exact` to exercise both search modes.
+  - Runs `YdbRealIntegration.one-table.test.ts` once in exact-only mode.
 
 - **CI output** (for Shields.io badges):
   - `RECALL_MEAN_ONE_TABLE <value>`

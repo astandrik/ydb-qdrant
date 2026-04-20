@@ -6,8 +6,6 @@ describe("env.ts configuration", () => {
   beforeEach(() => {
     vi.resetModules();
     // Clear relevant env vars before each test
-    delete process.env.YDB_QDRANT_SEARCH_MODE;
-    delete process.env.YDB_QDRANT_OVERFETCH_MULTIPLIER;
     delete process.env.YDB_QDRANT_UPSERT_BATCH_SIZE;
     delete process.env.YDB_SESSION_POOL_MIN_SIZE;
     delete process.env.YDB_SESSION_POOL_MAX_SIZE;
@@ -20,30 +18,6 @@ describe("env.ts configuration", () => {
 
   afterEach(() => {
     process.env = { ...originalEnv };
-  });
-
-  describe("SEARCH_MODE and OVERFETCH_MULTIPLIER", () => {
-    it("defaults to exact search mode when not configured", async () => {
-      const env = await import("../../src/config/env.js");
-
-      expect(env.resolveSearchMode(undefined)).toBe(env.SearchMode.Exact);
-      expect(env.resolveSearchMode("")).toBe(env.SearchMode.Exact);
-    });
-
-    it("parses explicit exact search mode", async () => {
-      const env = await import("../../src/config/env.js");
-
-      expect(env.resolveSearchMode("exact")).toBe(env.SearchMode.Exact);
-      expect(env.resolveSearchMode("  ExAcT  ")).toBe(env.SearchMode.Exact);
-    });
-
-    it("parses OVERFETCH_MULTIPLIER and clamps to minimum 1", async () => {
-      process.env.YDB_QDRANT_OVERFETCH_MULTIPLIER = "0";
-
-      const env = await import("../../src/config/env.js");
-
-      expect(env.OVERFETCH_MULTIPLIER).toBe(1);
-    });
   });
 
   describe("UPSERT_BATCH_SIZE", () => {

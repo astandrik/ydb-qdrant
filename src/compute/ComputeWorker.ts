@@ -18,7 +18,6 @@ export type PreparedUpsertRow = {
     collection: string;
     point_id: string;
     embedding: Buffer;
-    embedding_quantized: Buffer;
     payload: string;
     payload_sign: string;
     path_prefix: string | null;
@@ -39,7 +38,6 @@ export function prepareUpsertBatch(
             collection: task.collection,
             point_id: String(p.id),
             embedding: binaries.float,
-            embedding_quantized: binaries.bit,
             payload: JSON.stringify(payloadObj),
             payload_sign: computePayloadSign({ apiKey, payload: payloadObj }),
             path_prefix: extractPathPrefix(payloadObj),
@@ -58,7 +56,7 @@ export function prepareUpsertBatch(
         get [transferableSymbol](): ArrayBufferLike[] {
             const out: ArrayBufferLike[] = [];
             for (const r of rows) {
-                out.push(r.embedding.buffer, r.embedding_quantized.buffer);
+                out.push(r.embedding.buffer);
             }
             return out;
         },
@@ -139,4 +137,3 @@ export function verifySearchRows(task: VerifySearchRowsTask): VerifySearchRowsRe
 
     return { points, dropped };
 }
-

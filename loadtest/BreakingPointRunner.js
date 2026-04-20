@@ -145,7 +145,7 @@ function main() {
   }
 
   console.log(
-    `Approximate breaking point window: safe up to ${safeVus} VUs, failing from ${failVus} VUs (thresholds: error ${ERROR_THRESHOLD_PERCENT}%, p95 ${P95_THRESHOLD_MS}ms).`
+    `Breaking point window: safe up to ${safeVus} VUs, failing from ${failVus} VUs (thresholds: error ${ERROR_THRESHOLD_PERCENT}%, p95 ${P95_THRESHOLD_MS}ms).`
   );
 }
 

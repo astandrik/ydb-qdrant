@@ -77,7 +77,6 @@ function createDescribeTableMock() {
                 { name: "collection" },
                 { name: "point_id" },
                 { name: "embedding" },
-                { name: "embedding_quantized" },
                 { name: "payload" },
                 { name: "payload_sign" },
                 { name: "path_prefix" },

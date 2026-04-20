@@ -11,19 +11,11 @@ on:
 
 jobs:
   soak_test:
-    name: Soak test (${{ matrix.storage_mode }}, mode=${{ matrix.search_mode }}, 10 VUs, 2.5min)
+    name: Soak test (one_table, exact-only, 10 VUs, 2.5min)
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - storage_mode: one_table
-            search_mode: approximate
-          - storage_mode: one_table
-            search_mode: exact
 
     services:
       ydb:
@@ -85,7 +77,6 @@ jobs:
           YDB_QDRANT_ENDPOINT: grpc://localhost:2136
           YDB_QDRANT_DATABASE: /local
           YDB_ANONYMOUS_CREDENTIALS: "1"
-          YDB_QDRANT_SEARCH_MODE: ${{ matrix.search_mode }}
           PORT: 8080
           LOG_LEVEL: warn
 
@@ -114,7 +105,7 @@ jobs:
         uses: benchmark-action/github-action-benchmark@v1
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
-          name: "Load Test - Soak (${{ matrix.storage_mode }}, 768D)"
+          name: "Load Test - Soak (one_table exact, 768D)"
           tool: "customSmallerIsBetter"
           output-file-path: soak-benchmark.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -130,7 +121,7 @@ jobs:
         uses: benchmark-action/github-action-benchmark@v1
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
-          name: "Load Test - Soak Capacity (${{ matrix.storage_mode }}, 768D)"
+          name: "Load Test - Soak Capacity (one_table exact, 768D)"
           tool: "customBiggerIsBetter"
           output-file-path: soak-benchmark-capacity.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -198,7 +189,7 @@ jobs:
         # Skip gracefully if gh-pages branch doesn't exist yet (first run)
         continue-on-error: true
         with:
-          name: "Load Test - Soak (${{ matrix.storage_mode }}, 768D)"
+          name: "Load Test - Soak (one_table exact, 768D)"
           tool: "customSmallerIsBetter"
           output-file-path: soak-benchmark.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -216,7 +207,7 @@ jobs:
         # Skip gracefully if gh-pages branch doesn't exist yet (first run)
         continue-on-error: true
         with:
-          name: "Load Test - Soak Capacity (${{ matrix.storage_mode }}, 768D)"
+          name: "Load Test - Soak Capacity (one_table exact, 768D)"
           tool: "customBiggerIsBetter"
           output-file-path: soak-benchmark-capacity.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -312,6 +303,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: soak-test-log-${{ matrix.storage_mode }}-${{ matrix.search_mode }}
+          name: soak-test-log-one_table-exact
           path: soak.log
           retention-days: 7

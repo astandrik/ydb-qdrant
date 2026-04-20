@@ -16,7 +16,7 @@
 
 # YDB Qdrant-compatible Service
 
-Qdrant-compatible Node.js/TypeScript **service and npm library** that stores and searches vectors in YDB using a global one-table layout (`qdrant_all_points`) with exact KNN search (single-phase over `embedding`) by default and an optional approximate mode (two‑phase bit-quantized over `embedding_quantized` + `embedding`). Topics: ydb, vector-search, qdrant-compatible, nodejs, typescript, express, yql, ann, semantic-search, rag.
+Qdrant-compatible Node.js/TypeScript **service and npm library** that stores and searches vectors in YDB using a global one-table layout (`qdrant_all_points`) with exact KNN search over `embedding`. Topics: ydb, vector-search, qdrant-compatible, nodejs, typescript, express, yql, ann, semantic-search, rag.
 
 Modes:
 - **HTTP server**: Qdrant-compatible REST API (`/collections`, `/points/*`) on top of YDB.
@@ -88,9 +88,9 @@ Optional env:
 # Server
 export PORT=8080
 export LOG_LEVEL=info
-# One-table search tuning (default is 'exact' when unset)
-export YDB_QDRANT_SEARCH_MODE=approximate               # approximate or exact (default: exact)
-export YDB_QDRANT_OVERFETCH_MULTIPLIER=10               # candidate multiplier in approximate mode
+# One-table tuning
+export YDB_QDRANT_UPSERT_BATCH_SIZE=100
+export YDB_QDRANT_SEARCH_TIMEOUT_MS=10000
 ```
 
 ## Use as a Node.js library (npm package)
@@ -329,7 +329,7 @@ curl -X POST http://localhost:8080/collections/mycol/points/delete \
 
 ## Architecture and Storage
 
-For details on the YDB one-table storage layout, vector serialization (full-precision and bit‑quantized), approximate vs exact search modes, request normalization, and Qdrant compatibility semantics, see [docs/architecture-and-storage.md](docs/architecture-and-storage.md).
+For details on the YDB one-table storage layout, vector serialization, request normalization, and Qdrant compatibility semantics, see [docs/architecture-and-storage.md](docs/architecture-and-storage.md).
 
 ## Evaluation, CI, and Release
 

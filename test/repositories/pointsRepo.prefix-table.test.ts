@@ -13,12 +13,6 @@ vi.mock("../../src/logging/logger.js", () => ({
 }));
 
 vi.mock("../../src/config/env.js", () => ({
-    SearchMode: {
-        Exact: "exact",
-        Approximate: "approximate",
-    },
-    SEARCH_MODE: "exact",
-    OVERFETCH_MULTIPLIER: 10,
     DELETE_FILTER_SELECT_BATCH_SIZE: 10000,
     SEARCH_OPERATION_TIMEOUT_MS: 10000,
     UPSERT_OPERATION_TIMEOUT_MS: 5000,

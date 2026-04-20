@@ -40,7 +40,6 @@ vi.mock("../../src/ydb/helpers.js", () => {
     return {
         buildVectorBinaryParams: vi.fn((vec: number[]) => ({
             float: { kind: "float-bytes", vec },
-            bit: { kind: "bit-bytes", vec },
         })),
     };
 });
@@ -48,7 +47,6 @@ vi.mock("../../src/ydb/helpers.js", () => {
 import * as ydbClient from "../../src/ydb/client.js";
 import * as helpers from "../../src/ydb/helpers.js";
 import { searchPointsOneTable as searchPointsOneTableInternal } from "../../src/repositories/pointsRepo.one-table.js";
-import { SearchMode } from "../../src/config/env.js";
 import { computePayloadSign } from "../../src/utils/PayloadSign.js";
 
 const withSessionMock = ydbClient.withSession as unknown as Mock;
@@ -98,8 +96,6 @@ describe("pointsRepo one_table with client-side serialization", () => {
             "Cosine",
             4,
             "qdr_tenant_a__my_collection",
-            SearchMode.Exact,
-            10,
             apiKey
         );
 
@@ -112,63 +108,5 @@ describe("pointsRepo one_table with client-side serialization", () => {
 
         // Exact search uses client-side float serialization directly (no bit vector needed).
         expect(buildVectorBinaryParamsMock).not.toHaveBeenCalled();
-    });
-
-    it("uses binary string params for approximate search phases when client-side serialization is enabled", async () => {
-        const apiKey = "test-api-key";
-        const payload = {};
-        const payloadSign = computePayloadSign({ apiKey, payload });
-
-        const sessionMock = {
-            executeQuery: vi.fn().mockResolvedValue({
-                resultSets: [
-                    {
-                        rows: [
-                            {
-                                items: [
-                                    { textValue: "p1" },
-                                    { textValue: JSON.stringify(payload) },
-                                    { textValue: payloadSign },
-                                    { floatValue: 0.9 },
-                                ],
-                            },
-                        ],
-                    },
-                ],
-            }),
-        };
-
-        withSessionMock.mockImplementation(
-            async (fn: (s: unknown) => unknown) => {
-                return await fn(sessionMock);
-            }
-        );
-
-        const result = await searchPointsOneTableInternal(
-            "qdrant_all_points",
-            [0, 0, 0, 1],
-            5,
-            false,
-            "Cosine",
-            4,
-            "qdr_tenant_a__my_collection",
-            SearchMode.Approximate,
-            10,
-            apiKey
-        );
-
-        expect(result).toEqual([{ id: "p1", score: 0.9 }]);
-        expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
-
-        const yql = sessionMock.executeQuery.mock.calls[0][0] as string;
-
-        expect(yql).toContain("DECLARE $qbin_bit AS String;");
-        expect(yql).toContain("DECLARE $qbinf AS String;");
-        expect(yql).not.toContain("Knn::ToBinaryStringBit");
-        expect(yql).not.toContain("Knn::ToBinaryStringFloat");
-        expect(yql).toContain("embedding_quantized IS NOT NULL");
-        expect(yql).toContain("ORDER BY Knn::CosineSimilarity");
-
-        expect(buildVectorBinaryParamsMock).toHaveBeenCalledWith([0, 0, 0, 1]);
     });
 });

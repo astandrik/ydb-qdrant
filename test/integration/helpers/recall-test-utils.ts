@@ -34,10 +34,9 @@ export const QUERY_COUNT = 50;
 // Standard in ANN-benchmarks is K=10 or K=100
 export const RECALL_K = 10;
 
-// Minimum acceptable recall threshold
-// Note: With approximate search (quantization, indexes), expect 30-70% recall
-// This is a pass/fail threshold, not a target - actual recall is reported
-export const MIN_MEAN_RECALL = 0.3;
+// Minimum acceptable recall threshold for exact-only search.
+// Exact search should match brute-force ground truth, so recall must stay at 1.0.
+export const MIN_MEAN_RECALL = 1.0;
 
 
 export function createSeededRng(seed: number): () => number {
@@ -86,7 +85,7 @@ function generateRandomVector(dim: number, rng: () => number): Vec {
  *
  * Reference: https://github.com/erikbern/ann-benchmarks
  * Reference: Aumüller et al., "ANN-Benchmarks: A Benchmarking Tool for
- *            Approximate Nearest Neighbor Algorithms", SISAP 2017
+ *            Nearest Neighbor Algorithms", SISAP 2017
  */
 export function buildRealisticDataset(seed: number): {
   points: GoldenPoint[];
