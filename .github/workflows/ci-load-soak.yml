@@ -72,8 +72,8 @@ jobs:
       - name: Bootstrap metadata table (qdr__collections)
         run: node dist/ydb/bootstrapMetaTable.js
         env:
-          YDB_ENDPOINT: grpc://localhost:2136
-          YDB_DATABASE: /local
+          YDB_QDRANT_ENDPOINT: grpc://localhost:2136
+          YDB_QDRANT_DATABASE: /local
           YDB_ANONYMOUS_CREDENTIALS: "1"
 
       - name: Start HTTP server
@@ -82,8 +82,8 @@ jobs:
           echo $! > server.pid
           sleep 5
         env:
-          YDB_ENDPOINT: grpc://localhost:2136
-          YDB_DATABASE: /local
+          YDB_QDRANT_ENDPOINT: grpc://localhost:2136
+          YDB_QDRANT_DATABASE: /local
           YDB_ANONYMOUS_CREDENTIALS: "1"
           YDB_QDRANT_SEARCH_MODE: ${{ matrix.search_mode }}
           PORT: 8080

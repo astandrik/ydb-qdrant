@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="8" failures="0" errors="0" time="3.100946458">
+    <testsuite name="test/integration/YdbRealIntegration.one-table.test.ts" timestamp="2026-04-20T17:50:19.905Z" hostname="astandrik-osx" tests="8" failures="0" errors="0" skipped="0" time="3.100946458">
+        <testcase classname="test/integration/YdbRealIntegration.one-table.test.ts" name="YDB integration with COLLECTION_STORAGE_MODE=one_table &gt; achieves reasonable Recall@10 on 5000 random 768D vectors (one_table)" time="2.353736667">
+            <system-out>
+RECALL_MEAN_ONE_TABLE 1.0000
+F1_MEAN_ONE_TABLE 1.0000
+Recall@10 stats: mean=1.0000, min=1.0000, max=1.0000
+Dataset: 5000 points, 50 queries, 768D vectors
+
+            </system-out>
+        </testcase>
+        <testcase classname="test/integration/YdbRealIntegration.one-table.test.ts" name="YDB integration with COLLECTION_STORAGE_MODE=one_table &gt; creates collection, upserts points to global table, and performs search" time="0.059333291">
+        </testcase>
+        <testcase classname="test/integration/YdbRealIntegration.one-table.test.ts" name="YDB integration with COLLECTION_STORAGE_MODE=one_table &gt; stores points in the global table with correct uid" time="0.080349417">
+        </testcase>
+        <testcase classname="test/integration/YdbRealIntegration.one-table.test.ts" name="YDB integration with COLLECTION_STORAGE_MODE=one_table &gt; materializes qdrant_points_by_file rows and keeps ancestor rows after exact path delete" time="0.186655208">
+        </testcase>
+        <testcase classname="test/integration/YdbRealIntegration.one-table.test.ts" name="YDB integration with COLLECTION_STORAGE_MODE=one_table &gt; isolates data between api-key namespaces using collection filtering in global table" time="0.134585417">
+        </testcase>
+        <testcase classname="test/integration/YdbRealIntegration.one-table.test.ts" name="YDB integration with COLLECTION_STORAGE_MODE=one_table &gt; deletes only the collection&apos;s points from global table, not other collections" time="0.109215041">
+        </testcase>
+        <testcase classname="test/integration/YdbRealIntegration.one-table.test.ts" name="YDB integration with COLLECTION_STORAGE_MODE=one_table &gt; deletes individual points from global table using uid filter" time="0.07319325">
+        </testcase>
+        <testcase classname="test/integration/YdbRealIntegration.one-table.test.ts" name="YDB integration with COLLECTION_STORAGE_MODE=one_table &gt; rejects legacy layouts without embedding_quantized column (no automatic migrations)" time="0.062381667">
+        </testcase>
+    </testsuite>
+</testsuites>

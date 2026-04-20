@@ -5,14 +5,15 @@ YDB Qdrant-compatible service is a Node.js/TypeScript service and npm library th
 ### Storage Layout
 
 - **One-table layout (current and default)**:
-  - Metadata table `qdr__collections` stores per‑collection configuration (`table_name`, `vector_dimension`, `distance`, `vector_type`, `created_at`).
-  - A single global points table `qdrant_all_points` with `(uid, point_id)` PK, where `uid` encodes tenant+collection.
-    - Columns: `uid Utf8`, `point_id Utf8`, `embedding String` (binary float), `embedding_quantized String` (bit‑quantized), `payload JsonDocument`.
+  - Metadata table `qdr__collections` stores per‑collection configuration (`table_name`, `vector_dimension`, `distance`, `vector_type`, `created_at`, `last_accessed_at`, `user_uid`).
+  - A single global points table `qdrant_all_points` with `(collection, point_id)` PK, where `collection` is the resolved namespace + collection key.
+    - Columns: `collection Utf8`, `point_id Utf8`, `embedding String` (binary float), `embedding_quantized String` (bit‑quantized), `payload JsonDocument`, `payload_sign Utf8`, `path_prefix Optional<Utf8>`.
+  - A lookup table `qdrant_points_by_file` stores `(collection, file_path, point_id)` for efficient path-based deletes.
     - Table is created with YDB auto-partitioning enabled (by load and by size) using the SDK table profile, with a target partition size of ~100 MB to allow the storage layer to split/merge partitions as load and size change.
 
 ### One-table Mode Migrations
 
-This project does not perform automatic schema migrations. Tables are expected to be created with the correct schema from the beginning (including the `embedding_quantized` column in `qdrant_all_points` and `last_accessed_at` in `qdr__collections`). If an existing deployment uses an older schema, apply a manual migration or recreate the tables before running the service.
+This project does not perform automatic schema migrations. Tables are expected to be created with the correct schema from the beginning (including `collection`, `embedding_quantized`, `payload_sign`, `path_prefix` in `qdrant_all_points`, `user_uid` in `qdr__collections`, and the `qdrant_points_by_file` lookup table). If an existing deployment uses an older schema, apply a manual migration or recreate the tables before running the service.
 
 ### Vector Serialization and Search
 
@@ -72,5 +73,4 @@ Compatibility notes:
 - ydb-sdk (Node.js): https://github.com/ydb-platform/ydb-nodejs-sdk
 - YDB Cloud (endpoints, auth): https://cloud.yandex.com/en/docs/ydb/
 - IR evaluation (precision/recall/F1, MAP, nDCG): https://nlp.stanford.edu/IR-book/pdf/08eval.pdf
-
 

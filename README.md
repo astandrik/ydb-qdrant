@@ -79,8 +79,8 @@ The server uses `getCredentialsFromEnv()` and supports these env vars (first mat
 
 Also set endpoint and database:
 ```bash
-export YDB_ENDPOINT=grpcs://ydb.serverless.yandexcloud.net:2135
-export YDB_DATABASE=/ru-central1/<cloud>/<db>
+export YDB_QDRANT_ENDPOINT=grpcs://ydb.serverless.yandexcloud.net:2135
+export YDB_QDRANT_DATABASE=/ru-central1/<cloud>/<db>
 ```
 
 Optional env:
@@ -102,9 +102,8 @@ The package entrypoint exports a programmatic API that mirrors the Qdrant HTTP s
   import { createYdbQdrantClient } from "ydb-qdrant";
 
   async function main() {
-    // defaultTenant is optional; defaults to "default"
     const client = await createYdbQdrantClient({
-      defaultTenant: "myapp",
+      apiKey: "my-stable-namespace-key",
       endpoint: "grpcs://lb.etn01g9tcilcon2mrt3h.ydb.mdb.yandexcloud.net:2135",
       database: "/ru-central1/b1ge4v9r1l3h1q4njclp/etn01g9tcilcon2mrt3h",
     });
@@ -133,20 +132,20 @@ The package entrypoint exports a programmatic API that mirrors the Qdrant HTTP s
   }
   ```
 
-- Multi-tenant usage with `forTenant`:
+- Explicit namespace usage with `userUid`:
   ```ts
   const client = await createYdbQdrantClient({
+    userUid: "team_a",
     endpoint: "grpcs://lb.etn01g9tcilcon2mrt3h.ydb.mdb.yandexcloud.net:2135",
     database: "/ru-central1/b1ge4v9r1l3h1q4njclp/etn01g9tcilcon2mrt3h",
   });
-  const tenantClient = client.forTenant("tenant-a");
 
-  await tenantClient.upsertPoints("sessions", {
+  await client.upsertPoints("sessions", {
     points: [{ id: "s1", vector: [/* ... */] }],
   });
   ```
 
-The request/response shapes follow the same schemas as the HTTP API (`CreateCollectionReq`, `UpsertPointsReq`, `SearchReq`, `DeletePointsReq`), so code written against the REST API can usually be translated directly to the library calls.
+The request/response shapes follow the same schemas as the HTTP API (`CreateCollectionReq`, `UpsertPointsReq`, `SearchReq`, `DeletePointsReq`, `RetrievePointsReq`), so code written against the REST API can usually be translated directly to the library calls. `createYdbQdrantClient` now requires either `apiKey` or `userUid`.
 
 ### Example: in-process points search with a shared client
 
@@ -160,7 +159,7 @@ let clientPromise: ReturnType<typeof createYdbQdrantClient> | null = null;
 async function getClient() {
   if (!clientPromise) {
     clientPromise = createYdbQdrantClient({
-      defaultTenant: 'myapp',
+      apiKey: 'myapp-shared-key',
       endpoint: 'grpcs://lb.etn01g9tcilcon2mrt3h.ydb.mdb.yandexcloud.net:2135',
       database: '/ru-central1/b1ge4v9r1l3h1q4njclp/etn01g9tcilcon2mrt3h',
     });
@@ -193,9 +192,9 @@ For full tables of popular embedding models and their dimensions, see [docs/vect
 
 **Option 1: Public Demo (No setup required)**
 - Set Qdrant URL to `http://ydb-qdrant.tech:8080`
-- No API key needed
+- `api-key` recommended for stable isolation
 - Free to use for testing and development
-- Shared instance - use `X-Tenant-Id` header for isolation
+- If `api-key` is omitted, isolation falls back to best-effort IP + User-Agent hashing
 
 **Option 2: Self-hosted (Local)**
 - Set Qdrant URL to `http://localhost:8080`
@@ -274,8 +273,8 @@ Basic example:
 ```bash
 docker run -d --name ydb-qdrant \
   -p 8080:8080 \
-  -e YDB_ENDPOINT=grpcs://ydb.serverless.yandexcloud.net:2135 \
-  -e YDB_DATABASE=/ru-central1/<cloud>/<db> \
+  -e YDB_QDRANT_ENDPOINT=grpcs://ydb.serverless.yandexcloud.net:2135 \
+  -e YDB_QDRANT_DATABASE=/ru-central1/<cloud>/<db> \
   -e YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS=/sa-key.json \
   -v /abs/path/sa-key.json:/sa-key.json:ro \
   ghcr.io/astandrik/ydb-qdrant:latest

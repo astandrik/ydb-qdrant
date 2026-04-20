@@ -4,11 +4,11 @@
 
 import http from "k6/http";
 import { check, sleep } from "k6";
-import { BASE_URL, COLLECTION_NAME, VECTOR_DIM, TENANT_ID, generatePoints } from "../config.js";
+import { BASE_URL, COLLECTION_NAME, VECTOR_DIM, API_KEY, generatePoints } from "../config.js";
 
 const headers = {
   "Content-Type": "application/json",
-  "X-Tenant-Id": TENANT_ID,
+  "api-key": API_KEY,
 };
 
 /**

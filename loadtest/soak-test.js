@@ -24,7 +24,7 @@ import { Counter, Rate, Trend } from "k6/metrics";
 import {
   BASE_URL,
   VECTOR_DIM,
-  TENANT_ID,
+  API_KEY,
   SOAK_THRESHOLDS,
   randomVector,
   generatePoints,
@@ -57,7 +57,7 @@ export const options = {
 
 const headers = {
   "Content-Type": "application/json",
-  "X-Tenant-Id": TENANT_ID,
+  "api-key": API_KEY,
 };
 
 // Setup: create collection and seed with data
@@ -115,7 +115,7 @@ function performSearch(data) {
     "search has results": (r) => {
       try {
         const body = JSON.parse(r.body);
-        return body.points && body.points.length > 0;
+        return Array.isArray(body.result) && body.result.length > 0;
       } catch {
         return false;
       }

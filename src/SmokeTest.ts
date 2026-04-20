@@ -2,10 +2,10 @@ import "dotenv/config";
 import { createYdbQdrantClient } from "./package/api.js";
 
 async function main(): Promise<void> {
-  const tenant = process.env.SMOKE_TENANT ?? "smoke";
   const collection = process.env.SMOKE_COLLECTION ?? "demo";
+  const apiKey = process.env.SMOKE_API_KEY ?? "smoke-demo-api-key";
 
-  const client = await createYdbQdrantClient({ defaultTenant: tenant });
+  const client = await createYdbQdrantClient({ apiKey });
 
   await client.createCollection(collection, {
     vectors: {

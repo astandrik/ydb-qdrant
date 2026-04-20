@@ -72,8 +72,8 @@ jobs:
       - name: Bootstrap metadata table (qdr__collections)
         run: node dist/ydb/bootstrapMetaTable.js
         env:
-          YDB_ENDPOINT: grpc://localhost:2136
-          YDB_DATABASE: /local
+          YDB_QDRANT_ENDPOINT: grpc://localhost:2136
+          YDB_QDRANT_DATABASE: /local
           YDB_ANONYMOUS_CREDENTIALS: "1"
 
       - name: Start HTTP server
@@ -82,8 +82,8 @@ jobs:
           echo $! > server.pid
           sleep 5
         env:
-          YDB_ENDPOINT: grpc://localhost:2136
-          YDB_DATABASE: /local
+          YDB_QDRANT_ENDPOINT: grpc://localhost:2136
+          YDB_QDRANT_DATABASE: /local
           YDB_ANONYMOUS_CREDENTIALS: "1"
           YDB_QDRANT_SEARCH_MODE: ${{ matrix.search_mode }}
           PORT: 8080
@@ -353,3 +353,135 @@ jobs:
           name: stress-test-log-${{ matrix.storage_mode }}-${{ matrix.search_mode }}
           path: stress.log
           retention-days: 7
+
+  pathsegments_stress_test:
+    name: Stress test (pathsegments flow)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    services:
+      ydb:
+        image: ghcr.io/ydb-platform/local-ydb:stable-25-3
+        ports:
+          - 2136:2136
+        options: --hostname localhost
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install k6
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Wait for YDB to be ready
+        run: |
+          echo "Waiting for YDB at grpc://localhost:2136 ..."
+          for i in {1..30}; do
+            if nc -z localhost 2136; then
+              echo "YDB is accepting connections on port 2136"
+              exit 0
+            fi
+            echo "YDB not ready yet, retrying..."
+            sleep 2
+          done
+          echo "YDB did not become ready in time"
+          exit 1
+
+      - name: Bootstrap metadata table (qdr__collections)
+        run: node dist/ydb/bootstrapMetaTable.js
+        env:
+          YDB_QDRANT_ENDPOINT: grpc://localhost:2136
+          YDB_QDRANT_DATABASE: /local
+          YDB_ANONYMOUS_CREDENTIALS: "1"
+
+      - name: Start HTTP server
+        run: |
+          npm start &
+          echo $! > server.pid
+          sleep 5
+        env:
+          YDB_QDRANT_ENDPOINT: grpc://localhost:2136
+          YDB_QDRANT_DATABASE: /local
+          YDB_ANONYMOUS_CREDENTIALS: "1"
+          YDB_QDRANT_SEARCH_MODE: exact
+          PORT: 8080
+          LOG_LEVEL: warn
+
+      - name: Wait for server health
+        run: |
+          echo "Waiting for server health at http://localhost:8080/health ..."
+          for i in {1..30}; do
+            if curl -s http://localhost:8080/health | grep -q '"status":"ok"'; then
+              echo "Server is healthy"
+              exit 0
+            fi
+            echo "Server not ready yet, retrying..."
+            sleep 2
+          done
+          echo "Server did not become healthy in time"
+          exit 1
+
+      - name: Run pathsegments stress workload
+        run: |
+          k6 run loadtest/pathsegments-stress.js 2>&1 | tee pathstress.log
+        env:
+          BASE_URL: http://localhost:8080
+          API_KEY: loadtest_api_key
+
+      - name: Extract pathsegments metrics
+        id: metrics
+        run: |
+          OPS_PER_SEC=$(grep 'PATHSTRESS_OPS_PER_SEC' pathstress.log | tail -1 | sed -E 's/.*PATHSTRESS_OPS_PER_SEC ([0-9.]+).*/\1/')
+          SEARCH_P95=$(grep 'PATHSTRESS_SEARCH_P95' pathstress.log | tail -1 | sed -E 's/.*PATHSTRESS_SEARCH_P95 ([0-9.]+).*/\1/')
+          UPSERT_P95=$(grep 'PATHSTRESS_UPSERT_P95' pathstress.log | tail -1 | sed -E 's/.*PATHSTRESS_UPSERT_P95 ([0-9.]+).*/\1/')
+          DELETE_P95=$(grep 'PATHSTRESS_DELETE_P95' pathstress.log | tail -1 | sed -E 's/.*PATHSTRESS_DELETE_P95 ([0-9.]+).*/\1/')
+          ERROR_RATE=$(grep 'PATHSTRESS_ERROR_RATE' pathstress.log | tail -1 | sed -E 's/.*PATHSTRESS_ERROR_RATE ([0-9.]+).*/\1/')
+
+          echo "ops_per_sec=${OPS_PER_SEC}" >> "$GITHUB_OUTPUT"
+          echo "search_p95=${SEARCH_P95}" >> "$GITHUB_OUTPUT"
+          echo "upsert_p95=${UPSERT_P95}" >> "$GITHUB_OUTPUT"
+          echo "delete_p95=${DELETE_P95}" >> "$GITHUB_OUTPUT"
+          echo "error_rate=${ERROR_RATE}" >> "$GITHUB_OUTPUT"
+
+          echo "### Stress Test Results (pathsegments flow)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Throughput | ${OPS_PER_SEC} ops/s |" >> $GITHUB_STEP_SUMMARY
+          echo "| Path search p95 | ${SEARCH_P95} ms |" >> $GITHUB_STEP_SUMMARY
+          echo "| Path upsert p95 | ${UPSERT_P95} ms |" >> $GITHUB_STEP_SUMMARY
+          echo "| Path delete p95 | ${DELETE_P95} ms |" >> $GITHUB_STEP_SUMMARY
+          echo "| Error rate | ${ERROR_RATE} % |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload pathsegments stress log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stress-test-log-pathsegments
+          path: pathstress.log
+          retention-days: 7
+
+      - name: Stop server
+        if: always()
+        run: |
+          if [ -f server.pid ]; then
+            kill $(cat server.pid) || true
+          fi

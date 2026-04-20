@@ -3,7 +3,8 @@ import { createYdbQdrantClient } from "../../src/package/api.js";
 import { createMetaTableIfMissing } from "./helpers/bootstrap-meta-table.js";
 
 describe("YDB integration (real database via programmatic API)", () => {
-  const tenant = process.env.YDB_QDRANT_INTEGRATION_TENANT ?? "itest_tenant";
+  const apiKey =
+    process.env.YDB_QDRANT_INTEGRATION_API_KEY ?? "itest-integration-api-key";
   const collectionBase =
     process.env.YDB_QDRANT_INTEGRATION_COLLECTION ?? "itest_collection";
   const collection = `${collectionBase}_${Date.now()}`;
@@ -12,7 +13,7 @@ describe("YDB integration (real database via programmatic API)", () => {
 
   beforeAll(async () => {
     await createMetaTableIfMissing();
-    client = await createYdbQdrantClient({ defaultTenant: tenant });
+    client = await createYdbQdrantClient({ apiKey });
   });
 
   afterAll(async () => {
@@ -308,13 +309,13 @@ describe("YDB integration (real database via programmatic API)", () => {
     }
   });
 
-  it("isolates data between tenants when using forTenant", async () => {
-    const tenantA = `${tenant}_a`;
-    const tenantB = `${tenant}_b`;
+  it("isolates data between api-key namespaces", async () => {
+    const apiKeyA = `${apiKey}-a`;
+    const apiKeyB = `${apiKey}-b`;
     const col = `${collectionBase}_tenant_isolation_${Date.now()}`;
 
-    const clientA = client.forTenant(tenantA);
-    const clientB = client.forTenant(tenantB);
+    const clientA = await createYdbQdrantClient({ apiKey: apiKeyA });
+    const clientB = await createYdbQdrantClient({ apiKey: apiKeyB });
 
     await clientA.createCollection(col, {
       vectors: {
@@ -333,11 +334,11 @@ describe("YDB integration (real database via programmatic API)", () => {
     });
 
     await clientA.upsertPoints(col, {
-      points: [{ id: "a1", vector: [0, 0, 0, 1], payload: { tenant: "a" } }],
+      points: [{ id: "a1", vector: [0, 0, 0, 1], payload: { namespace: "a" } }],
     });
 
     await clientB.upsertPoints(col, {
-      points: [{ id: "b1", vector: [0, 0, 1, 0], payload: { tenant: "b" } }],
+      points: [{ id: "b1", vector: [0, 0, 1, 0], payload: { namespace: "b" } }],
     });
 
     const resA = await clientA.searchPoints(col, {

@@ -49,8 +49,7 @@ jobs:
       - name: Run integration tests
         run: npm run test:integration
         env:
-          YDB_ENDPOINT: grpc://localhost:2136
-          YDB_DATABASE: /local
+          YDB_QDRANT_ENDPOINT: grpc://localhost:2136
+          YDB_QDRANT_DATABASE: /local
           YDB_ANONYMOUS_CREDENTIALS: "1"
-
 
