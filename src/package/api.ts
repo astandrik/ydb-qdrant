@@ -157,12 +157,12 @@ function buildClient(userUid: string, apiKey: string): YdbQdrantClient {
     };
 }
 
-function resolveClientIdentity(options: YdbQdrantClientOptions): {
+function resolveClientIdentity(options?: YdbQdrantClientOptions): {
     signingKey: string;
     userUid: string;
 } {
-    const providedUserUid = options.userUid?.trim();
-    const apiKey = options.apiKey?.trim();
+    const providedUserUid = options?.userUid?.trim();
+    const apiKey = options?.apiKey?.trim();
 
     if (providedUserUid && apiKey) {
         throw new Error(
@@ -190,19 +190,19 @@ function resolveClientIdentity(options: YdbQdrantClientOptions): {
 }
 
 export async function createYdbQdrantClient(
-    options: YdbQdrantClientOptions
+    options?: YdbQdrantClientOptions
 ): Promise<YdbQdrantClient> {
     if (
-        options.endpoint !== undefined ||
-        options.database !== undefined ||
-        options.connectionString !== undefined ||
-        options.authService !== undefined
+        options?.endpoint !== undefined ||
+        options?.database !== undefined ||
+        options?.connectionString !== undefined ||
+        options?.authService !== undefined
     ) {
         configureDriver({
-            endpoint: options.endpoint,
-            database: options.database,
-            connectionString: options.connectionString,
-            authService: options.authService,
+            endpoint: options?.endpoint,
+            database: options?.database,
+            connectionString: options?.connectionString,
+            authService: options?.authService,
         });
     }
 

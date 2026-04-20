@@ -42,7 +42,16 @@ vi.mock("../../src/services/CollectionService.js", () => ({
 
 vi.mock("../../src/utils/requestIdentity.js", () => ({
     resolveRequestSigningKey: vi.fn(() => "test-api-key"),
-    resolveRequestUserUid: vi.fn(() => "1120000000101690"),
+    resolveRequestNamespaceUserUid: vi.fn((req: { header: (name: string) => string | undefined }) => {
+        const tenantId = req.header("x-tenant-id");
+        if (tenantId === "tenant_a") {
+            return "tenant_scoped_a";
+        }
+        if (tenantId === "tenant_b") {
+            return "tenant_scoped_b";
+        }
+        return "1120000000101690";
+    }),
 }));
 
 import { collectionsRouter } from "../../src/routes/collections.js";
@@ -215,5 +224,47 @@ describe("collectionsRouter (HTTP, mocked service)", () => {
         });
         expect(res.body).toHaveProperty("time");
         expect(res.body).toHaveProperty("usage", null);
+    });
+
+    it("passes different tenant-scoped userUids for the same api-key", async () => {
+        const handler = findHandler(collectionsRouter, "get", "/:collection");
+
+        const tenantAReq = createRequest({
+            method: "GET",
+            collection: "My-Collection",
+            headers: {
+                "api-key": "shared-api-key",
+                "x-tenant-id": "tenant_a",
+            },
+        });
+        const tenantARes = createMockRes();
+
+        await handler(tenantAReq, tenantARes);
+
+        expect(collectionService.getCollection).toHaveBeenNthCalledWith(1, {
+            userUid: "tenant_scoped_a",
+            collection: "My-Collection",
+            apiKey: "test-api-key",
+            userAgent: undefined,
+        });
+
+        const tenantBReq = createRequest({
+            method: "GET",
+            collection: "My-Collection",
+            headers: {
+                "api-key": "shared-api-key",
+                "x-tenant-id": "tenant_b",
+            },
+        });
+        const tenantBRes = createMockRes();
+
+        await handler(tenantBReq, tenantBRes);
+
+        expect(collectionService.getCollection).toHaveBeenNthCalledWith(2, {
+            userUid: "tenant_scoped_b",
+            collection: "My-Collection",
+            apiKey: "test-api-key",
+            userAgent: undefined,
+        });
     });
 });

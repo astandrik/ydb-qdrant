@@ -22,8 +22,8 @@ import {
     getMonotonicTimeNs,
 } from "../logging/requestContext.js";
 import {
+    resolveRequestNamespaceUserUid,
     resolveRequestSigningKey,
-    resolveRequestUserUid,
 } from "../utils/requestIdentity.js";
 
 export const pointsRouter = Router();
@@ -34,7 +34,7 @@ function buildPointsContext(req: Request): {
     userAgent?: string;
     userUid: string;
 } {
-    const userUid = resolveRequestUserUid(req);
+    const userUid = resolveRequestNamespaceUserUid(req);
     return {
         userUid,
         collection: String(req.params.collection),

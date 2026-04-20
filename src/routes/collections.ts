@@ -9,8 +9,8 @@ import { QdrantServiceError } from "../services/errors.js";
 import { logger } from "../logging/logger.js";
 import { qdrantResponse } from "../utils/qdrantResponse.js";
 import {
+    resolveRequestNamespaceUserUid,
     resolveRequestSigningKey,
-    resolveRequestUserUid,
 } from "../utils/requestIdentity.js";
 
 export const collectionsRouter = Router();
@@ -21,7 +21,7 @@ function buildCollectionContext(req: Request): {
     userAgent?: string;
     userUid: string;
 } {
-    const userUid = resolveRequestUserUid(req);
+    const userUid = resolveRequestNamespaceUserUid(req);
     return {
         userUid,
         collection: String(req.params.collection),

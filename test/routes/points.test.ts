@@ -65,7 +65,16 @@ vi.mock("../../src/services/PointsService.js", () => ({
 
 vi.mock("../../src/utils/requestIdentity.js", () => ({
     resolveRequestSigningKey: vi.fn(() => "test-api-key"),
-    resolveRequestUserUid: vi.fn(() => "1120000000101690"),
+    resolveRequestNamespaceUserUid: vi.fn((req: { header: (name: string) => string | undefined }) => {
+        const tenantId = req.header("x-tenant-id");
+        if (tenantId === "tenant_a") {
+            return "tenant_scoped_a";
+        }
+        if (tenantId === "tenant_b") {
+            return "tenant_scoped_b";
+        }
+        return "1120000000101690";
+    }),
 }));
 
 import { pointsRouter } from "../../src/routes/points.js";
@@ -308,6 +317,66 @@ describe("pointsRouter (HTTP, mocked service)", () => {
         });
         expect(deleteRes.body).toHaveProperty("time");
         expect(deleteRes.body).toHaveProperty("usage", null);
+    });
+
+    it("passes different tenant-scoped userUids for the same api-key", async () => {
+        const searchHandler = findHandler(
+            pointsRouter,
+            "post",
+            "/:collection/points/search"
+        );
+        const body = {
+            vector: [0, 0, 0, 1],
+            top: 1,
+        };
+
+        const tenantAReq = createRequest({
+            method: "POST",
+            collection: "col",
+            body,
+            headers: {
+                "api-key": "shared-api-key",
+                "x-tenant-id": "tenant_a",
+            },
+        });
+        const tenantARes = createMockRes();
+
+        await searchHandler(tenantAReq, tenantARes);
+
+        expect(pointsService.searchPoints).toHaveBeenNthCalledWith(
+            1,
+            {
+                userUid: "tenant_scoped_a",
+                collection: "col",
+                apiKey: "test-api-key",
+                userAgent: undefined,
+            },
+            body
+        );
+
+        const tenantBReq = createRequest({
+            method: "POST",
+            collection: "col",
+            body,
+            headers: {
+                "api-key": "shared-api-key",
+                "x-tenant-id": "tenant_b",
+            },
+        });
+        const tenantBRes = createMockRes();
+
+        await searchHandler(tenantBReq, tenantBRes);
+
+        expect(pointsService.searchPoints).toHaveBeenNthCalledWith(
+            2,
+            {
+                userUid: "tenant_scoped_b",
+                collection: "col",
+                apiKey: "test-api-key",
+                userAgent: undefined,
+            },
+            body
+        );
     });
 
     it("returns QdrantServiceError payload and status for points search failures", async () => {

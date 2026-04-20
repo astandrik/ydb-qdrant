@@ -170,4 +170,10 @@ describe("YdbQdrantClient (programmatic API, mocked YDB)", () => {
             })
         ).rejects.toThrow(/exactly one of apiKey or userUid/);
     });
+
+    it("rejects missing identity without throwing a TypeError when called without options", async () => {
+        await expect(createYdbQdrantClient()).rejects.toThrow(
+            /requires either userUid or apiKey/
+        );
+    });
 });
