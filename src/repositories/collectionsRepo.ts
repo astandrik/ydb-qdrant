@@ -226,6 +226,33 @@ export async function hasPointsForCollection(
     return (rowset?.rows?.length ?? 0) > 0;
 }
 
+const MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+
+function bigintToSafeNumberOrNull(value: bigint): number | null {
+    if (value > MAX_SAFE_BIGINT || value < -MAX_SAFE_BIGINT) {
+        return null;
+    }
+    return Number(value);
+}
+
+function longLikeToBigInt(value: {
+    low: number;
+    high: number;
+    unsigned?: boolean;
+}): bigint {
+    const low = BigInt(value.low >>> 0);
+    const high = BigInt(value.high >>> 0);
+    let n = low + (high << 32n);
+
+    const isUnsigned = value.unsigned === true;
+    const signBitSet = (value.high & 0x8000_0000) !== 0;
+    if (!isUnsigned && signBitSet) {
+        n -= 1n << 64n;
+    }
+
+    return n;
+}
+
 function parsePointCountValue(value: unknown): number {
     if (typeof value === "number" && Number.isFinite(value)) {
         return value;
@@ -237,7 +264,29 @@ function parsePointCountValue(value: unknown): number {
         }
     }
     if (typeof value === "bigint") {
-        return Number(value);
+        const parsed = bigintToSafeNumberOrNull(value);
+        if (parsed !== null) {
+            return parsed;
+        }
+    }
+    if (value && typeof value === "object") {
+        const v = value as {
+            low?: unknown;
+            high?: unknown;
+            unsigned?: unknown;
+        };
+        if (typeof v.low === "number" && typeof v.high === "number") {
+            const parsed = bigintToSafeNumberOrNull(
+                longLikeToBigInt({
+                    low: v.low,
+                    high: v.high,
+                    unsigned: v.unsigned === true,
+                })
+            );
+            if (parsed !== null) {
+                return parsed;
+            }
+        }
     }
     throw new Error("Unable to parse points_count from YDB result.");
 }

@@ -215,4 +215,32 @@ describe("collectionsRepo (with mocked YDB)", () => {
 
         expect(pointsCount).toBe(2);
     });
+
+    it("parses point count from YDB Long-like Uint64 values", async () => {
+        withSessionMock.mockResolvedValueOnce({
+            resultSets: [
+                {
+                    rows: [
+                        {
+                            items: [
+                                {
+                                    uint64Value: {
+                                        low: 2,
+                                        high: 0,
+                                        unsigned: true,
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        } as unknown as never);
+
+        const pointsCount = await countPointsForCollection(
+            "tenant_a/my_collection"
+        );
+
+        expect(pointsCount).toBe(2);
+    });
 });
