@@ -8,6 +8,11 @@ on:
       tag:
         description: "Release tag to publish, for example v9.0.0"
         required: true
+      publish_latest:
+        description: "Also update the latest image tags"
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   docker:
@@ -29,17 +34,54 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract version from tag
+      - name: Extract version and image tags
         id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          PUBLISH_LATEST: ${{ inputs.publish_latest }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
         run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            TAG="${{ github.event.release.tag_name }}"
+          if [ "${EVENT_NAME}" = "release" ]; then
+            TAG="${RELEASE_TAG}"
           else
-            TAG="${{ inputs.tag }}"
+            TAG="${INPUT_TAG}"
           fi
+          case "${TAG}" in
+            v[0-9]*.[0-9]*.[0-9]*|ydb-qdrant-v[0-9]*.[0-9]*.[0-9]*)
+              ;;
+            *)
+              echo "Unsupported release tag format: ${TAG}" >&2
+              exit 1
+              ;;
+          esac
           VERSION="${TAG#ydb-qdrant-v}"
           VERSION="${VERSION#v}"
+          if ! [[ "${VERSION}" =~ ^[0-9]+[.][0-9]+[.][0-9]+([-_.][0-9A-Za-z_.-]+)?$ ]]; then
+            echo "Unsupported Docker version tag: ${VERSION}" >&2
+            exit 1
+          fi
+          if [ "${EVENT_NAME}" = "release" ] || [ "${PUBLISH_LATEST}" = "true" ]; then
+            SHOULD_PUBLISH_LATEST="true"
+          else
+            SHOULD_PUBLISH_LATEST="false"
+          fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          {
+            echo "ydb_qdrant_tags<<EOF"
+            echo "ghcr.io/${REPOSITORY_OWNER}/ydb-qdrant:${VERSION}"
+            if [ "${SHOULD_PUBLISH_LATEST}" = "true" ]; then
+              echo "ghcr.io/${REPOSITORY_OWNER}/ydb-qdrant:latest"
+            fi
+            echo "EOF"
+            echo "ydb_qdrant_local_tags<<EOF"
+            echo "ghcr.io/${REPOSITORY_OWNER}/ydb-qdrant-local:${VERSION}"
+            if [ "${SHOULD_PUBLISH_LATEST}" = "true" ]; then
+              echo "ghcr.io/${REPOSITORY_OWNER}/ydb-qdrant-local:latest"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -53,9 +95,7 @@ jobs:
           context: .
           push: true
           platforms: linux/amd64
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/ydb-qdrant:latest
-            ghcr.io/${{ github.repository_owner }}/ydb-qdrant:${{ steps.version.outputs.version }}
+          tags: ${{ steps.version.outputs.ydb_qdrant_tags }}
 
       - name: Build and push ydb-qdrant-local image (with embedded YDB)
         uses: docker/build-push-action@v6
@@ -64,6 +104,4 @@ jobs:
           push: true
           platforms: linux/amd64
           file: Dockerfile.local-ydb
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/ydb-qdrant-local:latest
-            ghcr.io/${{ github.repository_owner }}/ydb-qdrant-local:${{ steps.version.outputs.version }}
+          tags: ${{ steps.version.outputs.ydb_qdrant_local_tags }}
