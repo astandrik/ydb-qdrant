@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776780744239,
+  "lastUpdate": 1776780745664,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (one_table, 768D)": [
@@ -14366,6 +14366,45 @@ window.BENCHMARK_DATA = {
           {
             "name": "Stress: Throughput",
             "value": 177.3863449575878,
+            "unit": "ops/s"
+          },
+          {
+            "name": "Stress: Max VUs",
+            "value": 600,
+            "unit": "VUs"
+          },
+          {
+            "name": "Stress: Breaking Point VUs",
+            "value": 600,
+            "unit": "VUs"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "distinct": true,
+          "id": "f323576aedab73d4bc293a6d1051e93c8df309f9",
+          "message": "fix: use npm trusted publishing",
+          "timestamp": "2026-04-21T17:04:30+03:00",
+          "tree_id": "5b0c2667ba65cc90c97fe438fbd55bc2f86b934b",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/f323576aedab73d4bc293a6d1051e93c8df309f9"
+        },
+        "date": 1776780745351,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Stress: Throughput",
+            "value": 170.4719037327373,
             "unit": "ops/s"
           },
           {
