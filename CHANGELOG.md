@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## [9.0.0](https://github.com/astandrik/ydb-qdrant/compare/v8.1.1...v9.0.0) (2026-04-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* refactor one-table Qdrant pipeline for exact search ([#188](https://github.com/astandrik/ydb-qdrant/issues/188))
+
+### Features
+
+* refactor one-table Qdrant pipeline for exact search ([#188](https://github.com/astandrik/ydb-qdrant/issues/188)) ([2d682e3](https://github.com/astandrik/ydb-qdrant/commit/2d682e3494fe579465cf190607d3aadd150a49b6))
+
 ## [8.1.1](https://github.com/astandrik/ydb-qdrant/compare/v8.1.0...v8.1.1) (2025-12-31)
 
 
