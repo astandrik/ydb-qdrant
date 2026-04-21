@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776770554473,
+  "lastUpdate": 1776770555720,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (one_table, 768D)": [
@@ -13336,6 +13336,47 @@ window.BENCHMARK_DATA = {
             "name": "Stress: Error Rate",
             "value": 0,
             "unit": "%"
+          }
+        ]
+      }
+    ],
+    "Load Test - Stress Capacity (one_table exact, 768D)": [
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2d682e3494fe579465cf190607d3aadd150a49b6",
+          "message": "feat!: refactor one-table Qdrant pipeline for exact search (#188)\n\n* feat!: update\n\n* fix: remove quantized\n\n* fix: review fixes\n\n* fix: review fixes\n\n* fix: update docs\n\n* fix: tests\n\n* fix: review fixes",
+          "timestamp": "2026-04-21T14:14:46+03:00",
+          "tree_id": "f8e2f39982190053f8aacfc371befaf578729ea7",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/2d682e3494fe579465cf190607d3aadd150a49b6"
+        },
+        "date": 1776770555377,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Stress: Throughput",
+            "value": 165.55100553506736,
+            "unit": "ops/s"
+          },
+          {
+            "name": "Stress: Max VUs",
+            "value": 600,
+            "unit": "VUs"
+          },
+          {
+            "name": "Stress: Breaking Point VUs",
+            "value": 600,
+            "unit": "VUs"
           }
         ]
       }
