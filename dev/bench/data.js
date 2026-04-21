@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776779077282,
+  "lastUpdate": 1776779934365,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (one_table, 768D)": [
@@ -13380,6 +13380,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Soak: Upsert Latency p95",
             "value": 19,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Error Rate",
+            "value": 0,
+            "unit": "%"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d5a05648d9289c6e53cd397017048199040b0917",
+          "message": "fix: npm release (#192)",
+          "timestamp": "2026-04-21T16:55:08+03:00",
+          "tree_id": "4c2843ff4ef70630b7d0b5e5414100f17febfc8b",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/d5a05648d9289c6e53cd397017048199040b0917"
+        },
+        "date": 1776779932952,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Soak: Search Latency p95",
+            "value": 77,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Search Latency p99",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Upsert Latency p95",
+            "value": 21,
             "unit": "ms"
           },
           {
