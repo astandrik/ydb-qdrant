@@ -1,84 +1,99 @@
-import { createHash } from "crypto";
+import { createHash } from "node:crypto";
 
-export function hashApiKey(apiKey: string | undefined): string | undefined {
-  if (!apiKey || apiKey.trim() === "") return undefined;
-  const hash = createHash("sha256").update(apiKey).digest("hex");
-  return hash.slice(0, 8);
+const API_KEY_UID_PREFIX = "ak";
+const ANONYMOUS_UID_PREFIX = "anon";
+const UID_HASH_LENGTH = 16;
+
+export class AnonymousIdentityError extends Error {
+    constructor() {
+        super(
+            "Anonymous requests require api-key or identifiable client metadata."
+        );
+        this.name = "AnonymousIdentityError";
+    }
+}
+
+function shortHash(value: string): string {
+    return createHash("sha256").update(value).digest("hex").slice(0, UID_HASH_LENGTH);
 }
 
 export function normalizeUserAgent(
-  userAgent: string | undefined
+    userAgent: string | undefined
 ): string | undefined {
-  if (!userAgent || userAgent.trim() === "") return undefined;
-  let lowered = userAgent
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_]/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^_+|_+$/g, "");
+    if (!userAgent || userAgent.trim() === "") return undefined;
+    let lowered = userAgent
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_]/g, "_")
+        .replace(/_+/g, "_")
+        .replace(/^_+|_+$/g, "");
 
-  if (lowered.length === 0) return undefined;
+    if (lowered.length === 0) return undefined;
 
-  const MAX_LEN = 32;
-  if (lowered.length > MAX_LEN) {
-    lowered = lowered.slice(0, MAX_LEN).replace(/_+$/g, "");
-  }
+    const MAX_LEN = 32;
+    if (lowered.length > MAX_LEN) {
+        lowered = lowered.slice(0, MAX_LEN).replace(/_+$/g, "");
+    }
 
-  if (lowered.length === 0) return undefined;
+    if (lowered.length === 0) return undefined;
 
-  const hash = createHash("sha256").update(userAgent).digest("hex");
-  const shortHash = hash.slice(0, 8);
-
-  return `${lowered}_${shortHash}`;
+    return lowered;
 }
 
 export function sanitizeCollectionName(
-  name: string,
-  apiKeyHash?: string,
-  userAgentNormalized?: string
+    name: string,
+    _userAgentNormalized?: string
 ): string {
-  const cleaned = name.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_");
-  const lowered = cleaned.toLowerCase().replace(/^_+/, "");
-  const base = lowered.length > 0 ? lowered : "collection";
-
-  const hasApiKey = apiKeyHash !== undefined && apiKeyHash.trim().length > 0;
-  const hasUserAgent =
-    userAgentNormalized !== undefined && userAgentNormalized.trim().length > 0;
-
-  if (hasApiKey && hasUserAgent) {
-    return `${base}_${apiKeyHash}_${userAgentNormalized}`;
-  } else if (hasApiKey) {
-    return `${base}_${apiKeyHash}`;
-  } else if (hasUserAgent) {
-    return `${base}_${userAgentNormalized}`;
-  }
-  return base;
+    void _userAgentNormalized;
+    const cleaned = name.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_");
+    const lowered = cleaned.toLowerCase().replace(/^_+/, "");
+    return lowered.length > 0 ? lowered : "collection";
 }
 
-export function sanitizeTenantId(tenantId: string | undefined): string {
-  const raw = (tenantId ?? "default").toString();
-  const cleaned = raw.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_");
-  const lowered = cleaned.toLowerCase().replace(/^_+/, "");
-  return lowered.length > 0 ? lowered : "default";
+export function sanitizeUserUid(userUid: string): string {
+    const raw = userUid.toString();
+    const cleaned = raw.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_");
+    const lowered = cleaned.toLowerCase().replace(/^_+/, "");
+    return lowered.length > 0 ? lowered : "anonymous";
 }
 
-export function tableNameFor(
-  sanitizedTenant: string,
-  sanitizedCollection: string
-): string {
-  return `qdr_${sanitizedTenant}__${sanitizedCollection}`;
+export function deriveUserUidFromApiKey(apiKey: string): string {
+    const normalizedApiKey = apiKey.trim();
+    if (normalizedApiKey.length === 0) {
+        throw new Error("deriveUserUidFromApiKey: apiKey is empty");
+    }
+
+    return sanitizeUserUid(`${API_KEY_UID_PREFIX}_${shortHash(normalizedApiKey)}`);
+}
+
+export function deriveAnonymousUserUid(args: {
+    clientIp?: string;
+    userAgent?: string;
+}): string {
+    const normalizedUserAgent = normalizeUserAgent(args.userAgent);
+    const normalizedClientIp = args.clientIp?.trim();
+    if (!normalizedClientIp && !normalizedUserAgent) {
+        throw new AnonymousIdentityError();
+    }
+
+    const identitySeed = [
+        normalizedClientIp || "unknown_ip",
+        normalizedUserAgent || "unknown_ua",
+    ].join("|");
+
+    return sanitizeUserUid(`${ANONYMOUS_UID_PREFIX}_${shortHash(identitySeed)}`);
 }
 
 export function metaKeyFor(
-  sanitizedTenant: string,
-  sanitizedCollection: string
+    sanitizedUserUid: string,
+    sanitizedCollection: string
 ): string {
-  return `${sanitizedTenant}/${sanitizedCollection}`;
+    return `${sanitizedUserUid}/${sanitizedCollection}`;
 }
 
 export function uidFor(
-  sanitizedTenant: string,
-  sanitizedCollection: string
+    sanitizedUserUid: string,
+    sanitizedCollection: string
 ): string {
-  return tableNameFor(sanitizedTenant, sanitizedCollection);
+    return metaKeyFor(sanitizedUserUid, sanitizedCollection);
 }

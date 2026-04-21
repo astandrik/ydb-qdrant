@@ -1,33 +1,30 @@
-## Architecture, Storage Layout, and Search Modes
+## Architecture, Storage Layout, and Search
 
-YDB Qdrant-compatible service is a Node.js/TypeScript service and npm library that stores and searches vectors in YDB using a global one-table layout (`qdrant_all_points`) with bit‑quantized approximate search (two‑phase over `embedding_quantized` + `embedding`) and an optional exact search mode.
+YDB Qdrant-compatible service is a Node.js/TypeScript service and npm library that stores and searches vectors in YDB using a global one-table layout (`qdrant_all_points`) with exact search over `embedding`.
 
 ### Storage Layout
 
 - **One-table layout (current and default)**:
-  - Metadata table `qdr__collections` stores per‑collection configuration (`table_name`, `vector_dimension`, `distance`, `vector_type`, `created_at`).
-  - A single global points table `qdrant_all_points` with `(uid, point_id)` PK, where `uid` encodes tenant+collection.
-    - Columns: `uid Utf8`, `point_id Utf8`, `embedding String` (binary float), `embedding_quantized String` (bit‑quantized), `payload JsonDocument`.
+  - Metadata table `qdr__collections` stores per‑collection configuration (`table_name`, `vector_dimension`, `distance`, `vector_type`, `created_at`, `last_accessed_at`, `user_uid`).
+  - A single global points table `qdrant_all_points` with `(collection, point_id)` PK, where `collection` is the resolved namespace + collection key.
+    - Columns: `collection Utf8`, `point_id Utf8`, `embedding String` (binary float), `payload JsonDocument`, `payload_sign Utf8`, `path_prefix Optional<Utf8>`.
+  - A lookup table `qdrant_points_by_file` stores `(collection, file_path, point_id)` as the secondary index used by path-based deletes.
     - Table is created with YDB auto-partitioning enabled (by load and by size) using the SDK table profile, with a target partition size of ~100 MB to allow the storage layer to split/merge partitions as load and size change.
 
 ### One-table Mode Migrations
 
-This project does not perform automatic schema migrations. Tables are expected to be created with the correct schema from the beginning (including the `embedding_quantized` column in `qdrant_all_points` and `last_accessed_at` in `qdr__collections`). If an existing deployment uses an older schema, apply a manual migration or recreate the tables before running the service.
+This project does not perform automatic schema migrations. Tables are expected to be created with the correct schema from the beginning (including `collection`, `payload_sign`, `path_prefix` in `qdrant_all_points`, `user_uid` in `qdr__collections`, and the `qdrant_points_by_file` lookup table). If an existing deployment uses an older schema, apply a manual migration or recreate the tables before running the service.
 
 ### Vector Serialization and Search
 
-- Vectors are serialized with `Knn::ToBinaryStringFloat` for full‑precision `embedding` and `Knn::ToBinaryStringBit` for bit‑quantized `embedding_quantized`.
-- Searches in one-table mode use the global `qdrant_all_points` table and support two search modes:
-  - **Exact** (`YDB_QDRANT_SEARCH_MODE=exact`): single-phase top‑k over `embedding` with `Knn::<Fn>(embedding, $qbinf)` where the function depends on the distance metric (`CosineDistance`, `InnerProductSimilarity`, `EuclideanDistance`, `ManhattanDistance`).
-  - **Approximate** (`YDB_QDRANT_SEARCH_MODE=approximate`, default): two‑phase approximate+exact flow:
-    1. Bit‑quantized candidates via `embedding_quantized` using `CosineSimilarity` DESC for Cosine, `EuclideanDistance`/`ManhattanDistance` ASC for Euclid/Manhattan, and `CosineDistance` ASC as a proxy for Dot.
-    2. Exact re‑ranking over `embedding` with the configured metric (`CosineDistance` ASC for Cosine, `InnerProductSimilarity` DESC for Dot, distance ASC for Euclid/Manhattan).
+- Vectors are serialized with `Knn::ToBinaryStringFloat` for full‑precision `embedding`.
+- Searches in one-table mode use the global `qdrant_all_points` table and run exact top‑k over `embedding` with `Knn::<Fn>(embedding, $qbinf)` where the function depends on the distance metric (`CosineDistance`, `InnerProductSimilarity`, `EuclideanDistance`, `ManhattanDistance`).
 
 ### Concurrency and Retries
 
 Upserts and deletes are wrapped in a bounded retry helper with exponential backoff to handle transient YDB errors (for example `Aborted` or temporary schema metadata issues).
 
-Filters are not yet modeled; they can be added if needed.
+`pathSegments.*` filters are supported for search, query, and delete paths. Search/query use `path_prefix` from the global points table, while delete uses the `qdrant_points_by_file` lookup table.
 
 ### Scoring Semantics
 
@@ -53,7 +50,9 @@ This service implements a minimal subset expected by common tooling:
 - Create/get/delete collection
 - Upsert points
 - Top‑k search with optional payload
+- Retrieve points by ID
 - Delete points
+- Delete/search/query by `pathSegments.*` filters
 
 Compatibility notes:
 
@@ -61,7 +60,7 @@ Compatibility notes:
 - Accepts `POST /collections/:collection/points/query` as an alias of search.
 - Accepts `limit` as an alias of `top`; honors `score_threshold`.
 - Search response shape: `{ status: "ok", result: { points: [{ id, score, payload? }] } }`.
-- `PUT /collections/:collection/index` is a no-op (Qdrant compatibility; some tools call this for payload indexes). Vector indexes are not used; search is driven by the global table layout and `YDB_QDRANT_SEARCH_MODE`.
+- `PUT /collections/:collection/index` is a no-op (Qdrant compatibility; some tools call this for payload indexes). Vector indexes are not used; search is driven by the global table layout.
 
 ### References
 
@@ -72,5 +71,3 @@ Compatibility notes:
 - ydb-sdk (Node.js): https://github.com/ydb-platform/ydb-nodejs-sdk
 - YDB Cloud (endpoints, auth): https://cloud.yandex.com/en/docs/ydb/
 - IR evaluation (precision/recall/F1, MAP, nDCG): https://nlp.stanford.edu/IR-book/pdf/08eval.pdf
-
-

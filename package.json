@@ -16,13 +16,16 @@
   "scripts": {
     "test": "vitest run --exclude \"test/integration/**\"",
     "test:coverage": "vitest run --coverage --exclude \"test/integration/**\"",
-    "test:integration": "vitest run test/integration/YdbRealIntegration.test.ts && YDB_QDRANT_SEARCH_MODE=approximate vitest run test/integration/YdbRealIntegration.one-table.test.ts && YDB_QDRANT_SEARCH_MODE=exact vitest run test/integration/YdbRealIntegration.one-table.test.ts",
-    "test:recall": "YDB_QDRANT_SEARCH_MODE=approximate vitest run test/integration/YdbRealIntegration.one-table.test.ts && YDB_QDRANT_SEARCH_MODE=exact vitest run test/integration/YdbRealIntegration.one-table.test.ts",
+    "test:integration": "vitest run test/integration/YdbRealIntegration.test.ts && vitest run test/integration/YdbRealIntegration.one-table.test.ts",
+    "test:e2e": "vitest run --config=vitest.config.e2e.mts",
+    "test:recall": "vitest run test/integration/YdbRealIntegration.one-table.test.ts",
     "load:soak": "k6 run loadtest/soak-test.js",
     "load:stress": "k6 run loadtest/stress-test.js",
+    "load:stress:pathsegments": "k6 run loadtest/pathsegments-stress.js",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/index.ts",
+    "start:e2e:app": "tsx src/index.ts",
     "start": "node --experimental-specifier-resolution=node --enable-source-maps dist/index.js",
     "smoke": "npm run build && node --experimental-specifier-resolution=node --enable-source-maps dist/SmokeTest.js",
     "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
@@ -32,7 +35,7 @@
   "keywords": [
     "ydb",
     "vector-search",
-    "approximate-nearest-neighbor",
+    "nearest-neighbor",
     "qdrant-compatible",
     "embeddings",
     "nodejs",
@@ -49,7 +52,7 @@
   ],
   "author": "",
   "license": "Apache-2.0",
-  "description": "Qdrant-compatible Node.js/TypeScript API that stores/searches embeddings in YDB using a global one-table layout with exact and approximate KNN search over serialized vectors.",
+  "description": "Qdrant-compatible Node.js/TypeScript API that stores/searches embeddings in YDB using a global one-table layout with exact KNN search over serialized vectors.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/astandrik/ydb-qdrant.git"
@@ -69,8 +72,10 @@
     "@yandex-cloud/nodejs-sdk": "^2.9.0",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "fast-json-stable-stringify": "^2.1.0",
     "nice-grpc": "^2.1.13",
     "pino": "^10.1.0",
+    "piscina": "^5.1.4",
     "ydb-sdk": "^5.11.1",
     "zod": "^4.1.12"
   },

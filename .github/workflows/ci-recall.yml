@@ -47,8 +47,8 @@ jobs:
       - name: Run recall tests
         run: npm run test:recall | tee recall.log
         env:
-          YDB_ENDPOINT: grpc://localhost:2136
-          YDB_DATABASE: /local
+          YDB_QDRANT_ENDPOINT: grpc://localhost:2136
+          YDB_QDRANT_DATABASE: /local
           YDB_ANONYMOUS_CREDENTIALS: "1"
 
       - name: Extract mean recall
@@ -120,4 +120,3 @@ jobs:
           git add recall-one-table.json f1-one-table.json
           git commit -m "Update recall badge [skip ci]" || echo "No changes to commit"
           git push origin recall-badges || echo "Failed to push recall-badges (likely from a fork PR)"
-

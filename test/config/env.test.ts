@@ -6,8 +6,10 @@ describe("env.ts configuration", () => {
   beforeEach(() => {
     vi.resetModules();
     // Clear relevant env vars before each test
-    delete process.env.YDB_QDRANT_SEARCH_MODE;
-    delete process.env.YDB_QDRANT_OVERFETCH_MULTIPLIER;
+    delete process.env.YDB_QDRANT_ENDPOINT;
+    delete process.env.YDB_QDRANT_DATABASE;
+    delete process.env.YDB_ENDPOINT;
+    delete process.env.YDB_DATABASE;
     delete process.env.YDB_QDRANT_UPSERT_BATCH_SIZE;
     delete process.env.YDB_SESSION_POOL_MIN_SIZE;
     delete process.env.YDB_SESSION_POOL_MAX_SIZE;
@@ -16,33 +18,64 @@ describe("env.ts configuration", () => {
     delete process.env.YDB_QDRANT_SEARCH_TIMEOUT_MS;
     delete process.env.YDB_QDRANT_STARTUP_PROBE_SESSION_TIMEOUT_MS;
     delete process.env.YDB_QDRANT_LAST_ACCESS_MIN_WRITE_INTERVAL_MS;
+    delete process.env.YDB_QDRANT_WORKERS_MAX_QUEUE;
+    delete process.env.PORT;
   });
 
   afterEach(() => {
     process.env = { ...originalEnv };
   });
 
-  describe("SEARCH_MODE and OVERFETCH_MULTIPLIER", () => {
-    it("defaults to exact search mode when not configured", async () => {
+  describe("YDB connection config", () => {
+    it("does not throw on import when YDB connection env vars are unset", async () => {
       const env = await import("../../src/config/env.js");
 
-      expect(env.resolveSearchMode(undefined)).toBe(env.SearchMode.Exact);
-      expect(env.resolveSearchMode("")).toBe(env.SearchMode.Exact);
+      expect(env.YDB_ENDPOINT).toBe("");
+      expect(env.YDB_DATABASE).toBe("");
     });
 
-    it("parses explicit exact search mode", async () => {
+    it("resolves explicit endpoint and database without global env", async () => {
       const env = await import("../../src/config/env.js");
 
-      expect(env.resolveSearchMode("exact")).toBe(env.SearchMode.Exact);
-      expect(env.resolveSearchMode("  ExAcT  ")).toBe(env.SearchMode.Exact);
+      expect(
+        env.resolveYdbConnectionConfig({
+          endpoint: "grpc://localhost:2136",
+          database: "/local",
+        })
+      ).toEqual({
+        endpoint: "grpc://localhost:2136",
+        database: "/local",
+      });
     });
 
-    it("parses OVERFETCH_MULTIPLIER and clamps to minimum 1", async () => {
-      process.env.YDB_QDRANT_OVERFETCH_MULTIPLIER = "0";
+    it("prefers explicit config over env", async () => {
+      process.env.YDB_QDRANT_ENDPOINT = "grpc://env:2136";
+      process.env.YDB_QDRANT_DATABASE = "/env";
 
       const env = await import("../../src/config/env.js");
 
-      expect(env.OVERFETCH_MULTIPLIER).toBe(1);
+      expect(
+        env.resolveYdbConnectionConfig({
+          endpoint: "grpc://explicit:2136",
+          database: "/explicit",
+        })
+      ).toEqual({
+        endpoint: "grpc://explicit:2136",
+        database: "/explicit",
+      });
+    });
+
+    it("throws only when legacy YDB_ENDPOINT is used at resolution time", async () => {
+      process.env.YDB_ENDPOINT = "grpc://legacy:2136";
+
+      const env = await import("../../src/config/env.js");
+
+      expect(() =>
+        env.resolveYdbConnectionConfig({
+          endpoint: "grpc://localhost:2136",
+          database: "/local",
+        })
+      ).toThrow(/Legacy env var YDB_ENDPOINT/);
     });
   });
 
@@ -66,6 +99,38 @@ describe("env.ts configuration", () => {
       const env = await import("../../src/config/env.js");
 
       expect(env.UPSERT_BATCH_SIZE).toBe(1);
+    });
+  });
+
+  describe("PORT", () => {
+    it("defaults to 8080 when PORT is not set", async () => {
+      const env = await import("../../src/config/env.js");
+
+      expect(env.PORT).toBe(8080);
+    });
+
+    it("parses and bounds PORT", async () => {
+      process.env.PORT = "3000";
+      let env = await import("../../src/config/env.js");
+      expect(env.PORT).toBe(3000);
+
+      vi.resetModules();
+      process.env.PORT = "0";
+      env = await import("../../src/config/env.js");
+      expect(env.PORT).toBe(1);
+
+      vi.resetModules();
+      process.env.PORT = "999999";
+      env = await import("../../src/config/env.js");
+      expect(env.PORT).toBe(65535);
+    });
+
+    it("falls back to default for invalid PORT input", async () => {
+      process.env.PORT = "not-a-port";
+
+      const env = await import("../../src/config/env.js");
+
+      expect(env.PORT).toBe(8080);
     });
   });
 
@@ -206,6 +271,18 @@ describe("env.ts configuration", () => {
       const env = await import("../../src/config/env.js");
 
       expect(env.LAST_ACCESS_MIN_WRITE_INTERVAL_MS).toBe(1000);
+    });
+  });
+
+  describe("WORKERS_MAX_QUEUE", () => {
+    it("defaults to auto and accepts positive integers", async () => {
+      let env = await import("../../src/config/env.js");
+      expect(env.WORKERS_MAX_QUEUE).toBe("auto");
+
+      vi.resetModules();
+      process.env.YDB_QDRANT_WORKERS_MAX_QUEUE = "32";
+      env = await import("../../src/config/env.js");
+      expect(env.WORKERS_MAX_QUEUE).toBe(32);
     });
   });
 });

@@ -8,6 +8,7 @@ dist/
 build/
 out/
 coverage/
+test-results/
 
 # TypeScript
 *.tsbuildinfo

@@ -1,6 +1,9 @@
 import { beforeAll, describe, it, expect } from "vitest";
 import { createYdbQdrantClient } from "../../src/package/api.js";
-import { GLOBAL_POINTS_TABLE } from "../../src/ydb/schema.js";
+import {
+  GLOBAL_POINTS_TABLE,
+  POINTS_BY_FILE_LOOKUP_TABLE,
+} from "../../src/ydb/schema.js";
 import { createMetaTableIfMissing } from "./helpers/bootstrap-meta-table.js";
 import {
   withSession,
@@ -19,6 +22,7 @@ import {
   computeRecall,
   computeF1,
 } from "./helpers/recall-test-utils.js";
+import { deriveUserUidFromApiKey, uidFor } from "../../src/utils/tenant.js";
 
 const RNG_SEED = 4242;
 
@@ -29,7 +33,8 @@ const RNG_SEED = 4242;
  * Reference: https://github.com/erikbern/ann-benchmarks
  */
 describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
-  const tenant = process.env.YDB_QDRANT_INTEGRATION_TENANT ?? "itest_tenant";
+  const apiKey =
+    process.env.YDB_QDRANT_INTEGRATION_API_KEY ?? "itest-integration-api-key";
   const collectionBase =
     process.env.YDB_QDRANT_INTEGRATION_COLLECTION ?? "itest_collection";
 
@@ -37,7 +42,7 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
 
   beforeAll(async () => {
     await createMetaTableIfMissing();
-    client = await createYdbQdrantClient({ defaultTenant: tenant });
+    client = await createYdbQdrantClient({ apiKey });
   });
 
   it(`achieves reasonable Recall@${RECALL_K} on ${DATASET_SIZE} random ${RECALL_DIM}D vectors (one_table)`, async () => {
@@ -143,7 +148,7 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
 
   it("stores points in the global table with correct uid", async () => {
     const collection = `${collectionBase}_one_table_uid_${Date.now()}`;
-    const expectedUid = `qdr_${tenant}__${collection}`;
+    const expectedUid = uidFor(deriveUserUidFromApiKey(apiKey), collection);
 
     await client.createCollection(collection, {
       vectors: {
@@ -157,17 +162,17 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
       points: [{ id: "uid_test_point", vector: [1, 0, 0, 0], payload: {} }],
     });
 
-    // Query the global table directly to verify the uid and quantized column
+    // Query the global table directly to verify the uid and stored embedding
     const query = `
-      DECLARE $uid AS Utf8;
+      DECLARE $collection AS Utf8;
       DECLARE $point_id AS Utf8;
-      SELECT uid, point_id, embedding, embedding_quantized FROM ${GLOBAL_POINTS_TABLE}
-      WHERE uid = $uid AND point_id = $point_id;
+      SELECT collection, point_id, embedding FROM ${GLOBAL_POINTS_TABLE}
+      WHERE collection = $collection AND point_id = $point_id;
     `;
 
     const res = await withSession(async (s) => {
       return await s.executeQuery(query, {
-        $uid: TypedValues.utf8(expectedUid),
+        $collection: TypedValues.utf8(expectedUid),
         $point_id: TypedValues.utf8("uid_test_point"),
       });
     });
@@ -175,12 +180,11 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     const rowset = res.resultSets?.[0];
     expect(rowset?.rows?.length).toBe(1);
     const row = rowset?.rows?.[0];
-    // items: [uid, point_id, embedding, embedding_quantized]
+    // items: [collection, point_id, embedding]
     expect(row?.items?.[0]?.textValue).toBe(expectedUid);
     expect(row?.items?.[1]?.textValue).toBe("uid_test_point");
-    // Just verify that both binary columns are present and non-empty
+    // Verify the stored binary embedding is present and non-empty.
     expect(row?.items?.[2]).toBeDefined();
-    expect(row?.items?.[3]).toBeDefined();
 
     // Cleanup
     try {
@@ -190,13 +194,127 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     }
   });
 
-  it("isolates data between tenants using uid filtering in global table", async () => {
-    const tenantA = `${tenant}_onetbl_a`;
-    const tenantB = `${tenant}_onetbl_b`;
+  it("materializes qdrant_points_by_file rows and keeps ancestor rows after exact path delete", async () => {
+    const collection = `${collectionBase}_one_table_lookup_${Date.now()}`;
+    const resolvedCollection = uidFor(
+      deriveUserUidFromApiKey(apiKey),
+      collection
+    );
+
+    await client.createCollection(collection, {
+      vectors: {
+        size: 4,
+        distance: "Cosine",
+        data_type: "float",
+      },
+    });
+
+    await client.upsertPoints(collection, {
+      points: [
+        {
+          id: "path_point",
+          vector: [1, 0, 0, 0],
+          payload: {
+            label: "path-point",
+            pathSegments: ["src", "components", "Button.tsx"],
+          },
+        },
+        {
+          id: "keep_point",
+          vector: [0, 1, 0, 0],
+          payload: {
+            label: "keep-point",
+            pathSegments: ["src", "utils", "helpers.ts"],
+          },
+        },
+      ],
+    });
+
+    const selectLookupRows = `
+      DECLARE $collection AS Utf8;
+      DECLARE $point_id AS Utf8;
+      SELECT file_path
+      FROM ${POINTS_BY_FILE_LOOKUP_TABLE}
+      WHERE collection = $collection AND point_id = $point_id
+      ORDER BY file_path;
+    `;
+
+    const lookupRowsBeforeDelete = await withSession(async (s) => {
+      return await s.executeQuery(selectLookupRows, {
+        $collection: TypedValues.utf8(resolvedCollection),
+        $point_id: TypedValues.utf8("path_point"),
+      });
+    });
+
+    const lookupValuesBeforeDelete = (
+      lookupRowsBeforeDelete.resultSets?.[0]?.rows ?? []
+    ).map((row) => row.items?.[0]?.textValue);
+
+    expect(lookupValuesBeforeDelete).toEqual([
+      "src",
+      "src/components",
+      "src/components/Button.tsx",
+    ]);
+
+    const deleted = await client.deletePoints(collection, {
+      filter: {
+        must: [
+          { key: "pathSegments.0", match: { value: "src" } },
+          { key: "pathSegments.1", match: { value: "components" } },
+          { key: "pathSegments.2", match: { value: "Button.tsx" } },
+        ],
+      },
+    });
+
+    expect(deleted.deleted).toBe(1);
+
+    const lookupRowsAfterDelete = await withSession(async (s) => {
+      return await s.executeQuery(selectLookupRows, {
+        $collection: TypedValues.utf8(resolvedCollection),
+        $point_id: TypedValues.utf8("path_point"),
+      });
+    });
+
+    const lookupValuesAfterDelete = (
+      lookupRowsAfterDelete.resultSets?.[0]?.rows ?? []
+    ).map((row) => row.items?.[0]?.textValue);
+
+    expect(lookupValuesAfterDelete).toEqual([
+      "src",
+      "src/components",
+    ]);
+
+    const survivingLookupRows = await withSession(async (s) => {
+      return await s.executeQuery(selectLookupRows, {
+        $collection: TypedValues.utf8(resolvedCollection),
+        $point_id: TypedValues.utf8("keep_point"),
+      });
+    });
+
+    const survivingLookupValues = (
+      survivingLookupRows.resultSets?.[0]?.rows ?? []
+    ).map((row) => row.items?.[0]?.textValue);
+
+    expect(survivingLookupValues).toEqual([
+      "src",
+      "src/utils",
+      "src/utils/helpers.ts",
+    ]);
+
+    try {
+      await client.deleteCollection(collection);
+    } catch {
+      // ignore cleanup failures
+    }
+  });
+
+  it("isolates data between api-key namespaces using collection filtering in global table", async () => {
+    const apiKeyA = `${apiKey}-one-table-a`;
+    const apiKeyB = `${apiKey}-one-table-b`;
     const collection = `${collectionBase}_one_table_isolation_${Date.now()}`;
 
-    const clientA = client.forTenant(tenantA);
-    const clientB = client.forTenant(tenantB);
+    const clientA = await createYdbQdrantClient({ apiKey: apiKeyA });
+    const clientB = await createYdbQdrantClient({ apiKey: apiKeyB });
 
     // Create same collection for both tenants
     await clientA.createCollection(collection, {
@@ -210,13 +328,13 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     // Upsert points for each tenant
     await clientA.upsertPoints(collection, {
       points: [
-        { id: "shared_id", vector: [1, 0, 0, 0], payload: { tenant: "a" } },
+        { id: "shared_id", vector: [1, 0, 0, 0], payload: { namespace: "a" } },
       ],
     });
 
     await clientB.upsertPoints(collection, {
       points: [
-        { id: "shared_id", vector: [0, 1, 0, 0], payload: { tenant: "b" } },
+        { id: "shared_id", vector: [0, 1, 0, 0], payload: { namespace: "b" } },
       ],
     });
 
@@ -229,7 +347,7 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
 
     const pointA = resA.points?.find((p) => p.id === "shared_id");
     expect(pointA).toBeDefined();
-    expect(pointA?.payload?.tenant).toBe("a");
+    expect(pointA?.payload?.namespace).toBe("a");
 
     // Search from tenant B should only see tenant B's data
     const resB = await clientB.searchPoints(collection, {
@@ -240,7 +358,7 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
 
     const pointB = resB.points?.find((p) => p.id === "shared_id");
     expect(pointB).toBeDefined();
-    expect(pointB?.payload?.tenant).toBe("b");
+    expect(pointB?.payload?.namespace).toBe("b");
 
     // Cleanup
     try {
@@ -339,14 +457,10 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     }
   });
 
-  it("rejects legacy layouts without embedding_quantized column (no automatic migrations)", async () => {
-    // This test simulates an old deployment schema.
-    // The project does not perform automatic migrations, so queries that rely on
-    // embedding_quantized should fail against such a table.
-
+  it("rejects legacy layouts without payload_sign column (no automatic migrations)", async () => {
     const legacyTable = `qdrant_migration_test_${Date.now()}`;
 
-    // Step 1: Create a legacy table without embedding_quantized column
+    // Step 1: Create a legacy table without payload_sign column
     await withSession(async (s) => {
       const desc = new TableDescription()
         .withColumns(
@@ -359,7 +473,7 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
       await s.createTable(legacyTable, desc);
     });
 
-    // Step 2: Insert a test row with only embedding (no embedding_quantized)
+    // Step 2: Insert a test row with only embedding/payload (no payload_sign)
     const testUid = "migration_test_uid";
     const testVector = [1.0, 0.0, 0.0, 0.0];
     await withSession(async (s) => {
@@ -384,31 +498,26 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
       });
     });
 
-    // Step 3: Verify the table has no embedding_quantized column initially
+    // Step 3: Verify the table has no payload_sign column initially
     const descBefore = await withSession(async (s) => {
       return await s.describeTable(legacyTable);
     });
     const columnsBefore = descBefore.columns?.map((c) => c.name) ?? [];
     expect(columnsBefore).toContain("embedding");
-    expect(columnsBefore).not.toContain("embedding_quantized");
+    expect(columnsBefore).not.toContain("payload_sign");
 
-    // Step 4: Verify a query that requires embedding_quantized fails.
+    // Step 4: Verify a query that requires payload_sign fails.
     await expect(
       withSession(async (s) => {
         const q = `
           DECLARE $uid AS Utf8;
-          DECLARE $qbin_bit AS String;
-          SELECT point_id
+          SELECT point_id, payload, payload_sign
           FROM ${legacyTable}
-          WHERE uid = $uid AND embedding_quantized IS NOT NULL
-          ORDER BY Knn::CosineSimilarity(embedding_quantized, $qbin_bit) DESC
+          WHERE uid = $uid
           LIMIT 1;
         `;
         await s.executeQuery(q, {
           $uid: TypedValues.utf8(testUid),
-          // Any BYTES payload is fine here: the query should fail at compilation
-          // because embedding_quantized does not exist in the legacy schema.
-          $qbin_bit: TypedValues.bytes(Buffer.from([10])),
         });
       })
     ).rejects.toThrow();

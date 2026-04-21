@@ -1,71 +1,50 @@
 import {
-  readyOrThrow,
-  withSession,
-  TableDescription,
-  Column,
-  Types,
-} from "../../../src/ydb/client.js";
+  GLOBAL_POINTS_TABLE,
+  POINTS_BY_FILE_LOOKUP_TABLE,
+  ensureGlobalPointsTable,
+  ensurePointsByFileTable,
+} from "../../../src/ydb/schema.js";
+import { bootstrapMetaTable } from "../../../src/ydb/bootstrapMetaTable.js";
+import { withSession } from "../../../src/ydb/client.js";
 
-function isMetaTableNotFoundError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
+async function recreateExactOnlyTablesIfNeeded(): Promise<void> {
+  let shouldRecreate = false;
 
-  // local-ydb + ydb-sdk variants observed across versions:
-  // - "Table not found"
-  // - NotFound (code 400140)
-  // - SchemeError (code 400070): []
-  return (
-    /table.*not found/i.test(msg) ||
-    /path.*not found/i.test(msg) ||
-    /does not exist/i.test(msg) ||
-    /NotFound\s*\(code\s*400140\)/i.test(msg) ||
-    (/SchemeError\s*\(code\s*400070\)/i.test(msg) && /:\s*\[\s*\]\s*$/i.test(msg))
-  );
-}
-
-function isAlreadyExistsError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
-  return /already exists/i.test(msg) || /path.*exists/i.test(msg);
-}
-
-/**
- * Integration tests run against a fresh local-ydb instance in CI.
- * With the current "validate-only" semantics of `ensureMetaTable()`,
- * the metadata table must be created explicitly for integration runs.
- */
-export async function createMetaTableIfMissing(): Promise<void> {
-  await readyOrThrow();
-
-  await withSession(async (s) => {
+  await withSession(async (session) => {
     try {
-      await s.describeTable("qdr__collections");
-      return;
-    } catch (err: unknown) {
-      if (!isMetaTableNotFoundError(err)) {
-        throw err;
-      }
-    }
-
-    const desc = new TableDescription()
-      .withColumns(
-        new Column("collection", Types.UTF8),
-        new Column("table_name", Types.UTF8),
-        new Column("vector_dimension", Types.UINT32),
-        new Column("distance", Types.UTF8),
-        new Column("vector_type", Types.UTF8),
-        new Column("created_at", Types.TIMESTAMP),
-        new Column("last_accessed_at", Types.TIMESTAMP)
-      )
-      .withPrimaryKey("collection");
-
-    try {
-      await s.createTable("qdr__collections", desc);
-    } catch (err: unknown) {
-      // Race-safe: if another test file created the table concurrently, ignore.
-      if (!isAlreadyExistsError(err)) {
-        throw err;
-      }
+      const desc = await session.describeTable(GLOBAL_POINTS_TABLE);
+      const columns = (desc.columns ?? []).map((column) => column.name);
+      shouldRecreate = columns.includes("embedding_quantized");
+    } catch {
+      shouldRecreate = false;
     }
   });
+
+  if (!shouldRecreate) {
+    await ensureGlobalPointsTable();
+    await ensurePointsByFileTable();
+    return;
+  }
+
+  await withSession(async (session) => {
+    try {
+      await session.dropTable(GLOBAL_POINTS_TABLE);
+    } catch {
+      // ignore if already missing
+    }
+
+    try {
+      await session.dropTable(POINTS_BY_FILE_LOOKUP_TABLE);
+    } catch {
+      // ignore if already missing
+    }
+  });
+
+  await ensureGlobalPointsTable();
+  await ensurePointsByFileTable();
 }
 
-
+export async function createMetaTableIfMissing(): Promise<void> {
+  await bootstrapMetaTable();
+  await recreateExactOnlyTablesIfNeeded();
+}

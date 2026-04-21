@@ -16,7 +16,7 @@
 
 # YDB Qdrant-compatible Service
 
-Qdrant-compatible Node.js/TypeScript **service and npm library** that stores and searches vectors in YDB using a global one-table layout (`qdrant_all_points`) with exact KNN search (single-phase over `embedding`) by default and an optional approximate mode (two‑phase bit-quantized over `embedding_quantized` + `embedding`). Topics: ydb, vector-search, qdrant-compatible, nodejs, typescript, express, yql, ann, semantic-search, rag.
+Qdrant-compatible Node.js/TypeScript **service and npm library** that stores and searches vectors in YDB using a global one-table layout (`qdrant_all_points`) with exact KNN search over `embedding`. Topics: ydb, vector-search, qdrant-compatible, nodejs, typescript, express, yql, ann, semantic-search, rag.
 
 Modes:
 - **HTTP server**: Qdrant-compatible REST API (`/collections`, `/points/*`) on top of YDB.
@@ -79,8 +79,8 @@ The server uses `getCredentialsFromEnv()` and supports these env vars (first mat
 
 Also set endpoint and database:
 ```bash
-export YDB_ENDPOINT=grpcs://ydb.serverless.yandexcloud.net:2135
-export YDB_DATABASE=/ru-central1/<cloud>/<db>
+export YDB_QDRANT_ENDPOINT=grpcs://ydb.serverless.yandexcloud.net:2135
+export YDB_QDRANT_DATABASE=/ru-central1/<cloud>/<db>
 ```
 
 Optional env:
@@ -88,23 +88,25 @@ Optional env:
 # Server
 export PORT=8080
 export LOG_LEVEL=info
-# One-table search tuning (default is 'exact' when unset)
-export YDB_QDRANT_SEARCH_MODE=approximate               # approximate or exact (default: exact)
-export YDB_QDRANT_OVERFETCH_MULTIPLIER=10               # candidate multiplier in approximate mode
+# One-table tuning
+export YDB_QDRANT_UPSERT_BATCH_SIZE=100
+export YDB_QDRANT_SEARCH_TIMEOUT_MS=10000
 ```
 
 ## Use as a Node.js library (npm package)
 
 The package entrypoint exports a programmatic API that mirrors the Qdrant HTTP semantics.
 
+- `createYdbQdrantClient()` requires exactly one namespace/signing identifier:
+  pass either `apiKey` or `userUid`, but not both.
+
 - Import and initialize a client (reuses the same YDB env vars as the server):
   ```ts
   import { createYdbQdrantClient } from "ydb-qdrant";
 
   async function main() {
-    // defaultTenant is optional; defaults to "default"
     const client = await createYdbQdrantClient({
-      defaultTenant: "myapp",
+      apiKey: "my-stable-namespace-key",
       endpoint: "grpcs://lb.etn01g9tcilcon2mrt3h.ydb.mdb.yandexcloud.net:2135",
       database: "/ru-central1/b1ge4v9r1l3h1q4njclp/etn01g9tcilcon2mrt3h",
     });
@@ -133,20 +135,20 @@ The package entrypoint exports a programmatic API that mirrors the Qdrant HTTP s
   }
   ```
 
-- Multi-tenant usage with `forTenant`:
+- Explicit namespace usage with `userUid`:
   ```ts
   const client = await createYdbQdrantClient({
+    userUid: "team_a",
     endpoint: "grpcs://lb.etn01g9tcilcon2mrt3h.ydb.mdb.yandexcloud.net:2135",
     database: "/ru-central1/b1ge4v9r1l3h1q4njclp/etn01g9tcilcon2mrt3h",
   });
-  const tenantClient = client.forTenant("tenant-a");
 
-  await tenantClient.upsertPoints("sessions", {
+  await client.upsertPoints("sessions", {
     points: [{ id: "s1", vector: [/* ... */] }],
   });
   ```
 
-The request/response shapes follow the same schemas as the HTTP API (`CreateCollectionReq`, `UpsertPointsReq`, `SearchReq`, `DeletePointsReq`), so code written against the REST API can usually be translated directly to the library calls.
+The request/response shapes follow the same schemas as the HTTP API (`CreateCollectionReq`, `UpsertPointsReq`, `SearchReq`, `DeletePointsReq`, `RetrievePointsReq`), so code written against the REST API can usually be translated directly to the library calls. `createYdbQdrantClient` requires exactly one of `apiKey` or `userUid`.
 
 ### Example: in-process points search with a shared client
 
@@ -160,7 +162,7 @@ let clientPromise: ReturnType<typeof createYdbQdrantClient> | null = null;
 async function getClient() {
   if (!clientPromise) {
     clientPromise = createYdbQdrantClient({
-      defaultTenant: 'myapp',
+      apiKey: 'myapp-shared-key',
       endpoint: 'grpcs://lb.etn01g9tcilcon2mrt3h.ydb.mdb.yandexcloud.net:2135',
       database: '/ru-central1/b1ge4v9r1l3h1q4njclp/etn01g9tcilcon2mrt3h',
     });
@@ -193,9 +195,9 @@ For full tables of popular embedding models and their dimensions, see [docs/vect
 
 **Option 1: Public Demo (No setup required)**
 - Set Qdrant URL to `http://ydb-qdrant.tech:8080`
-- No API key needed
+- `api-key` recommended for stable isolation
 - Free to use for testing and development
-- Shared instance - use `X-Tenant-Id` header for isolation
+- If `api-key` is omitted, anonymous isolation requires request client metadata such as IP or User-Agent
 
 **Option 2: Self-hosted (Local)**
 - Set Qdrant URL to `http://localhost:8080`
@@ -274,8 +276,8 @@ Basic example:
 ```bash
 docker run -d --name ydb-qdrant \
   -p 8080:8080 \
-  -e YDB_ENDPOINT=grpcs://ydb.serverless.yandexcloud.net:2135 \
-  -e YDB_DATABASE=/ru-central1/<cloud>/<db> \
+  -e YDB_QDRANT_ENDPOINT=grpcs://ydb.serverless.yandexcloud.net:2135 \
+  -e YDB_QDRANT_DATABASE=/ru-central1/<cloud>/<db> \
   -e YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS=/sa-key.json \
   -v /abs/path/sa-key.json:/sa-key.json:ro \
   ghcr.io/astandrik/ydb-qdrant:latest
@@ -330,7 +332,7 @@ curl -X POST http://localhost:8080/collections/mycol/points/delete \
 
 ## Architecture and Storage
 
-For details on the YDB one-table storage layout, vector serialization (full-precision and bit‑quantized), approximate vs exact search modes, request normalization, and Qdrant compatibility semantics, see [docs/architecture-and-storage.md](docs/architecture-and-storage.md).
+For details on the YDB one-table storage layout, vector serialization, request normalization, and Qdrant compatibility semantics, see [docs/architecture-and-storage.md](docs/architecture-and-storage.md).
 
 ## Evaluation, CI, and Release
 

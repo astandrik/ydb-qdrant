@@ -27,21 +27,26 @@ export type QdrantWithPayloadInterface = Schemas["WithPayloadInterface"];
  * These types are intentionally tighter than Qdrant's full schema.
  */
 
+export type DistanceKind = QdrantDistance;
+export type VectorType = "float";
+export type Payload = QdrantPayload;
+export type WithPayload = QdrantWithPayloadInterface;
+
 export type YdbQdrantPointId = Extract<QdrantExtendedPointId, string | number>;
 
 export type YdbQdrantVector = number[];
 
 export type YdbQdrantUpsertPoint = Omit<
-  QdrantPointStruct,
-  "id" | "vector" | "payload"
+    QdrantPointStruct,
+    "id" | "vector" | "payload"
 > & {
-  id: YdbQdrantPointId;
-  vector: YdbQdrantVector;
-  payload?: QdrantPayload;
+    id: YdbQdrantPointId;
+    vector: YdbQdrantVector;
+    payload?: QdrantPayload;
 };
 
 export type YdbQdrantScoredPoint = {
-  id: string;
-  score: QdrantScoredPoint["score"];
-  payload?: QdrantPayload;
+    id: string;
+    score: QdrantScoredPoint["score"];
+    payload?: QdrantPayload;
 };

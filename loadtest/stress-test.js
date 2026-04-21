@@ -27,7 +27,7 @@ import { Counter, Rate, Trend } from "k6/metrics";
 import {
   BASE_URL,
   VECTOR_DIM,
-  TENANT_ID,
+  API_KEY,
   STRESS_THRESHOLDS,
   randomVector,
   generatePoints,
@@ -113,7 +113,7 @@ export const options =
 
 const headers = {
   "Content-Type": "application/json",
-  "X-Tenant-Id": TENANT_ID,
+  "api-key": API_KEY,
 };
 
 // Setup: create collection and seed with data

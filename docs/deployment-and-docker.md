@@ -14,8 +14,8 @@ docker pull ghcr.io/astandrik/ydb-qdrant:latest
 
 docker run -d --name ydb-qdrant \
   -p 8080:8080 \
-  -e YDB_ENDPOINT=grpcs://ydb.serverless.yandexcloud.net:2135 \
-  -e YDB_DATABASE=/ru-central1/<cloud>/<db> \
+  -e YDB_QDRANT_ENDPOINT=grpcs://ydb.serverless.yandexcloud.net:2135 \
+  -e YDB_QDRANT_DATABASE=/ru-central1/<cloud>/<db> \
   -e YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS=/sa-key.json \
   -v /abs/path/sa-key.json:/sa-key.json:ro \
   ghcr.io/astandrik/ydb-qdrant:latest
@@ -30,8 +30,8 @@ docker build -t ydb-qdrant:latest .
 
 docker run -d --name ydb-qdrant \
   -p 8080:8080 \
-  -e YDB_ENDPOINT=grpcs://ydb.serverless.yandexcloud.net:2135 \
-  -e YDB_DATABASE=/ru-central1/<cloud>/<db> \
+  -e YDB_QDRANT_ENDPOINT=grpcs://ydb.serverless.yandexcloud.net:2135 \
+  -e YDB_QDRANT_DATABASE=/ru-central1/<cloud>/<db> \
   -e YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS=/sa-key.json \
   -v /abs/path/sa-key.json:/sa-key.json:ro \
   ydb-qdrant:latest
@@ -55,7 +55,7 @@ Key env vars (all optional; the image provides sensible defaults, override only 
 - YDB / local YDB:
   - `YDB_LOCAL_GRPC_PORT` (default `2136`): internal YDB gRPC port.
   - `YDB_LOCAL_MON_PORT` (default `8765`): internal YDB Embedded UI HTTP port.
-  - `YDB_DATABASE` (default `/local`).
+  - `YDB_DATABASE` (default `/local`) for the embedded YDB process.
   - `YDB_ANONYMOUS_CREDENTIALS` (default `1` inside this image).
   - `YDB_USE_IN_MEMORY_PDISKS` (default `0`, values `0`/`1`): store data in RAM only when `1` (fast, non-persistent).
   - `YDB_LOCAL_SURVIVE_RESTART` (default `0`, values `0`/`1`): control persistence across restarts when using a mounted data volume.
@@ -64,13 +64,13 @@ Key env vars (all optional; the image provides sensible defaults, override only 
 - ydb-qdrant:
   - `PORT` (default `8080`): HTTP port inside the container.
   - `LOG_LEVEL` (default `info`).
-  - `YDB_QDRANT_SEARCH_MODE` (`approximate` or `exact`) and `YDB_QDRANT_OVERFETCH_MULTIPLIER` (candidate multiplier in approximate mode).
+  - `YDB_QDRANT_DATABASE` (defaults to embedded `YDB_DATABASE`, usually `/local`).
   - `YDB_QDRANT_UPSERT_TIMEOUT_MS` (default `5000`): per‑query YDB operation timeout in milliseconds for batched upserts; long‑running UPSERT statements are cancelled when this bound is exceeded.
   - `YDB_QDRANT_SEARCH_TIMEOUT_MS` (default `10000`): per‑query YDB operation timeout in milliseconds for search operations; long‑running search statements are cancelled when this bound is exceeded.
   - `YDB_QDRANT_LOCAL_MAX_YDB_FAILURES` (default `5`): number of consecutive embedded YDB TCP health check failures in the local monitor before exiting with a non-zero status (used to trigger container restart under a restart policy).
   - `YDB_QDRANT_LOCAL_YDB_CHECK_INTERVAL` (default `10`): interval in seconds between embedded YDB TCP health checks performed by the local monitor.
 
-> Note: In the `ydb-qdrant-local` image, `YDB_ENDPOINT` is unconditionally set to `grpc://127.0.0.1:<YDB_LOCAL_GRPC_PORT>` by the entrypoint — any user-provided value is ignored. Use the standalone `ydb-qdrant` image if you need to connect to an external YDB.
+> Note: In the `ydb-qdrant-local` image, `YDB_QDRANT_ENDPOINT` is unconditionally set to `grpc://127.0.0.1:<YDB_LOCAL_GRPC_PORT>` by the entrypoint, and `YDB_QDRANT_DATABASE` defaults to the embedded `YDB_DATABASE`. Use the standalone `ydb-qdrant` image if you need to connect to an external YDB.
 
 #### Health checks and self-healing (`ydb-qdrant-local`)
 
@@ -123,7 +123,7 @@ docker run -d --name ydb-qdrant-local \
 
 - **`-v "$PWD/ydb_data:/ydb_data"`**: mounts a host directory where the embedded YDB stores its data; as long as you reuse this volume, your data survives container restarts and recreation.
 - **`YDB_LOCAL_SURVIVE_RESTART=1`**: tells the local YDB instance to reuse existing data in `/ydb_data` instead of reinitializing the cluster on each start.
-- Other YDB env vars such as `YDB_USE_IN_MEMORY_PDISKS` (default `0`) and `YDB_DATABASE` (default `/local`) are left at their documented defaults and usually do not need to be overridden for this setup.
+- Other YDB env vars such as `YDB_USE_IN_MEMORY_PDISKS` (default `0`) and embedded `YDB_DATABASE` (default `/local`) are left at their documented defaults and usually do not need to be overridden for this setup.
 
 If you prefer a Docker-managed named volume instead of a host directory:
 
@@ -196,8 +196,8 @@ services:
     env_file:
       - .env
     environment:
-      YDB_ENDPOINT: ${YDB_ENDPOINT}
-      YDB_DATABASE: ${YDB_DATABASE}
+      YDB_QDRANT_ENDPOINT: ${YDB_QDRANT_ENDPOINT}
+      YDB_QDRANT_DATABASE: ${YDB_QDRANT_DATABASE}
       YDB_SERVICE_ACCOUNT_KEY_FILE_CREDENTIALS: /sa-key.json
       PORT: ${PORT:-8080}
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -208,8 +208,8 @@ services:
 Example `.env` (per environment):
 
 ```bash
-YDB_ENDPOINT=grpcs://ydb.serverless.yandexcloud.net:2135
-YDB_DATABASE=/ru-central1/<cloud>/<db>
+YDB_QDRANT_ENDPOINT=grpcs://ydb.serverless.yandexcloud.net:2135
+YDB_QDRANT_DATABASE=/ru-central1/<cloud>/<db>
 YDB_SA_KEY_PATH=/abs/path/to/ydb-sa.json
 PORT=8080
 LOG_LEVEL=info
@@ -223,9 +223,8 @@ docker-compose pull ydb-qdrant
 docker-compose up -d ydb-qdrant
 ```
 
-Environment variables for Docker deployments use the same variables as documented in [Configure credentials in the root README](../README.md#configure-credentials) (`YDB_ENDPOINT`, `YDB_DATABASE`, one of the `YDB_*_CREDENTIALS` options, optional `PORT`/`LOG_LEVEL`).
+Environment variables for Docker deployments use the same variables as documented in [Configure credentials in the root README](../README.md#configure-credentials) (`YDB_QDRANT_ENDPOINT`, `YDB_QDRANT_DATABASE`, one of the `YDB_*_CREDENTIALS` options, optional `PORT`/`LOG_LEVEL`).
 
 ### References
 
 - [Configure credentials in the root README](../README.md#configure-credentials)
-

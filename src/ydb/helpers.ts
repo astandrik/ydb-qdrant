@@ -1,11 +1,7 @@
-import {
-  vectorToFloatBinary,
-  vectorToBitBinary,
-} from "../utils/vectorBinary.js";
+import { vectorToFloatBinary } from "../utils/vectorBinary.js";
 
 export function buildVectorBinaryParams(vector: number[]) {
-  return {
-    float: vectorToFloatBinary(vector),
-    bit: vectorToBitBinary(vector),
-  };
+    return {
+        float: vectorToFloatBinary(vector),
+    };
 }
