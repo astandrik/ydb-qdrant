@@ -64,6 +64,10 @@ vi.mock("../../src/services/PointsService.js", () => ({
 }));
 
 vi.mock("../../src/utils/requestIdentity.js", () => ({
+    isAnonymousIdentityError: vi.fn(
+        (err: unknown) =>
+            err instanceof Error && err.name === "AnonymousIdentityError"
+    ),
     resolveRequestSigningKey: vi.fn(() => "test-api-key"),
     resolveRequestNamespaceUserUid: vi.fn((req: { header: (name: string) => string | undefined }) => {
         const tenantId = req.header("x-tenant-id");
@@ -80,6 +84,7 @@ vi.mock("../../src/utils/requestIdentity.js", () => ({
 import { pointsRouter } from "../../src/routes/points.js";
 import * as pointsService from "../../src/services/PointsService.js";
 import { QdrantServiceError } from "../../src/services/errors.js";
+import * as requestIdentity from "../../src/utils/requestIdentity.js";
 import {
     findHandler,
     createMockRes,
@@ -727,6 +732,39 @@ describe("pointsRouter (HTTP, mocked service)", () => {
         expect(res.body).toEqual({
             status: "error",
             error: "collection not found",
+        });
+    });
+
+    it("returns validation error when anonymous identity cannot be resolved", async () => {
+        const retrieveHandler = findHandler(
+            pointsRouter,
+            "post",
+            "/:collection/points"
+        );
+        const error = new Error(
+            "Anonymous requests require api-key or identifiable client metadata."
+        );
+        error.name = "AnonymousIdentityError";
+        vi.mocked(
+            requestIdentity.resolveRequestNamespaceUserUid
+        ).mockImplementationOnce(() => {
+            throw error;
+        });
+
+        const req = createRequest({
+            method: "POST",
+            collection: "col",
+            body: { ids: ["p1"] },
+        });
+        const res = createMockRes({ authUserUid: "1120000000101690" });
+
+        await retrieveHandler(req, res);
+
+        expect(pointsService.retrievePoints).not.toHaveBeenCalled();
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toEqual({
+            status: "error",
+            error: "Anonymous requests require api-key or identifiable client metadata.",
         });
     });
 });

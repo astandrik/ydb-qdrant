@@ -7,6 +7,11 @@ import {
 import type { Payload } from "../../qdrant/QdrantRestTypes.js";
 import { logger } from "../../logging/logger.js";
 import { computePayloadSign } from "../../utils/PayloadSign.js";
+import { isTransientYdbError, withRetry } from "../../utils/retry.js";
+
+const RETRIEVE_RETRY_MAX_RETRIES = 6;
+const RETRIEVE_RETRY_BASE_DELAY_MS = 250;
+const RETRIEVE_RETRY_MAX_BACKOFF_MS = 1500;
 
 export interface RetrievedPoint {
     id: string;
@@ -30,18 +35,33 @@ export async function retrievePointsByIdsOneTable(
     WHERE collection = $collection AND point_id IN $ids;
   `;
 
-    const res = await withSession(async (s) => {
-        const settings = createExecuteQuerySettings();
-        return await s.executeQuery(
-            qry,
-            {
-                $collection: TypedValues.utf8(uid),
-                $ids: TypedValues.list(Types.UTF8, stringIds),
+    const res = await withRetry(
+        async () =>
+            await withSession(async (s) => {
+                const settings = createExecuteQuerySettings();
+                return await s.executeQuery(
+                    qry,
+                    {
+                        $collection: TypedValues.utf8(uid),
+                        $ids: TypedValues.list(Types.UTF8, stringIds),
+                    },
+                    undefined,
+                    settings
+                );
+            }),
+        {
+            isTransient: isTransientYdbError,
+            maxRetries: RETRIEVE_RETRY_MAX_RETRIES,
+            baseDelayMs: RETRIEVE_RETRY_BASE_DELAY_MS,
+            maxBackoffMs: RETRIEVE_RETRY_MAX_BACKOFF_MS,
+            context: {
+                operation: "retrievePointsByIdsOneTable",
+                tableName,
+                collection: uid,
+                idCount: ids.length,
             },
-            undefined,
-            settings
-        );
-    });
+        }
+    );
 
     const rowset = res.resultSets?.[0];
     const rows = (rowset?.rows ?? []) as Array<{

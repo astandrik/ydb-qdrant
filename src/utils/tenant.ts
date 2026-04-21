@@ -4,6 +4,15 @@ const API_KEY_UID_PREFIX = "ak";
 const ANONYMOUS_UID_PREFIX = "anon";
 const UID_HASH_LENGTH = 16;
 
+export class AnonymousIdentityError extends Error {
+    constructor() {
+        super(
+            "Anonymous requests require api-key or identifiable client metadata."
+        );
+        this.name = "AnonymousIdentityError";
+    }
+}
+
 function shortHash(value: string): string {
     return createHash("sha256").update(value).digest("hex").slice(0, UID_HASH_LENGTH);
 }
@@ -62,8 +71,13 @@ export function deriveAnonymousUserUid(args: {
     userAgent?: string;
 }): string {
     const normalizedUserAgent = normalizeUserAgent(args.userAgent);
+    const normalizedClientIp = args.clientIp?.trim();
+    if (!normalizedClientIp && !normalizedUserAgent) {
+        throw new AnonymousIdentityError();
+    }
+
     const identitySeed = [
-        args.clientIp?.trim() || "unknown_ip",
+        normalizedClientIp || "unknown_ip",
         normalizedUserAgent || "unknown_ua",
     ].join("|");
 

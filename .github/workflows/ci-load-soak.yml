@@ -232,7 +232,7 @@ jobs:
           echo "search_p99=${SEARCH_P99}" >> "$GITHUB_OUTPUT"
           echo "error_rate=${ERROR_RATE}" >> "$GITHUB_OUTPUT"
 
-          echo "### Soak Test Results (${{ matrix.storage_mode }})" >> $GITHUB_STEP_SUMMARY
+          echo "### Soak Test Results (one_table_exact)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
@@ -246,7 +246,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          STORAGE_MODE: ${{ matrix.storage_mode }}
+          STORAGE_MODE: one_table_exact
           OPS_PER_SEC: ${{ steps.metrics.outputs.ops_per_sec }}
           SEARCH_P95: ${{ steps.metrics.outputs.search_p95 }}
           SEARCH_P99: ${{ steps.metrics.outputs.search_p99 }}

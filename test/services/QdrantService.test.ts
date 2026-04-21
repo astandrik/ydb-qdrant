@@ -918,4 +918,21 @@ describe("QdrantService (with mocked YDB)", () => {
         ).rejects.toHaveProperty("statusCode", 400);
         expect(pointsRepo.retrievePointsByIds).not.toHaveBeenCalled();
     });
+
+    it("rejects retrieve requests with too many point IDs", async () => {
+        vi.mocked(collectionsRepo.getCollectionMeta).mockResolvedValueOnce({
+            table: "qdrant_all_points",
+            dimension: 4,
+            distance: "Cosine",
+            vectorType: "float",
+        });
+
+        await expect(
+            retrievePoints(
+                { userUid, collection, apiKey },
+                { ids: Array.from({ length: 1001 }, (_, i) => `p${i}`) }
+            )
+        ).rejects.toHaveProperty("statusCode", 400);
+        expect(pointsRepo.retrievePointsByIds).not.toHaveBeenCalled();
+    });
 });

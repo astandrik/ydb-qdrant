@@ -52,7 +52,25 @@ export function resolveYdbConnectionConfig(options?: {
 
     return { endpoint, database };
 }
-export const PORT = process.env.PORT ? Number(process.env.PORT) : 8080;
+
+function parseWorkersMaxQueue(
+    value: string | undefined
+): number | "auto" | undefined {
+    const raw = value?.trim().toLowerCase();
+    if (!raw) {
+        return "auto";
+    }
+    if (raw === "auto") {
+        return "auto";
+    }
+    const n = parseIntegerEnv(raw, 0, { min: 1 });
+    return n > 0 ? n : undefined;
+}
+
+export const PORT = parseIntegerEnv(process.env.PORT, 8080, {
+    min: 1,
+    max: 65535,
+});
 export const LOG_LEVEL = process.env.LOG_LEVEL ?? "info";
 
 export const UPSERT_BATCH_SIZE = parseIntegerEnv(
@@ -179,17 +197,5 @@ export const WORKERS_IDLE_TIMEOUT_MS = parseIntegerEnv(
     { min: 0, max: 600000 }
 );
 
-export const WORKERS_MAX_QUEUE:
-    | number
-    | "auto"
-    | undefined = (() => {
-    const raw = process.env.YDB_QDRANT_WORKERS_MAX_QUEUE?.trim().toLowerCase();
-    if (!raw) {
-        return "auto";
-    }
-    if (raw === "auto") {
-        return "auto";
-    }
-    const n = parseIntegerEnv(raw, 0, { min: 1 });
-    return n > 0 ? n : undefined;
-})();
+export const WORKERS_MAX_QUEUE: number | "auto" | undefined =
+    parseWorkersMaxQueue(process.env.YDB_QDRANT_WORKERS_MAX_QUEUE);

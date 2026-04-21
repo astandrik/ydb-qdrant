@@ -8,7 +8,7 @@ YDB Qdrant-compatible service is a Node.js/TypeScript service and npm library th
   - Metadata table `qdr__collections` stores per‑collection configuration (`table_name`, `vector_dimension`, `distance`, `vector_type`, `created_at`, `last_accessed_at`, `user_uid`).
   - A single global points table `qdrant_all_points` with `(collection, point_id)` PK, where `collection` is the resolved namespace + collection key.
     - Columns: `collection Utf8`, `point_id Utf8`, `embedding String` (binary float), `payload JsonDocument`, `payload_sign Utf8`, `path_prefix Optional<Utf8>`.
-  - A lookup table `qdrant_points_by_file` stores `(collection, file_path, point_id)` for efficient path-based deletes.
+  - A lookup table `qdrant_points_by_file` stores `(collection, file_path, point_id)` as the secondary index used by path-based deletes.
     - Table is created with YDB auto-partitioning enabled (by load and by size) using the SDK table profile, with a target partition size of ~100 MB to allow the storage layer to split/merge partitions as load and size change.
 
 ### One-table Mode Migrations
@@ -24,7 +24,7 @@ This project does not perform automatic schema migrations. Tables are expected t
 
 Upserts and deletes are wrapped in a bounded retry helper with exponential backoff to handle transient YDB errors (for example `Aborted` or temporary schema metadata issues).
 
-Filters are not yet modeled; they can be added if needed.
+`pathSegments.*` filters are supported for search, query, and delete paths. Search/query use `path_prefix` from the global points table, while delete uses the `qdrant_points_by_file` lookup table.
 
 ### Scoring Semantics
 
@@ -50,7 +50,9 @@ This service implements a minimal subset expected by common tooling:
 - Create/get/delete collection
 - Upsert points
 - Top‑k search with optional payload
+- Retrieve points by ID
 - Delete points
+- Delete/search/query by `pathSegments.*` filters
 
 Compatibility notes:
 

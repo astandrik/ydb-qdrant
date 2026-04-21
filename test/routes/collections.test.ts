@@ -41,6 +41,10 @@ vi.mock("../../src/services/CollectionService.js", () => ({
 }));
 
 vi.mock("../../src/utils/requestIdentity.js", () => ({
+    isAnonymousIdentityError: vi.fn(
+        (err: unknown) =>
+            err instanceof Error && err.name === "AnonymousIdentityError"
+    ),
     resolveRequestSigningKey: vi.fn(() => "test-api-key"),
     resolveRequestNamespaceUserUid: vi.fn((req: { header: (name: string) => string | undefined }) => {
         const tenantId = req.header("x-tenant-id");
@@ -57,6 +61,7 @@ vi.mock("../../src/utils/requestIdentity.js", () => ({
 import { collectionsRouter } from "../../src/routes/collections.js";
 import * as collectionService from "../../src/services/CollectionService.js";
 import { QdrantServiceError } from "../../src/services/errors.js";
+import * as requestIdentity from "../../src/utils/requestIdentity.js";
 import {
     findHandler,
     createMockRes,
@@ -265,6 +270,34 @@ describe("collectionsRouter (HTTP, mocked service)", () => {
             collection: "My-Collection",
             apiKey: "test-api-key",
             userAgent: undefined,
+        });
+    });
+
+    it("returns validation error when anonymous identity cannot be resolved", async () => {
+        const handler = findHandler(collectionsRouter, "get", "/:collection");
+        const error = new Error(
+            "Anonymous requests require api-key or identifiable client metadata."
+        );
+        error.name = "AnonymousIdentityError";
+        vi.mocked(
+            requestIdentity.resolveRequestNamespaceUserUid
+        ).mockImplementationOnce(() => {
+            throw error;
+        });
+
+        const req = createRequest({
+            method: "GET",
+            collection: "My-Collection",
+        });
+        const res = createMockRes();
+
+        await handler(req, res);
+
+        expect(collectionService.getCollection).not.toHaveBeenCalled();
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toEqual({
+            status: "error",
+            error: "Anonymous requests require api-key or identifiable client metadata.",
         });
     });
 });

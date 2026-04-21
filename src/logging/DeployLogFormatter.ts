@@ -54,14 +54,32 @@ function mapPinoLevelToDeploy(
     }
 }
 
+function getDeployMessage(obj: Record<string, unknown>): string {
+    if (typeof obj.msg === "string") {
+        return obj.msg;
+    }
+    if (typeof obj.message === "string") {
+        return obj.message;
+    }
+    return "";
+}
+
+function chunkToUtf8Text(chunk: unknown): string {
+    if (typeof chunk === "string") {
+        return chunk;
+    }
+    if (Buffer.isBuffer(chunk)) {
+        return chunk.toString("utf8");
+    }
+    if (chunk instanceof Uint8Array) {
+        return Buffer.from(chunk).toString("utf8");
+    }
+    return String(chunk);
+}
+
 function convertToDeployLine(obj: Record<string, unknown>): string {
     const fields: Record<string, unknown> = {};
-    const msg =
-        typeof obj.msg === "string"
-            ? obj.msg
-            : typeof obj.message === "string"
-              ? obj.message
-              : "";
+    const msg = getDeployMessage(obj);
 
     const mapped = mapPinoLevelToDeploy(obj.level);
     const log: DeployLogDescriptor = {
@@ -90,14 +108,7 @@ export function createDeployLogFormatter(): Transform {
         readableObjectMode: false,
         writableObjectMode: false,
         transform(chunk: unknown, _encoding, callback) {
-            const text =
-                typeof chunk === "string"
-                    ? chunk
-                    : Buffer.isBuffer(chunk)
-                      ? chunk.toString("utf8")
-                      : chunk instanceof Uint8Array
-                        ? Buffer.from(chunk).toString("utf8")
-                        : String(chunk);
+            const text = chunkToUtf8Text(chunk);
 
             buffered += text;
 

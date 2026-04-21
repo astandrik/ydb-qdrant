@@ -9,6 +9,7 @@ import { QdrantServiceError } from "../services/errors.js";
 import { logger } from "../logging/logger.js";
 import { qdrantResponse } from "../utils/qdrantResponse.js";
 import {
+    isAnonymousIdentityError,
     resolveRequestNamespaceUserUid,
     resolveRequestSigningKey,
 } from "../utils/requestIdentity.js";
@@ -30,6 +31,18 @@ function buildCollectionContext(req: Request): {
     };
 }
 
+function sendKnownRouteError(res: Response, err: unknown): boolean {
+    if (err instanceof QdrantServiceError) {
+        res.status(err.statusCode).json(err.payload);
+        return true;
+    }
+    if (isAnonymousIdentityError(err)) {
+        res.status(400).json({ status: "error", error: err.message });
+        return true;
+    }
+    return false;
+}
+
 // Fix #8: PUT index → UpdateResult shape
 collectionsRouter.put(
     "/:collection/index",
@@ -39,8 +52,8 @@ collectionsRouter.put(
             await putCollectionIndex(buildCollectionContext(req));
             res.json(qdrantResponse({ operation_id: 0, status: "completed" }, start));
         } catch (err: unknown) {
-            if (err instanceof QdrantServiceError) {
-                return res.status(err.statusCode).json(err.payload);
+            if (sendKnownRouteError(res, err)) {
+                return;
             }
             logger.error({ err }, "build index failed");
             const errorMessage =
@@ -59,8 +72,8 @@ collectionsRouter.put(
             await createCollection(buildCollectionContext(req), req.body);
             res.json(qdrantResponse(true, start));
         } catch (err: unknown) {
-            if (err instanceof QdrantServiceError) {
-                return res.status(err.statusCode).json(err.payload);
+            if (sendKnownRouteError(res, err)) {
+                return;
             }
             logger.error({ err }, "create collection failed");
             const errorMessage =
@@ -78,8 +91,8 @@ collectionsRouter.get(
             const result = await getCollection(buildCollectionContext(req));
             res.json(qdrantResponse(result, start));
         } catch (err: unknown) {
-            if (err instanceof QdrantServiceError) {
-                return res.status(err.statusCode).json(err.payload);
+            if (sendKnownRouteError(res, err)) {
+                return;
             }
             logger.error({ err }, "get collection failed");
             const errorMessage =
@@ -98,8 +111,8 @@ collectionsRouter.delete(
             await deleteCollection(buildCollectionContext(req));
             res.json(qdrantResponse(true, start));
         } catch (err: unknown) {
-            if (err instanceof QdrantServiceError) {
-                return res.status(err.statusCode).json(err.payload);
+            if (sendKnownRouteError(res, err)) {
+                return;
             }
             logger.error({ err }, "delete collection failed");
             const errorMessage =

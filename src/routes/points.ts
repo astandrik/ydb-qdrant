@@ -22,6 +22,7 @@ import {
     getMonotonicTimeNs,
 } from "../logging/requestContext.js";
 import {
+    isAnonymousIdentityError,
     resolveRequestNamespaceUserUid,
     resolveRequestSigningKey,
 } from "../utils/requestIdentity.js";
@@ -45,6 +46,18 @@ function buildPointsContext(req: Request): {
 
 function shouldSkipResponse(req: Request, res: Response): boolean {
     return res.headersSent || res.writableEnded || isUpsertRequestTimedOut(req);
+}
+
+function sendKnownRouteError(res: Response, err: unknown): boolean {
+    if (err instanceof QdrantServiceError) {
+        res.status(err.statusCode).json(err.payload);
+        return true;
+    }
+    if (isAnonymousIdentityError(err)) {
+        res.status(400).json({ status: "error", error: err.message });
+        return true;
+    }
+    return false;
 }
 
 function toQdrantScoredPoint(p: YdbQdrantScoredPoint): QdrantScoredPoint {
@@ -77,7 +90,10 @@ function logUpsertFailure(args: {
     routeStartNs: bigint;
     err: unknown;
 }): void {
-    if (args.err instanceof QdrantServiceError) {
+    if (
+        args.err instanceof QdrantServiceError ||
+        isAnonymousIdentityError(args.err)
+    ) {
         return;
     }
     logger.error(
@@ -112,8 +128,8 @@ pointsRouter.post(
             }));
             res.json(qdrantResponse(result, start));
         } catch (err: unknown) {
-            if (err instanceof QdrantServiceError) {
-                return res.status(err.statusCode).json(err.payload);
+            if (sendKnownRouteError(res, err)) {
+                return;
             }
             logger.error({ err }, "retrieve points failed");
             const errorMessage =
@@ -160,8 +176,8 @@ pointsRouter.put(
             if (shouldSkipResponse(req, res)) {
                 return;
             }
-            if (err instanceof QdrantServiceError) {
-                return res.status(err.statusCode).json(err.payload);
+            if (sendKnownRouteError(res, err)) {
+                return;
             }
             logger.error({ err }, "upsert points (PUT) failed");
             res.status(500).json({ status: "error", error: errorMessage });
@@ -205,8 +221,8 @@ pointsRouter.post(
             if (shouldSkipResponse(req, res)) {
                 return;
             }
-            if (err instanceof QdrantServiceError) {
-                return res.status(err.statusCode).json(err.payload);
+            if (sendKnownRouteError(res, err)) {
+                return;
             }
             logger.error({ err }, "upsert points failed");
             res.status(500).json({ status: "error", error: errorMessage });
@@ -222,8 +238,8 @@ pointsRouter.post(
             const { points } = await searchPoints(buildPointsContext(req), req.body);
             res.json(qdrantResponse(points.map(toQdrantScoredPoint), start));
         } catch (err: unknown) {
-            if (err instanceof QdrantServiceError) {
-                return res.status(err.statusCode).json(err.payload);
+            if (sendKnownRouteError(res, err)) {
+                return;
             }
             const errorMessage =
                 err instanceof Error ? err.message : String(err);
@@ -252,8 +268,8 @@ pointsRouter.post(
             // Qdrant-compatible: /points/query returns QueryResponse with { points: ScoredPoint[] }.
             res.json(qdrantResponse({ points: points.map(toQdrantScoredPoint) }, start));
         } catch (err: unknown) {
-            if (err instanceof QdrantServiceError) {
-                return res.status(err.statusCode).json(err.payload);
+            if (sendKnownRouteError(res, err)) {
+                return;
             }
             const errorMessage =
                 err instanceof Error ? err.message : String(err);
@@ -281,8 +297,8 @@ pointsRouter.post(
             await deletePoints(buildPointsContext(req), req.body);
             res.json(qdrantResponse({ operation_id: 0, status: "completed" }, start));
         } catch (err: unknown) {
-            if (err instanceof QdrantServiceError) {
-                return res.status(err.statusCode).json(err.payload);
+            if (sendKnownRouteError(res, err)) {
+                return;
             }
             logger.error({ err }, "delete points failed");
             const errorMessage =

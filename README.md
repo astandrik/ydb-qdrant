@@ -197,7 +197,7 @@ For full tables of popular embedding models and their dimensions, see [docs/vect
 - Set Qdrant URL to `http://ydb-qdrant.tech:8080`
 - `api-key` recommended for stable isolation
 - Free to use for testing and development
-- If `api-key` is omitted, isolation falls back to best-effort IP + User-Agent hashing
+- If `api-key` is omitted, anonymous isolation requires request client metadata such as IP or User-Agent
 
 **Option 2: Self-hosted (Local)**
 - Set Qdrant URL to `http://localhost:8080`

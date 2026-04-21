@@ -46,6 +46,23 @@ function isFatalStartupSchemaError(err: unknown): boolean {
 let originalStderrWrite: typeof process.stderr.write | undefined;
 let stderrAsErrorLoggerInstalled = false;
 
+function writeToOriginalStderr(
+    chunk: string | Uint8Array,
+    encoding?: BufferEncoding | ((err?: Error | null) => void),
+    cb?: (err?: Error | null) => void
+): boolean {
+    if (!originalStderrWrite) {
+        return true;
+    }
+    if (typeof encoding === "function") {
+        return originalStderrWrite(chunk, encoding);
+    }
+    if (encoding !== undefined) {
+        return originalStderrWrite(chunk, encoding, cb);
+    }
+    return originalStderrWrite(chunk);
+}
+
 export function installStderrAsErrorLogger(): void {
     if (stderrAsErrorLoggerInstalled) {
         return;
@@ -75,10 +92,7 @@ export function installStderrAsErrorLogger(): void {
             }
         }
 
-        if (!originalStderrWrite) {
-            return true;
-        }
-        return originalStderrWrite(chunk, encoding as BufferEncoding, cb);
+        return writeToOriginalStderr(chunk, encoding, cb);
     }) as typeof process.stderr.write;
     stderrAsErrorLoggerInstalled = true;
 }

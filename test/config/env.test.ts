@@ -18,6 +18,8 @@ describe("env.ts configuration", () => {
     delete process.env.YDB_QDRANT_SEARCH_TIMEOUT_MS;
     delete process.env.YDB_QDRANT_STARTUP_PROBE_SESSION_TIMEOUT_MS;
     delete process.env.YDB_QDRANT_LAST_ACCESS_MIN_WRITE_INTERVAL_MS;
+    delete process.env.YDB_QDRANT_WORKERS_MAX_QUEUE;
+    delete process.env.PORT;
   });
 
   afterEach(() => {
@@ -97,6 +99,38 @@ describe("env.ts configuration", () => {
       const env = await import("../../src/config/env.js");
 
       expect(env.UPSERT_BATCH_SIZE).toBe(1);
+    });
+  });
+
+  describe("PORT", () => {
+    it("defaults to 8080 when PORT is not set", async () => {
+      const env = await import("../../src/config/env.js");
+
+      expect(env.PORT).toBe(8080);
+    });
+
+    it("parses and bounds PORT", async () => {
+      process.env.PORT = "3000";
+      let env = await import("../../src/config/env.js");
+      expect(env.PORT).toBe(3000);
+
+      vi.resetModules();
+      process.env.PORT = "0";
+      env = await import("../../src/config/env.js");
+      expect(env.PORT).toBe(1);
+
+      vi.resetModules();
+      process.env.PORT = "999999";
+      env = await import("../../src/config/env.js");
+      expect(env.PORT).toBe(65535);
+    });
+
+    it("falls back to default for invalid PORT input", async () => {
+      process.env.PORT = "not-a-port";
+
+      const env = await import("../../src/config/env.js");
+
+      expect(env.PORT).toBe(8080);
     });
   });
 
@@ -237,6 +271,18 @@ describe("env.ts configuration", () => {
       const env = await import("../../src/config/env.js");
 
       expect(env.LAST_ACCESS_MIN_WRITE_INTERVAL_MS).toBe(1000);
+    });
+  });
+
+  describe("WORKERS_MAX_QUEUE", () => {
+    it("defaults to auto and accepts positive integers", async () => {
+      let env = await import("../../src/config/env.js");
+      expect(env.WORKERS_MAX_QUEUE).toBe("auto");
+
+      vi.resetModules();
+      process.env.YDB_QDRANT_WORKERS_MAX_QUEUE = "32";
+      env = await import("../../src/config/env.js");
+      expect(env.WORKERS_MAX_QUEUE).toBe(32);
     });
   });
 });

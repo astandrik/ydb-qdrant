@@ -11,6 +11,7 @@ import {
 function createRequest(options?: {
     apiKey?: string;
     ip?: string;
+    omitRemoteAddress?: boolean;
     remoteAddress?: string;
     tenantId?: string;
     userAgent?: string;
@@ -35,7 +36,9 @@ function createRequest(options?: {
         },
         ip: options?.ip,
         socket: {
-            remoteAddress: options?.remoteAddress ?? "198.51.100.10",
+            remoteAddress: options?.omitRemoteAddress
+                ? undefined
+                : options?.remoteAddress ?? "198.51.100.10",
         },
     } as unknown as Request;
 }
@@ -70,6 +73,14 @@ describe("utils/requestIdentity", () => {
             xForwardedFor: "198.51.100.10",
         });
         expect(resolveRequestUserUid(req)).toMatch(/^anon_[0-9a-f]{16}$/);
+    });
+
+    it("rejects anonymous identity when no api-key and no client metadata exists", () => {
+        const req = createRequest({ omitRemoteAddress: true });
+
+        expect(() => resolveRequestUserUid(req)).toThrow(
+            "Anonymous requests require api-key or identifiable client metadata."
+        );
     });
 
     it("builds the same namespace uid for missing tenant and tenant=default", () => {

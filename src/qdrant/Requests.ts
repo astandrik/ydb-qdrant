@@ -8,6 +8,8 @@ import type {
     YdbQdrantUpsertPoint,
 } from "./QdrantRestTypes.js";
 
+export const RETRIEVE_POINTS_IDS_MAX = 1000;
+
 export const CreateCollectionReq = z.object({
     vectors: z.object({
         size: z.number().int().positive(),
@@ -96,7 +98,8 @@ export const DeletePointsReq = z.union([
 export const RetrievePointsReq = z.object({
     ids: z
         .array(z.union([z.string(), z.number()]) as z.ZodType<YdbQdrantPointId>)
-        .min(1),
+        .min(1)
+        .max(RETRIEVE_POINTS_IDS_MAX),
     with_payload: z.boolean().optional().default(true),
     with_vector: z.boolean().optional().default(false),
 });

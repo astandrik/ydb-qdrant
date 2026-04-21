@@ -1,9 +1,16 @@
 import type { Request } from "express";
 import {
+    AnonymousIdentityError,
     deriveAnonymousUserUid,
     deriveUserUidFromApiKey,
     sanitizeUserUid,
 } from "./tenant.js";
+
+export function isAnonymousIdentityError(
+    err: unknown
+): err is AnonymousIdentityError {
+    return err instanceof AnonymousIdentityError;
+}
 
 function sanitizeTenantId(tenantId: string | undefined): string {
     const raw = (tenantId ?? "default").toString();

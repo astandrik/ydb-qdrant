@@ -147,11 +147,21 @@ describe("index startup", () => {
         const indexModule = await import("../src/index.ts");
 
         expect(process.stderr.write("native boom\n")).toBe(true);
+        const callback = vi.fn();
+        expect(process.stderr.write("callback boom\n", callback)).toBe(true);
         expect(mocks.errorMock).toHaveBeenCalledWith(
             { stream: "stderr" },
             "native boom"
         );
+        expect(mocks.errorMock).toHaveBeenCalledWith(
+            { stream: "stderr" },
+            "callback boom"
+        );
         expect(forwardedWrite).toHaveBeenCalled();
+        expect(forwardedWrite).toHaveBeenCalledWith(
+            "callback boom\n",
+            callback
+        );
 
         indexModule.__restoreStderrWriteForTests();
         process.stderr.write = originalStderrWrite;

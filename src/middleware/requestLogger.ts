@@ -13,6 +13,20 @@ import {
     getMonotonicTimeNs,
 } from "../logging/requestContext.js";
 
+const MAX_REQUEST_ID_LENGTH = 128;
+const SAFE_REQUEST_ID_RE = /^[A-Za-z0-9._:-]+$/;
+
+function normalizeRequestId(value: string | undefined): string | undefined {
+    const trimmed = value?.trim();
+    if (!trimmed) {
+        return undefined;
+    }
+    if (trimmed.length > MAX_REQUEST_ID_LENGTH) {
+        return undefined;
+    }
+    return SAFE_REQUEST_ID_RE.test(trimmed) ? trimmed : undefined;
+}
+
 function parseClientIpFromXForwardedFor(
     value: string | undefined
 ): string | undefined {
@@ -37,7 +51,9 @@ export function requestLogger(req: Request, res: Response, next: NextFunction) {
     const start = Date.now();
     const traceparent = req.header("traceparent") ?? undefined;
     const amznTraceId = req.header("X-Amzn-Trace-Id") ?? undefined;
-    const requestIdFromHeader = req.header("X-Request-Id") ?? undefined;
+    const requestIdFromHeader = normalizeRequestId(
+        req.header("X-Request-Id") ?? undefined
+    );
     const requestId = requestIdFromHeader ?? randomUUID();
     res.setHeader("X-Request-Id", requestId);
     const userAgent = req.header("User-Agent") ?? undefined;

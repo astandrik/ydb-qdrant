@@ -249,7 +249,7 @@ jobs:
           echo "breaking_vus=${BREAKING_VUS}" >> "$GITHUB_OUTPUT"
           echo "breaking_rps=${BREAKING_RPS}" >> "$GITHUB_OUTPUT"
 
-          echo "### Stress Test Results (${{ matrix.storage_mode }})" >> $GITHUB_STEP_SUMMARY
+          echo "### Stress Test Results (one_table_exact)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
@@ -272,7 +272,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          STORAGE_MODE: ${{ matrix.storage_mode }}
+          STORAGE_MODE: one_table_exact
           MAX_VUS: ${{ steps.metrics.outputs.max_vus }}
           AVG_RPS: ${{ steps.metrics.outputs.avg_rps }}
           SEARCH_P95: ${{ steps.metrics.outputs.search_p95 }}

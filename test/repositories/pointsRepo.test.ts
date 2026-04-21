@@ -1212,6 +1212,61 @@ describe("pointsRepo (with mocked YDB)", () => {
         expect(yql).toContain("point_id IN $ids");
     });
 
+    it("retries transient OVERLOADED errors for retrievePointsByIds", async () => {
+        vi.useFakeTimers();
+        const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+        try {
+            const payload = { indexing_complete: true };
+            const payloadSign = computePayloadSign({ apiKey, payload });
+            const sessionMock = {
+                executeQuery: vi
+                    .fn()
+                    .mockRejectedValueOnce(
+                        new Error(
+                            'Overloaded (code 400060): [{"message":"Tablet is overloaded."}]'
+                        )
+                    )
+                    .mockResolvedValueOnce({
+                        resultSets: [
+                            {
+                                rows: [
+                                    {
+                                        items: [
+                                            { textValue: "p1" },
+                                            { textValue: JSON.stringify(payload) },
+                                            { textValue: payloadSign },
+                                        ],
+                                    },
+                                ],
+                            },
+                        ],
+                    }),
+            };
+
+            withSessionMock.mockImplementation(
+                async (fn: (s: unknown) => unknown) => await fn(sessionMock)
+            );
+
+            const p = retrievePointsByIds(
+                "qdrant_all_points",
+                ["p1"],
+                "qdr_tenant_a__my_collection",
+                apiKey,
+                true
+            );
+            await Promise.resolve();
+            await vi.advanceTimersByTimeAsync(250);
+
+            const result = await p;
+
+            expect(result).toEqual([{ id: "p1", payload }]);
+            expect(sessionMock.executeQuery).toHaveBeenCalledTimes(2);
+        } finally {
+            randomSpy.mockRestore();
+            vi.useRealTimers();
+        }
+    });
+
     it("drops retrieved points when payload signature mismatches", async () => {
         const sessionMock = {
             executeQuery: vi.fn().mockResolvedValue({
