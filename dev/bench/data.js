@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776770317023,
+  "lastUpdate": 1776770554473,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (one_table, 768D)": [
@@ -13285,6 +13285,57 @@ window.BENCHMARK_DATA = {
             "name": "Soak: Throughput",
             "value": 66.43478241127345,
             "unit": "ops/s"
+          }
+        ]
+      }
+    ],
+    "Load Test - Stress (one_table exact, 768D)": [
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2d682e3494fe579465cf190607d3aadd150a49b6",
+          "message": "feat!: refactor one-table Qdrant pipeline for exact search (#188)\n\n* feat!: update\n\n* fix: remove quantized\n\n* fix: review fixes\n\n* fix: review fixes\n\n* fix: update docs\n\n* fix: tests\n\n* fix: review fixes",
+          "timestamp": "2026-04-21T14:14:46+03:00",
+          "tree_id": "f8e2f39982190053f8aacfc371befaf578729ea7",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/2d682e3494fe579465cf190607d3aadd150a49b6"
+        },
+        "date": 1776770553624,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Stress: Search Latency p95",
+            "value": 4650,
+            "unit": "ms"
+          },
+          {
+            "name": "Stress: Search Latency p99",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Stress: Search Latency max",
+            "value": 6575,
+            "unit": "ms"
+          },
+          {
+            "name": "Stress: Upsert Latency p95",
+            "value": 3995.3,
+            "unit": "ms"
+          },
+          {
+            "name": "Stress: Error Rate",
+            "value": 0,
+            "unit": "%"
           }
         ]
       }
