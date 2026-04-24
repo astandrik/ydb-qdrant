@@ -158,6 +158,24 @@ describe("ydb/client static credentials auth", () => {
         await expect(client.readyOrThrow()).rejects.toThrow(missingPath);
     });
 
+    it("fails clearly when private CA file cannot be read", async () => {
+        process.env.YDB_STATIC_CREDENTIALS_USER = "qdrantapp";
+        process.env.YDB_STATIC_CREDENTIALS_PASSWORD = "env-secret";
+        const dir = mkdtempSync(join(tmpdir(), "ydb-qdrant-static-"));
+        tempDirs.push(dir);
+        const missingPath = join(dir, "missing-ca.pem");
+        process.env.YDB_SSL_ROOT_CERTIFICATES_FILE = missingPath;
+
+        const client = await import("../../src/ydb/client.js");
+        client.configureDriver({
+            connectionString: "grpcs://ydb-local:2137/local/qdrant",
+        });
+
+        await expect(client.readyOrThrow()).rejects.toThrow(
+            `Failed to read YDB_SSL_ROOT_CERTIFICATES_FILE at ${missingPath}.`
+        );
+    });
+
     it("keeps explicit programmatic authService ahead of env static credentials", async () => {
         process.env.YDB_STATIC_CREDENTIALS_USER = "qdrantapp";
         process.env.YDB_STATIC_CREDENTIALS_PASSWORD = "env-secret";

@@ -246,6 +246,17 @@ function readStaticCredentialsPasswordFromFile(path: string): string {
     }
 }
 
+function readSslRootCertificatesFromFile(path: string): Buffer {
+    try {
+        return readFileSync(path);
+    } catch (cause) {
+        throw new Error(
+            `Failed to read YDB_SSL_ROOT_CERTIFICATES_FILE at ${path}.`,
+            { cause }
+        );
+    }
+}
+
 function resolveStaticCredentialsPassword(): string | undefined {
     if (YDB_STATIC_CREDENTIALS_PASSWORD_FILE) {
         const password = readStaticCredentialsPasswordFromFile(
@@ -290,7 +301,9 @@ function createPrivateCaSslCredentialsForEndpoint(
     }
 
     return {
-        rootCertificates: readFileSync(YDB_SSL_ROOT_CERTIFICATES_FILE),
+        rootCertificates: readSslRootCertificatesFromFile(
+            YDB_SSL_ROOT_CERTIFICATES_FILE
+        ),
     };
 }
 
