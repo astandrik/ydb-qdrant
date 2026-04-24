@@ -94,8 +94,10 @@ This will run tests and build via the `prepublishOnly` script before uploading t
 
 CI publish:
 
-- GitHub Actions workflow `.github/workflows/publish-ydb-qdrant.yml` publishes when a GitHub Release is published (typically for `v*` tags created by Release Please).
-- Configure the `NPM_TOKEN` secret in the repository; the workflow runs:
+- GitHub Actions workflow `.github/workflows/release-please.yml` runs on pushes to `main`.
+- When a Release Please PR is merged into `main`, Release Please creates the version tag and publishes the GitHub Release.
+- GitHub Actions workflow `.github/workflows/publish-ydb-qdrant.yml` publishes to npm only from that GitHub Release `published` event.
+- Configure npm trusted publishing for this repository and workflow; the workflow runs:
 
 ```bash
 npm ci
@@ -103,4 +105,3 @@ npm test
 npm run build
 npm publish
 ```
-
