@@ -3,6 +3,8 @@
 This document covers both the **standalone** `ydb-qdrant` image (connects to an external YDB) and the **all-in-one** `ydb-qdrant-local` image (includes a local YDB inside the container).
 The service creates the global points table with YDB auto-partitioning enabled (by load and by size) and a ~100 MB target partition size; no manual DDL is required from operators.
 
+For the demo topology that uses a persistent `local-ydb` volume, a CMS-created `/local/qdrant` tenant, GraphShard charts, and multiple dynamic nodes, see [local-ydb-runbook.md](local-ydb-runbook.md).
+
 ### Standalone HTTP Server (Published Image)
 
 Published container: `ghcr.io/astandrik/ydb-qdrant`
@@ -164,6 +166,212 @@ To quickly verify persistence:
 - Create a collection and upsert at least one point via the HTTP API on `http://localhost:8080`.
 - Restart the container (`docker restart ydb-qdrant-local`) or recreate it while reusing the same volume.
 - Query the collection again and confirm the previously inserted point is still returned.
+
+#### Local YDB with GraphShard charts
+
+The embedded YDB UI chart backend needs a database tenant with a GraphShard tablet. Setting `YDB_FEATURE_FLAGS=enable_graph_shard` is required, but it does not add GraphShard to the root `/local` domain. Use a separate CMS-created tenant and a dynamic node for that tenant.
+
+The current demo layout is:
+
+- `ydb-local`: static local YDB node, persistent `ydb-local-data-26-1` volume, monitoring on `8765`, gRPC on `2136`.
+- `/local/qdrant`: CMS-created tenant with `GraphShardExists=true` and GraphShard metrics backend set to `Local`.
+- `ydb-dyn-qdrant`: dynamic YDB node serving `/local/qdrant`, gRPC on `2137`, monitoring on `8766`.
+- `ydb-qdrant`: app connected to `grpc://ydb-local:2137` and database `/local/qdrant`.
+- Storage allocation: `hdd:3`, about 12 GiB.
+
+Security note: the example below starts local YDB with anonymous credentials, no gRPC TLS, and host-published YDB ports. Use it only on a trusted network. On an internet-facing host, bind YDB ports to `127.0.0.1`, remove direct host publishing for YDB where possible, and protect any nginx exposure of `/monitoring/` or `/viewer`. Enabling native YDB username/password auth requires `security_config.enforce_user_token_requirement: true`, YDB users/ACLs, and a non-anonymous credential path for `ydb-qdrant`; see [local-ydb-runbook.md](local-ydb-runbook.md#security-posture).
+
+The older `stable-25-3` volume `ydb-local-data` is retained on the demo host as rollback data; the 26.1 cutover used a fresh volume because in-place startup of that old volume on 26.1 did not make `/local/qdrant` visible. Do not reuse a `stable-25-3` volume for an in-place 26.1 startup unless the upgrade has been validated on a copy first.
+
+Reset and start the static local YDB node:
+
+```bash
+APP_IMAGE=ghcr.io/astandrik/ydb-qdrant:9.0.3
+YDB_IMAGE=ghcr.io/ydb-platform/local-ydb:26.1.1.6
+YDB_VOLUME=ydb-local-data-26-1
+
+docker pull "$APP_IMAGE"
+docker pull "$YDB_IMAGE"
+
+docker rm -f ydb-qdrant ydb-dyn-qdrant ydb-local 2>/dev/null || true
+docker network create ydb-net 2>/dev/null || true
+docker volume create "$YDB_VOLUME"
+
+docker run -d --name ydb-local \
+  --no-healthcheck \
+  --network ydb-net \
+  --restart unless-stopped \
+  -p 2136:2136 \
+  -p 8765:8765 \
+  -v "$YDB_VOLUME":/ydb_data \
+  -e GRPC_PORT=2136 \
+  -e MON_PORT=8765 \
+  -e GRPC_TLS_PORT= \
+  -e YDB_GRPC_ENABLE_TLS=0 \
+  -e YDB_ANONYMOUS_CREDENTIALS=1 \
+  -e YDB_LOCAL_SURVIVE_RESTART=1 \
+  -e YDB_FEATURE_FLAGS=enable_graph_shard \
+  "$YDB_IMAGE"
+
+until curl -fsS http://127.0.0.1:8765/monitoring/ >/dev/null; do
+  echo "waiting for ydb-local..."
+  sleep 3
+done
+```
+
+Create the GraphShard-enabled tenant through the public CMS gRPC API:
+
+```bash
+docker run --rm --network ydb-net "$APP_IMAGE" sh -lc '
+set -e
+mkdir -p /tmp/protos/ydb/public/api/grpc /tmp/protos/ydb/public/api/protos/annotations /tmp/protos/google/protobuf
+base=https://raw.githubusercontent.com/ydb-platform/ydb/3fba35885d1f2b3fc3583405d30656af94d3b4ad
+for f in \
+  ydb/public/api/grpc/ydb_cms_v1.proto \
+  ydb/public/api/protos/ydb_cms.proto \
+  ydb/public/api/protos/ydb_operation.proto \
+  ydb/public/api/protos/ydb_common.proto \
+  ydb/public/api/protos/ydb_issue_message.proto \
+  ydb/public/api/protos/ydb_status_codes.proto \
+  ydb/public/api/protos/annotations/validation.proto; do
+  wget -q -O /tmp/protos/$f $base/$f
+done
+gbase=https://raw.githubusercontent.com/protocolbuffers/protobuf/main/src
+for f in google/protobuf/any.proto google/protobuf/duration.proto google/protobuf/timestamp.proto google/protobuf/descriptor.proto; do
+  wget -q -O /tmp/protos/$f $gbase/$f
+done
+cat >/tmp/create-tenant.js << "NODE"
+const grpc = require("@grpc/grpc-js");
+const protoLoader = require("@grpc/proto-loader");
+const packageDef = protoLoader.loadSync("/tmp/protos/ydb/public/api/grpc/ydb_cms_v1.proto", {
+  keepCase: false,
+  longs: String,
+  enums: String,
+  defaults: false,
+  oneofs: true,
+  includeDirs: ["/tmp/protos"],
+});
+const root = grpc.loadPackageDefinition(packageDef);
+const client = new root.Ydb.Cms.V1.CmsService("ydb-local:2136", grpc.credentials.createInsecure());
+client.CreateDatabase({
+  operationParams: {operationMode: "SYNC"},
+  path: "/local/qdrant",
+  resources: {storageUnits: [{unitKind: "hdd", count: "1"}]},
+  options: {planResolution: 50, coordinators: 1, mediators: 1},
+  idempotencyKey: "ydb-qdrant-graphshard-tenant-v1",
+}, (err, res) => {
+  if (err) {
+    console.error(err);
+    process.exit(1);
+  }
+  console.log(JSON.stringify(res, null, 2));
+});
+NODE
+NODE_PATH=/usr/src/app/node_modules node /tmp/create-tenant.js
+'
+```
+
+Start the dynamic node. `--network container:ydb-local` is intentional: generated YDB config advertises the static node as `localhost:19001`, so the dynamic node must share the static container network namespace.
+
+```bash
+docker run -d --name ydb-dyn-qdrant \
+  --no-healthcheck \
+  --network container:ydb-local \
+  --restart unless-stopped \
+  -v "$YDB_VOLUME":/ydb_data:ro \
+  --entrypoint /ydbd \
+  "$YDB_IMAGE" \
+  server \
+  --yaml-config /ydb_data/cluster/kikimr_configs/config.yaml \
+  --tcp \
+  --node-broker grpc://127.0.0.1:2136 \
+  --grpc-port 2137 \
+  --mon-port 8766 \
+  --ic-port 19002 \
+  --tenant /local/qdrant \
+  --node-host 127.0.0.1 \
+  --node-address 127.0.0.1 \
+  --node-resolve-host 127.0.0.1 \
+  --node-domain local
+
+until curl -fsS 'http://127.0.0.1:8765/viewer/json/tenants?database=/local' | grep -q '"/local/qdrant","State":"RUNNING"'; do
+  echo "waiting for /local/qdrant..."
+  sleep 3
+done
+```
+
+Switch the GraphShard metrics backend to `Local` before collecting chart history. `Local` persists per-metric values correctly for longer chart ranges and avoids the old `stable-25-3` `Memory` backend downsampling issue.
+
+```bash
+GRAPH_TABLET_ID=$(curl -fsSL 'http://127.0.0.1:8765/viewer/json/tabletinfo?database=%2Flocal%2Fqdrant&enums=true' \
+  | jq -r '.. | objects | select(.Type? == "GraphShard") | .TabletId' \
+  | head -n 1)
+
+curl -fsS "http://127.0.0.1:8765/tablets/app?TabletID=${GRAPH_TABLET_ID}&action=change_backend&backend=1"
+
+docker restart ydb-dyn-qdrant
+```
+
+Increase the demo tenant storage from the initial `hdd:1` to `hdd:3`:
+
+```bash
+docker exec ydb-local /ydbd \
+  --server grpc://localhost:2136 \
+  --no-password \
+  admin database /local/qdrant pools add hdd:2
+```
+
+Bootstrap the app metadata table and start `ydb-qdrant` against the dynamic node:
+
+```bash
+docker run --rm \
+  --network ydb-net \
+  -e YDB_QDRANT_ENDPOINT=grpc://ydb-local:2137 \
+  -e YDB_QDRANT_DATABASE=/local/qdrant \
+  -e YDB_ANONYMOUS_CREDENTIALS=1 \
+  "$APP_IMAGE" \
+  node --experimental-specifier-resolution=node --enable-source-maps dist/ydb/bootstrapMetaTable.js
+
+docker run -d --name ydb-qdrant \
+  --network ydb-net \
+  --restart on-failure \
+  -p 8080:8080 \
+  -e PORT=8080 \
+  -e LOG_LEVEL=info \
+  -e YDB_QDRANT_ENDPOINT=grpc://ydb-local:2137 \
+  -e YDB_QDRANT_DATABASE=/local/qdrant \
+  -e YDB_ANONYMOUS_CREDENTIALS=1 \
+  "$APP_IMAGE"
+```
+
+Verify:
+
+```bash
+curl -fsS http://127.0.0.1:8080/health
+curl -sSL 'http://127.0.0.1:8765/viewer/json/capabilities?database=%2Flocal%2Fqdrant' \
+  | jq '.Settings.Database.GraphShardExists'
+curl -sSL 'http://127.0.0.1:8765/viewer/json/tabletinfo?database=%2Flocal%2Fqdrant&enums=true' \
+  | grep -o GraphShard | sort | uniq -c
+GRAPH_TABLET_ID=$(curl -fsSL 'http://127.0.0.1:8765/viewer/json/tabletinfo?database=%2Flocal%2Fqdrant&enums=true' \
+  | jq -r '.. | objects | select(.Type? == "GraphShard") | .TabletId' \
+  | head -n 1)
+curl -fsS "http://127.0.0.1:8765/tablets/app?TabletID=${GRAPH_TABLET_ID}&action=get_settings"
+curl -sSL 'http://127.0.0.1:8765/viewer/json/tenantinfo?database=%2Flocal%2Fqdrant&path=%2Flocal%2Fqdrant&tablets=false&storage=true&memory=true' \
+  | python3 -m json.tool \
+  | grep -E 'Resources|StorageGroups|StorageAllocatedLimit|DatabaseStorage' -A 20
+```
+
+For graph data checks, use a dynamic node path. The root `/viewer/json/graph` endpoint can return `GraphShard is not enabled on the database` even when `/local/qdrant` has `GraphShardExists=true`.
+
+```bash
+GRAPH_NODE_ID=$(curl -fsSL 'http://127.0.0.1:8765/viewer/json/nodelist?database=%2Flocal%2Fqdrant&enums=true&type=any' \
+  | jq -r '.[0].Id')
+NOW=$(date +%s)
+FROM=$((NOW - 600))
+curl -fsS "http://127.0.0.1:8765/node/${GRAPH_NODE_ID}/viewer/json/graph?database=%2Flocal%2Fqdrant&target=resources.memory.used_bytes&from=${FROM}&until=${NOW}&maxDataPoints=1000"
+```
+
+Use `/health` as the app smoke check. `GET /collections` currently returns Express 404 and should not be used as a health probe.
 
 ### Apple Silicon (Mac) Notes
 

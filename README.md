@@ -54,7 +54,16 @@ npm install
 ```
 
 ## Configure credentials
-The server uses `getCredentialsFromEnv()` and supports these env vars (first match wins):
+The server supports explicit programmatic `authService` in the npm API. Without it, env-based credentials are used:
+
+- Static username/password credentials (durable local YDB)
+  ```bash
+  export YDB_STATIC_CREDENTIALS_USER=qdrantapp
+  export YDB_STATIC_CREDENTIALS_PASSWORD_FILE=/run/secrets/qdrantapp.password
+  ```
+  `YDB_STATIC_CREDENTIALS_PASSWORD` is supported only as a fallback when a password file is not set. `YDB_STATIC_CREDENTIALS_AUTH_ENDPOINT` can override the auth endpoint; otherwise the YDB endpoint is used. For private CA TLS, set `YDB_SSL_ROOT_CERTIFICATES_FILE`.
+
+The remaining YDB SDK env credentials are resolved by `getCredentialsFromEnv()`:
 
 - Service account key file (recommended)
   ```bash

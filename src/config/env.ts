@@ -4,6 +4,17 @@ import { parseBooleanEnv, parseIntegerEnv } from "../utils/EnvParsers.js";
 export const YDB_QDRANT_ENDPOINT = process.env.YDB_QDRANT_ENDPOINT?.trim() ?? "";
 export const YDB_QDRANT_DATABASE = process.env.YDB_QDRANT_DATABASE?.trim() ?? "";
 
+export const YDB_STATIC_CREDENTIALS_USER =
+    process.env.YDB_STATIC_CREDENTIALS_USER?.trim() ?? "";
+export const YDB_STATIC_CREDENTIALS_PASSWORD_FILE =
+    process.env.YDB_STATIC_CREDENTIALS_PASSWORD_FILE?.trim() ?? "";
+export const YDB_STATIC_CREDENTIALS_PASSWORD =
+    process.env.YDB_STATIC_CREDENTIALS_PASSWORD ?? "";
+export const YDB_STATIC_CREDENTIALS_AUTH_ENDPOINT =
+    process.env.YDB_STATIC_CREDENTIALS_AUTH_ENDPOINT?.trim() ?? "";
+export const YDB_SSL_ROOT_CERTIFICATES_FILE =
+    process.env.YDB_SSL_ROOT_CERTIFICATES_FILE?.trim() ?? "";
+
 export const LEGACY_YDB_ENDPOINT = process.env.YDB_ENDPOINT?.trim() ?? "";
 export const LEGACY_YDB_DATABASE = process.env.YDB_DATABASE?.trim() ?? "";
 

@@ -8,6 +8,11 @@ describe("env.ts configuration", () => {
     // Clear relevant env vars before each test
     delete process.env.YDB_QDRANT_ENDPOINT;
     delete process.env.YDB_QDRANT_DATABASE;
+    delete process.env.YDB_STATIC_CREDENTIALS_USER;
+    delete process.env.YDB_STATIC_CREDENTIALS_PASSWORD_FILE;
+    delete process.env.YDB_STATIC_CREDENTIALS_PASSWORD;
+    delete process.env.YDB_STATIC_CREDENTIALS_AUTH_ENDPOINT;
+    delete process.env.YDB_SSL_ROOT_CERTIFICATES_FILE;
     delete process.env.YDB_ENDPOINT;
     delete process.env.YDB_DATABASE;
     delete process.env.YDB_QDRANT_UPSERT_BATCH_SIZE;

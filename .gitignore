@@ -3,6 +3,9 @@ node_modules/
 .npm-cache/
 yandex_d6*
 
+# Docs
+docs/local-ydb-runbook.md
+
 # Build outputs
 dist/
 build/
