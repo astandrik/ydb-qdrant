@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 
+## [9.1.0](https://github.com/astandrik/ydb-qdrant/compare/v9.0.3...v9.1.0) (2026-04-24)
+
+
+### Features
+
+* ydb auth ([#195](https://github.com/astandrik/ydb-qdrant/issues/195)) ([dffd081](https://github.com/astandrik/ydb-qdrant/commit/dffd0817df32e10772adae1917a55f20f117b3fb))
+
 ## [9.0.3](https://github.com/astandrik/ydb-qdrant/compare/v9.0.2...v9.0.3) (2026-04-21)
 
 
