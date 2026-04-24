@@ -96,7 +96,9 @@ CI publish:
 
 - GitHub Actions workflow `.github/workflows/release-please.yml` runs on pushes to `main`.
 - When a Release Please PR is merged into `main`, Release Please creates the version tag and publishes the GitHub Release.
-- GitHub Actions workflow `.github/workflows/publish-ydb-qdrant.yml` publishes to npm only from that GitHub Release `published` event.
+- GitHub Actions workflow `.github/workflows/publish-ydb-qdrant.yml` normally publishes to npm from that GitHub Release `published` event.
+- For fully automatic publishing, configure `RELEASE_PLEASE_TOKEN` so Release Please does not fall back to `github.token`; GitHub suppresses downstream workflow runs from most events created with `github.token`.
+- If the token is not configured, run `.github/workflows/publish-ydb-qdrant.yml` manually with the release tag.
 - Configure npm trusted publishing for this repository and workflow; the workflow runs:
 
 ```bash

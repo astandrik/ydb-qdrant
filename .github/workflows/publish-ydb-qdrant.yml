@@ -3,6 +3,12 @@ name: Publish ydb-qdrant to npm
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag to publish, for example v9.1.1."
+        required: true
+        type: string
 
 jobs:
   publish:
@@ -12,10 +18,38 @@ jobs:
       id-token: write
 
     steps:
-      - name: Checkout (release)
+      - name: Resolve checkout ref
+        id: checkout-ref
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG_NAME: ${{ github.event.release.tag_name }}
+          INPUT_TAG_NAME: ${{ inputs.tag_name }}
+        run: |
+          if [[ "$EVENT_NAME" == "release" ]]; then
+            ref="$RELEASE_TAG_NAME"
+          elif [[ -n "$INPUT_TAG_NAME" ]]; then
+            ref="$INPUT_TAG_NAME"
+          else
+            echo "Missing release tag" >&2
+            exit 1
+          fi
+
+          if [[ "$ref" == *$'\n'* || "$ref" == *$'\r'* || -z "$ref" ]]; then
+            echo "Invalid checkout ref" >&2
+            exit 1
+          fi
+
+          if [[ "$ref" != v* ]]; then
+            echo "Release tag must start with v" >&2
+            exit 1
+          fi
+
+          printf 'ref=%s\n' "$ref" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout release
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ steps.checkout-ref.outputs.ref }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
