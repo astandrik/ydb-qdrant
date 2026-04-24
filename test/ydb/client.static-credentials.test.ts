@@ -216,7 +216,7 @@ describe("ydb/client static credentials auth", () => {
         );
     });
 
-    it("uses default TLS for secure static auth without private CA", async () => {
+    it("uses SDK default TLS roots for secure static auth without private CA", async () => {
         process.env.YDB_STATIC_CREDENTIALS_USER = "qdrantapp";
         process.env.YDB_STATIC_CREDENTIALS_PASSWORD = "env-secret";
 
@@ -227,7 +227,12 @@ describe("ydb/client static credentials auth", () => {
         });
         const authService = getStaticAuthService(config);
 
-        expect(authService.sslCredentials).toEqual({});
+        expect(authService.sslCredentials?.rootCertificates).toBeInstanceOf(
+            Buffer
+        );
+        expect(
+            authService.sslCredentials?.rootCertificates?.length
+        ).toBeGreaterThan(0);
         expect(config.sslCredentials).toBeUndefined();
     });
 });

@@ -8,6 +8,7 @@ import type {
 } from "ydb-sdk";
 import { createRequire } from "module";
 import { readFileSync } from "fs";
+import { dirname, join } from "path";
 import {
     SESSION_POOL_MIN_SIZE,
     SESSION_POOL_MAX_SIZE,
@@ -110,6 +111,9 @@ type DriverConfig = {
 };
 
 type ResolvedYdbConnectionConfig = ReturnType<typeof resolveYdbConnectionConfig>;
+type SdkSslCredentialsModule = {
+    makeDefaultSslCredentials: () => ISslCredentials;
+};
 
 let overrideConfig: DriverConfig | undefined;
 let driver: InstanceType<typeof Driver> | undefined;
@@ -290,6 +294,23 @@ function createPrivateCaSslCredentialsForEndpoint(
     };
 }
 
+function createSdkDefaultSslCredentialsForStaticAuth(): ISslCredentials {
+    try {
+        // ydb-sdk does not publicly export this helper; keep the private lookup lazy and non-fatal.
+        const { makeDefaultSslCredentials } = require(
+            join(dirname(require.resolve("ydb-sdk")), "utils/ssl-credentials.js")
+        ) as SdkSslCredentialsModule;
+
+        return makeDefaultSslCredentials();
+    } catch (cause) {
+        logger.warn(
+            { err: cause },
+            "YDB SDK default SSL credentials unavailable; falling back to grpc default TLS roots"
+        );
+        return {};
+    }
+}
+
 function createStaticAuthSslCredentialsForEndpoint(
     endpoint: string
 ): ISslCredentials | undefined {
@@ -297,7 +318,10 @@ function createStaticAuthSslCredentialsForEndpoint(
         return undefined;
     }
 
-    return createPrivateCaSslCredentialsForEndpoint(endpoint) ?? {};
+    return (
+        createPrivateCaSslCredentialsForEndpoint(endpoint) ??
+        createSdkDefaultSslCredentialsForStaticAuth()
+    );
 }
 
 function createStaticCredentialsAuthService(
