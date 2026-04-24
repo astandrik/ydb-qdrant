@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777040017548,
+  "lastUpdate": 1777040251308,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (one_table, 768D)": [
@@ -13693,6 +13693,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Soak: Error Rate",
             "value": 0.0093,
+            "unit": "%"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9fb99609e17c78c9f16b72b00c2731bf3ca01e80",
+          "message": "chore(main): release 9.1.1 (#198)",
+          "timestamp": "2026-04-24T17:13:41+03:00",
+          "tree_id": "f8e3a9d3435900bb9da644ac1b8a7f77a164943b",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/9fb99609e17c78c9f16b72b00c2731bf3ca01e80"
+        },
+        "date": 1777040250615,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Soak: Search Latency p95",
+            "value": 73,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Search Latency p99",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Upsert Latency p95",
+            "value": 19,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Error Rate",
+            "value": 0,
             "unit": "%"
           }
         ]
