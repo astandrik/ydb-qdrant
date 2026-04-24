@@ -7,6 +7,7 @@ import type {
     ISslCredentials,
 } from "ydb-sdk";
 import { createRequire } from "module";
+import { dirname, join } from "path";
 import { readFileSync } from "fs";
 import {
     SESSION_POOL_MIN_SIZE,
@@ -41,6 +42,11 @@ const {
     getDefaultLogger,
     Ydb,
 } = require("ydb-sdk") as typeof import("ydb-sdk");
+const { makeDefaultSslCredentials } = require(
+    join(dirname(require.resolve("ydb-sdk")), "utils/ssl-credentials.js")
+) as {
+    makeDefaultSslCredentials: () => ISslCredentials;
+};
 
 export {
     Types,
@@ -284,7 +290,7 @@ function createSslCredentialsForEndpoint(
         };
     }
 
-    return {};
+    return makeDefaultSslCredentials();
 }
 
 function createStaticCredentialsAuthService(
@@ -332,9 +338,7 @@ function getDriverConfig(): ConstructorParameters<typeof Driver>[0] {
             overrideConfig?.authService ??
             createStaticCredentialsAuthService(base) ??
             getCredentialsFromEnv(),
-        ...(sslCredentials && YDB_SSL_ROOT_CERTIFICATES_FILE
-            ? { sslCredentials }
-            : {}),
+        ...(sslCredentials ? { sslCredentials } : {}),
         poolSettings: {
             minLimit: SESSION_POOL_MIN_SIZE,
             maxLimit: SESSION_POOL_MAX_SIZE,

@@ -184,4 +184,26 @@ describe("ydb/client static credentials auth", () => {
             "test-ca"
         );
     });
+
+    it("uses SDK default SSL credentials for secure static auth without private CA", async () => {
+        process.env.YDB_STATIC_CREDENTIALS_USER = "qdrantapp";
+        process.env.YDB_STATIC_CREDENTIALS_PASSWORD = "env-secret";
+
+        const config = await captureDriverConfig((client) => {
+            client.configureDriver({
+                connectionString: "grpcs://ydb-local:2137/local/qdrant",
+            });
+        });
+        const authService = getStaticAuthService(config);
+
+        expect(authService.sslCredentials?.rootCertificates).toBeInstanceOf(
+            Buffer
+        );
+        expect(config.sslCredentials?.rootCertificates).toStrictEqual(
+            authService.sslCredentials?.rootCertificates
+        );
+        expect(
+            authService.sslCredentials?.rootCertificates?.length
+        ).toBeGreaterThan(0);
+    });
 });
