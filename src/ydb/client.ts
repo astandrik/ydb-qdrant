@@ -7,7 +7,6 @@ import type {
     ISslCredentials,
 } from "ydb-sdk";
 import { createRequire } from "module";
-import { dirname, join } from "path";
 import { readFileSync } from "fs";
 import {
     SESSION_POOL_MIN_SIZE,
@@ -42,11 +41,6 @@ const {
     getDefaultLogger,
     Ydb,
 } = require("ydb-sdk") as typeof import("ydb-sdk");
-const { makeDefaultSslCredentials } = require(
-    join(dirname(require.resolve("ydb-sdk")), "utils/ssl-credentials.js")
-) as {
-    makeDefaultSslCredentials: () => ISslCredentials;
-};
 
 export {
     Types,
@@ -238,7 +232,14 @@ export function configureDriver(config: DriverConfig): void {
 }
 
 function readStaticCredentialsPasswordFromFile(path: string): string {
-    return readFileSync(path, "utf8").replace(/[\r\n]+$/, "");
+    try {
+        return readFileSync(path, "utf8").replace(/[\r\n]+$/, "");
+    } catch (cause) {
+        throw new Error(
+            `Failed to read YDB_STATIC_CREDENTIALS_PASSWORD_FILE at ${path}.`,
+            { cause }
+        );
+    }
 }
 
 function resolveStaticCredentialsPassword(): string | undefined {
@@ -277,20 +278,26 @@ function isSecureEndpoint(endpoint: string): boolean {
     return /^(grpcs|https):\/\//i.test(endpoint);
 }
 
-function createSslCredentialsForEndpoint(
+function createPrivateCaSslCredentialsForEndpoint(
+    endpoint: string
+): ISslCredentials | undefined {
+    if (!isSecureEndpoint(endpoint) || !YDB_SSL_ROOT_CERTIFICATES_FILE) {
+        return undefined;
+    }
+
+    return {
+        rootCertificates: readFileSync(YDB_SSL_ROOT_CERTIFICATES_FILE),
+    };
+}
+
+function createStaticAuthSslCredentialsForEndpoint(
     endpoint: string
 ): ISslCredentials | undefined {
     if (!isSecureEndpoint(endpoint)) {
         return undefined;
     }
 
-    if (YDB_SSL_ROOT_CERTIFICATES_FILE) {
-        return {
-            rootCertificates: readFileSync(YDB_SSL_ROOT_CERTIFICATES_FILE),
-        };
-    }
-
-    return makeDefaultSslCredentials();
+    return createPrivateCaSslCredentialsForEndpoint(endpoint) ?? {};
 }
 
 function createStaticCredentialsAuthService(
@@ -308,7 +315,8 @@ function createStaticCredentialsAuthService(
     }
 
     const authEndpoint = resolveStaticCredentialsAuthEndpoint(base);
-    const sslCredentials = createSslCredentialsForEndpoint(authEndpoint);
+    const sslCredentials =
+        createStaticAuthSslCredentialsForEndpoint(authEndpoint);
 
     return new StaticCredentialsAuthService(
         YDB_STATIC_CREDENTIALS_USER,
@@ -327,8 +335,8 @@ function getDriverConfig(): ConstructorParameters<typeof Driver>[0] {
     });
     const sslCredentials =
         "endpoint" in base
-            ? createSslCredentialsForEndpoint(base.endpoint)
-            : createSslCredentialsForEndpoint(
+            ? createPrivateCaSslCredentialsForEndpoint(base.endpoint)
+            : createPrivateCaSslCredentialsForEndpoint(
                   endpointFromConnectionString(base.connectionString)
               );
 

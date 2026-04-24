@@ -3,7 +3,7 @@
 This document covers both the **standalone** `ydb-qdrant` image (connects to an external YDB) and the **all-in-one** `ydb-qdrant-local` image (includes a local YDB inside the container).
 The service creates the global points table with YDB auto-partitioning enabled (by load and by size) and a ~100 MB target partition size; no manual DDL is required from operators.
 
-For the demo topology that uses a persistent `local-ydb` volume, a CMS-created `/local/qdrant` tenant, GraphShard charts, and multiple dynamic nodes, see [local-ydb-runbook.md](local-ydb-runbook.md).
+For the demo topology that uses a persistent `local-ydb` volume, a CMS-created `/local/qdrant` tenant, GraphShard charts, and multiple dynamic nodes, see [Local YDB with GraphShard charts](#local-ydb-with-graphshard-charts).
 
 ### Standalone HTTP Server (Published Image)
 
@@ -179,7 +179,7 @@ The current demo layout is:
 - `ydb-qdrant`: app connected to `grpc://ydb-local:2137` and database `/local/qdrant`.
 - Storage allocation: `hdd:3`, about 12 GiB.
 
-Security note: the example below starts local YDB with anonymous credentials, no gRPC TLS, and host-published YDB ports. Use it only on a trusted network. On an internet-facing host, bind YDB ports to `127.0.0.1`, remove direct host publishing for YDB where possible, and protect any nginx exposure of `/monitoring/` or `/viewer`. Enabling native YDB username/password auth requires `security_config.enforce_user_token_requirement: true`, YDB users/ACLs, and a non-anonymous credential path for `ydb-qdrant`; see [local-ydb-runbook.md](local-ydb-runbook.md#security-posture).
+Security note: the example below starts local YDB with anonymous credentials, no gRPC TLS, and host-published YDB ports. Use it only on a trusted network. On an internet-facing host, bind YDB ports to `127.0.0.1`, remove direct host publishing for YDB where possible, and protect any nginx exposure of `/monitoring/` or `/viewer`. Enabling native YDB username/password auth requires `security_config.enforce_user_token_requirement: true`, YDB users/ACLs, and a non-anonymous credential path for `ydb-qdrant`.
 
 The older `stable-25-3` volume `ydb-local-data` is retained on the demo host as rollback data; the 26.1 cutover used a fresh volume because in-place startup of that old volume on 26.1 did not make `/local/qdrant` visible. Do not reuse a `stable-25-3` volume for an in-place 26.1 startup unless the upgrade has been validated on a copy first.
 
