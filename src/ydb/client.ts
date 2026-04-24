@@ -4,8 +4,11 @@ import type {
     ExecuteQuerySettings as YdbExecuteQuerySettings,
     BulkUpsertSettings as YdbBulkUpsertSettings,
     QuerySession,
+    ISslCredentials,
 } from "ydb-sdk";
 import { createRequire } from "module";
+import { readFileSync } from "fs";
+import { dirname, join } from "path";
 import {
     SESSION_POOL_MIN_SIZE,
     SESSION_POOL_MAX_SIZE,
@@ -13,6 +16,11 @@ import {
     STARTUP_PROBE_SESSION_TIMEOUT_MS,
     YDB_SESSION_RETRY_MAX_RETRIES,
     TABLE_SESSION_TIMEOUT_MS,
+    YDB_SSL_ROOT_CERTIFICATES_FILE,
+    YDB_STATIC_CREDENTIALS_AUTH_ENDPOINT,
+    YDB_STATIC_CREDENTIALS_PASSWORD,
+    YDB_STATIC_CREDENTIALS_PASSWORD_FILE,
+    YDB_STATIC_CREDENTIALS_USER,
     resolveYdbConnectionConfig,
 } from "../config/env.js";
 import { logger } from "../logging/logger.js";
@@ -30,6 +38,8 @@ const {
     ExecuteQuerySettings,
     BulkUpsertSettings,
     OperationParams,
+    StaticCredentialsAuthService,
+    getDefaultLogger,
     Ydb,
 } = require("ydb-sdk") as typeof import("ydb-sdk");
 
@@ -98,6 +108,11 @@ type DriverConfig = {
     database?: string;
     connectionString?: string;
     authService?: IAuthService;
+};
+
+type ResolvedYdbConnectionConfig = ReturnType<typeof resolveYdbConnectionConfig>;
+type SdkSslCredentialsModule = {
+    makeDefaultSslCredentials: () => ISslCredentials;
 };
 
 let overrideConfig: DriverConfig | undefined;
@@ -220,16 +235,155 @@ export function configureDriver(config: DriverConfig): void {
     overrideConfig = config;
 }
 
+function readStaticCredentialsPasswordFromFile(path: string): string {
+    try {
+        return readFileSync(path, "utf8").replace(/[\r\n]+$/, "");
+    } catch (cause) {
+        throw new Error(
+            `Failed to read YDB_STATIC_CREDENTIALS_PASSWORD_FILE at ${path}.`,
+            { cause }
+        );
+    }
+}
+
+function readSslRootCertificatesFromFile(path: string): Buffer {
+    try {
+        return readFileSync(path);
+    } catch (cause) {
+        throw new Error(
+            `Failed to read YDB_SSL_ROOT_CERTIFICATES_FILE at ${path}.`,
+            { cause }
+        );
+    }
+}
+
+function resolveStaticCredentialsPassword(): string | undefined {
+    if (YDB_STATIC_CREDENTIALS_PASSWORD_FILE) {
+        const password = readStaticCredentialsPasswordFromFile(
+            YDB_STATIC_CREDENTIALS_PASSWORD_FILE
+        );
+        return password.length > 0 ? password : undefined;
+    }
+
+    return YDB_STATIC_CREDENTIALS_PASSWORD.length > 0
+        ? YDB_STATIC_CREDENTIALS_PASSWORD
+        : undefined;
+}
+
+function endpointFromConnectionString(connectionString: string): string {
+    const url = new URL(connectionString);
+    return `${url.protocol}//${url.host}`;
+}
+
+function resolveStaticCredentialsAuthEndpoint(
+    base: ResolvedYdbConnectionConfig
+): string {
+    if (YDB_STATIC_CREDENTIALS_AUTH_ENDPOINT) {
+        return YDB_STATIC_CREDENTIALS_AUTH_ENDPOINT;
+    }
+
+    if ("endpoint" in base) {
+        return base.endpoint;
+    }
+
+    return endpointFromConnectionString(base.connectionString);
+}
+
+function isSecureEndpoint(endpoint: string): boolean {
+    return /^(grpcs|https):\/\//i.test(endpoint);
+}
+
+function createPrivateCaSslCredentialsForEndpoint(
+    endpoint: string
+): ISslCredentials | undefined {
+    if (!isSecureEndpoint(endpoint) || !YDB_SSL_ROOT_CERTIFICATES_FILE) {
+        return undefined;
+    }
+
+    return {
+        rootCertificates: readSslRootCertificatesFromFile(
+            YDB_SSL_ROOT_CERTIFICATES_FILE
+        ),
+    };
+}
+
+function createSdkDefaultSslCredentialsForStaticAuth(): ISslCredentials {
+    try {
+        // ydb-sdk does not publicly export this helper; keep the private lookup lazy and non-fatal.
+        const { makeDefaultSslCredentials } = require(
+            join(dirname(require.resolve("ydb-sdk")), "utils/ssl-credentials.js")
+        ) as SdkSslCredentialsModule;
+
+        return makeDefaultSslCredentials();
+    } catch (cause) {
+        logger.warn(
+            { err: cause },
+            "YDB SDK default SSL credentials unavailable; falling back to grpc default TLS roots"
+        );
+        return {};
+    }
+}
+
+function createStaticAuthSslCredentialsForEndpoint(
+    endpoint: string
+): ISslCredentials | undefined {
+    if (!isSecureEndpoint(endpoint)) {
+        return undefined;
+    }
+
+    return (
+        createPrivateCaSslCredentialsForEndpoint(endpoint) ??
+        createSdkDefaultSslCredentialsForStaticAuth()
+    );
+}
+
+function createStaticCredentialsAuthService(
+    base: ResolvedYdbConnectionConfig
+): IAuthService | undefined {
+    if (!YDB_STATIC_CREDENTIALS_USER) {
+        return undefined;
+    }
+
+    const password = resolveStaticCredentialsPassword();
+    if (!password) {
+        throw new Error(
+            "YDB_STATIC_CREDENTIALS_USER is set, but neither YDB_STATIC_CREDENTIALS_PASSWORD_FILE nor YDB_STATIC_CREDENTIALS_PASSWORD provides a non-empty password."
+        );
+    }
+
+    const authEndpoint = resolveStaticCredentialsAuthEndpoint(base);
+    const sslCredentials =
+        createStaticAuthSslCredentialsForEndpoint(authEndpoint);
+
+    return new StaticCredentialsAuthService(
+        YDB_STATIC_CREDENTIALS_USER,
+        password,
+        authEndpoint,
+        getDefaultLogger(),
+        sslCredentials ? { sslCredentials } : undefined
+    );
+}
+
 function getDriverConfig(): ConstructorParameters<typeof Driver>[0] {
     const base = resolveYdbConnectionConfig({
         endpoint: overrideConfig?.endpoint,
         database: overrideConfig?.database,
         connectionString: overrideConfig?.connectionString,
     });
+    const sslCredentials =
+        "endpoint" in base
+            ? createPrivateCaSslCredentialsForEndpoint(base.endpoint)
+            : createPrivateCaSslCredentialsForEndpoint(
+                  endpointFromConnectionString(base.connectionString)
+              );
 
     return {
         ...base,
-        authService: overrideConfig?.authService ?? getCredentialsFromEnv(),
+        authService:
+            overrideConfig?.authService ??
+            createStaticCredentialsAuthService(base) ??
+            getCredentialsFromEnv(),
+        ...(sslCredentials ? { sslCredentials } : {}),
         poolSettings: {
             minLimit: SESSION_POOL_MIN_SIZE,
             maxLimit: SESSION_POOL_MAX_SIZE,
