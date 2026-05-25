@@ -49,11 +49,12 @@ Public hosted beta settings:
 
 - Homepage URL: `https://ydb-qdrant.tech/code-indexer/`
 - Callback URL: `https://code-indexer.ydb-qdrant.tech/github/oauth/callback`
-- Setup URL: `https://ydb-qdrant.tech/code-indexer/dashboard/`
 - Webhook URL: `https://code-indexer.ydb-qdrant.tech/github/webhook`
 - Enable "Request user authorization (OAuth) during installation".
 - Enable expiring user authorization tokens.
 - Installation target: `Any account`.
+
+When "Request user authorization (OAuth) during installation" is enabled, GitHub disables the Setup URL field and redirects the installer through the first configured callback URL instead. The callback accepts GitHub's install-time OAuth redirect without a custom `state`, exchanges the `code`, fetches the authorized user's accessible GitHub App installations, links those installations to the dashboard user, and redirects to `https://ydb-qdrant.tech/code-indexer/dashboard/`.
 
 Required GitHub App permissions:
 

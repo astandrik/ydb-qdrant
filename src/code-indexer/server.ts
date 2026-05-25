@@ -11,6 +11,7 @@ import {
     readSessionCookie,
     verifyOAuthState,
     type CodeIndexerAuthDeps,
+    type GitHubUserInstallation,
 } from "./auth.js";
 import {
     createPublicApiRouter,
@@ -101,35 +102,42 @@ function registerAuthRoutes(
                     });
                 }
                 const rawState = readQueryString(req.query.state);
-                if (!rawState) {
-                    throw new CodeIndexerAuthError({
-                        code: "missing_github_oauth_state",
-                        message: "missing GitHub OAuth state",
-                        statusCode: 400,
-                    });
-                }
                 const now = auth.now?.() ?? new Date();
-                const state = verifyOAuthState({
-                    nowMs: now.getTime(),
-                    secret: auth.sessionSecret,
-                    state: rawState,
-                    ttlSeconds: auth.oauthStateTtlSeconds,
-                });
+                const state = rawState
+                    ? verifyOAuthState({
+                          nowMs: now.getTime(),
+                          secret: auth.sessionSecret,
+                          state: rawState,
+                          ttlSeconds: auth.oauthStateTtlSeconds,
+                      })
+                    : {
+                          createdAtMs: now.getTime(),
+                          nonce: "github-install-oauth",
+                          returnPath: "/code-indexer/dashboard/",
+                      };
                 const token = await auth.client.exchangeCode(code);
                 const user = await auth.client.fetchUser(token.accessToken);
-                const installation = state.installationId
-                    ? await auth.client.findUserInstallation(
-                          token.accessToken,
-                          state.installationId
-                      )
-                    : null;
-                if (state.installationId && !installation) {
-                    throw new CodeIndexerAuthError({
-                        code: "github_installation_inaccessible",
-                        message:
-                            "installation is not accessible to the authorized GitHub user",
-                        statusCode: 403,
-                    });
+                const installationsToLink: GitHubUserInstallation[] = [];
+                if (state.installationId) {
+                    const installation = await auth.client.findUserInstallation(
+                        token.accessToken,
+                        state.installationId
+                    );
+                    if (!installation) {
+                        throw new CodeIndexerAuthError({
+                            code: "github_installation_inaccessible",
+                            message:
+                                "installation is not accessible to the authorized GitHub user",
+                            statusCode: 403,
+                        });
+                    }
+                    installationsToLink.push(installation);
+                } else {
+                    installationsToLink.push(
+                        ...(await auth.client.listUserInstallations(
+                            token.accessToken
+                        ))
+                    );
                 }
 
                 await auth.store.upsertGitHubUser({
@@ -140,12 +148,12 @@ function registerAuthRoutes(
                         ? { refreshToken: token.refreshToken }
                         : {}),
                 });
-                if (installation) {
+                for (const installationToLink of installationsToLink) {
                     await auth.store.upsertInstallation({
-                        accountLogin: installation.accountLogin,
-                        accountType: installation.accountType,
+                        accountLogin: installationToLink.accountLogin,
+                        accountType: installationToLink.accountType,
                         createdByGithubUserId: user.id,
-                        installationId: installation.id,
+                        installationId: installationToLink.id,
                         status: "active",
                     });
                 }

@@ -466,6 +466,18 @@ export class GitHubOAuthClient {
         installationId: number | string
     ): Promise<GitHubUserInstallation | null> {
         const targetInstallationId = String(installationId);
+        const installations = await this.listUserInstallations(accessToken);
+        return (
+            installations.find(
+                (installation) => installation.id === targetInstallationId
+            ) ?? null
+        );
+    }
+
+    async listUserInstallations(
+        accessToken: string
+    ): Promise<GitHubUserInstallation[]> {
+        const installations: GitHubUserInstallation[] = [];
         const perPage = 100;
         let page = 1;
         for (;;) {
@@ -481,12 +493,6 @@ export class GitHubOAuthClient {
                 );
             }
             for (const rawInstallation of json.installations) {
-                const rawId = isRecord(rawInstallation)
-                    ? readGitHubId(rawInstallation.id)
-                    : undefined;
-                if (rawId !== targetInstallationId) {
-                    continue;
-                }
                 const installation = parseGitHubInstallation(rawInstallation);
                 if (!installation) {
                     throw authError(
@@ -495,11 +501,11 @@ export class GitHubOAuthClient {
                         502
                     );
                 }
-                return installation;
+                installations.push(installation);
             }
             const totalCount = json.total_count ?? json.installations.length;
             if (page * perPage >= totalCount || json.installations.length === 0) {
-                return null;
+                return installations;
             }
             page += 1;
         }

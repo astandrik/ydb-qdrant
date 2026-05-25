@@ -93,6 +93,7 @@
 - Set Callback URL to `https://code-indexer.ydb-qdrant.tech/github/oauth/callback`.
 - Enable "Request user authorization (OAuth) during installation".
 - Enable expiring user authorization tokens.
+- Leave Setup URL empty in this mode; GitHub disables Setup URL and redirects installers through the first Callback URL.
 - Set Webhook URL to `https://code-indexer.ydb-qdrant.tech/github/webhook`.
 - Permissions:
   - Repository `Metadata: read`

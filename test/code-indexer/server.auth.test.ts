@@ -322,6 +322,83 @@ describe("code-indexer auth routes", () => {
         }
     });
 
+    it("creates a user session for GitHub install OAuth callbacks without state", async () => {
+        const fetchImpl: typeof fetch = (input) => {
+            const url = fetchInputUrl(input);
+            if (url.origin === "https://github.example.test") {
+                return Promise.resolve(jsonResponse({
+                    access_token: "ghu-user",
+                    expires_in: 28_800,
+                    refresh_token: "ghr-refresh",
+                    refresh_token_expires_in: 15_897_600,
+                    token_type: "bearer",
+                }));
+            }
+            if (url.pathname === "/user") {
+                return Promise.resolve(jsonResponse({ id: 123, login: "octocat" }));
+            }
+            if (url.pathname === "/user/installations") {
+                return Promise.resolve(jsonResponse({
+                    installations: [
+                        {
+                            account: { login: "astandrik", type: "User" },
+                            id: 777,
+                        },
+                        {
+                            account: { login: "ydb-platform", type: "Organization" },
+                            id: 778,
+                        },
+                    ],
+                    total_count: 2,
+                }));
+            }
+            throw new Error(`unexpected GitHub URL ${url.toString()}`);
+        };
+        const { baseUrl, server, store } = await startAuthServer({ fetchImpl });
+        try {
+            const response = await request({
+                baseUrl,
+                path: "/github/oauth/callback?code=oauth-code",
+            });
+
+            expect(response.statusCode).toBe(302);
+            expect(response.headers.location).toBe(
+                "https://ydb-qdrant.tech/code-indexer/dashboard/"
+            );
+            expect(firstSetCookie(response.headers)).toContain(
+                `${CODE_INDEXER_SESSION_COOKIE}=session-id`
+            );
+            expect(store.upsertGitHubUser).toHaveBeenCalledWith({
+                accessToken: "ghu-user",
+                githubUserId: "123",
+                login: "octocat",
+                refreshToken: "ghr-refresh",
+            });
+            expect(store.upsertInstallation).toHaveBeenCalledTimes(2);
+            expect(store.upsertInstallation).toHaveBeenNthCalledWith(1, {
+                accountLogin: "astandrik",
+                accountType: "User",
+                createdByGithubUserId: "123",
+                installationId: "777",
+                status: "active",
+            });
+            expect(store.upsertInstallation).toHaveBeenNthCalledWith(2, {
+                accountLogin: "ydb-platform",
+                accountType: "Organization",
+                createdByGithubUserId: "123",
+                installationId: "778",
+                status: "active",
+            });
+            expect(store.createSession).toHaveBeenCalledWith({
+                expiresAt: new Date("2026-05-25T01:00:00.000Z"),
+                githubUserId: "123",
+                sessionId: "session-id",
+            });
+        } finally {
+            await closeServer(server);
+        }
+    });
+
     it("rejects spoofed installation ids before creating a session", async () => {
         const fetchImpl: typeof fetch = (input) => {
             const url = fetchInputUrl(input);
