@@ -431,7 +431,7 @@ git commit -m "feat: expose hosted code indexer mcp"
   - Primary CTA: GitHub App install URL.
   - Secondary CTA: dashboard login URL.
 
-- [ ] Dashboard content:
+- [x] Dashboard content:
   - Current GitHub user.
   - Installations and repositories.
   - Status per repo: queued, indexing, ready, failed, deleted.
@@ -560,7 +560,7 @@ git commit -m "test: cover code indexer public saas flow"
 **Files:**
 - Modify only deployment config/scripts that already exist on the target server.
 
-- [ ] Deploy backend to staging/prod host with new env vars:
+- [x] Deploy backend to staging/prod host with new env vars:
   - `CODE_INDEXER_PUBLIC_BASE_URL=https://code-indexer.ydb-qdrant.tech`
   - `CODE_INDEXER_UI_ORIGIN=https://ydb-qdrant.tech`
   - `GITHUB_CLIENT_ID=<current GitHub App client id>`
@@ -569,25 +569,25 @@ git commit -m "test: cover code indexer public saas flow"
   - `CODE_INDEXER_TOKEN_PEPPER=<random 32+ byte secret>`
   - hosted OpenAI/proxy env vars.
 
-- [ ] Update reverse proxy:
+- [x] Update reverse proxy:
   - `https://code-indexer.ydb-qdrant.tech/github/*` to backend.
   - `https://code-indexer.ydb-qdrant.tech/api/*` to backend.
   - `https://code-indexer.ydb-qdrant.tech/mcp` to backend.
 
-- [ ] Deploy UI static export to `https://ydb-qdrant.tech`.
+- [x] Deploy UI static export to `https://ydb-qdrant.tech`.
 
 - [ ] Real E2E:
-  - Open `https://ydb-qdrant.tech/code-indexer/`.
-  - Install GitHub App into a test repository.
-  - Complete OAuth callback.
-  - Confirm dashboard shows repository status.
-  - Push a test file and confirm status returns to ready.
-  - Create MCP token.
-  - Call hosted MCP `search_code` by `owner/repo`.
-  - Revoke token and confirm MCP search fails.
-  - Uninstall App and confirm indexed collection is deleted.
+  - [x] Open `https://ydb-qdrant.tech/code-indexer/`.
+  - [x] Install GitHub App into a test repository.
+  - [x] Complete OAuth callback.
+  - [x] Confirm dashboard shows repository status.
+  - [x] Push a test file / run manual reindex and confirm status returns to ready.
+  - [x] Create MCP token.
+  - [x] Call hosted MCP `search_code` by `owner/repo`.
+  - [x] Revoke token and confirm MCP search fails.
+  - [ ] Uninstall App and confirm indexed collection is deleted.
 
-- [ ] Record evidence in `docs/github-app-code-indexer.md`.
+- [x] Record evidence in `docs/github-app-code-indexer.md`.
 
 - [ ] Commit docs evidence:
 
@@ -595,6 +595,14 @@ git commit -m "test: cover code indexer public saas flow"
 git add docs/github-app-code-indexer.md
 git commit -m "docs: record code indexer public beta verification"
 ```
+
+Evidence recorded on 2026-05-25:
+
+- Backend image `ydb-qdrant-code-indexer:99d0779` is deployed on `111.88.152.4`; public health returns `{"status":"ok"}` and Docker health is `healthy`.
+- Dashboard API returns `astandrik/local-ydb-toolkit` as `ready`, `chunkCount=909`, `lastIndexedAt=2026-05-25T11:50:01.923Z`.
+- Hosted MCP search by `owner/repo` returned indexed chunks; revoked token returned `401`.
+- Local verification passed: `npm run typecheck`, `npm run lint`, `npm run build`, `npm test`, and `YDB_ANONYMOUS_CREDENTIALS=1 npm run test:integration:code-indexer`.
+- Remaining destructive E2E step: uninstall App and confirm indexed collection deletion.
 
 ## Acceptance Criteria
 

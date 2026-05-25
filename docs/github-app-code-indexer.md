@@ -262,6 +262,20 @@ YDB_ANONYMOUS_CREDENTIALS=1 npx vitest run test/integration/CodeIndexerPublicSaa
 
 That test covers GitHub OAuth session creation, installation webhook processing, repository indexing, hosted MCP search by `owner/repo`, MCP token revocation, uninstall webhook processing, and indexed collection deletion. CI runs it together with the code-indexer smoke and SaaS store integration tests.
 
+### Public beta verification
+
+Verified on 2026-05-25 against `https://ydb-qdrant.tech/code-indexer/` and `https://code-indexer.ydb-qdrant.tech`:
+
+- GitHub App `YDB Qdrant Code Indexer` is installed on `astandrik/local-ydb-toolkit`.
+- GitHub install-time OAuth redirects through `/github/oauth/callback`, creates a dashboard session, and links installation `135399283`.
+- The dashboard API returns `astandrik/local-ydb-toolkit` as `ready` with `lastIndexedSha: "main"`, `lastIndexedAt: "2026-05-25T11:50:01.923Z"`, and `chunkCount: 909`.
+- A manual dashboard reindex returned `202` and completed back to `ready`.
+- Hosted MCP `search_code` by `owner/repo` returned indexed chunks from `astandrik/local-ydb-toolkit`.
+- Revoking the MCP token made the same bearer token fail with `401 unauthorized`.
+- Public health check returns `{"status":"ok"}` and the Docker healthcheck uses the code-indexer port `8090`.
+
+Remaining destructive verification: uninstalling the App and confirming indexed collection deletion should be run deliberately on a disposable installation or after the beta test repository can be temporarily disconnected.
+
 ### MCP server
 
 The hosted beta exposes Streamable HTTP MCP at `https://code-indexer.ydb-qdrant.tech/mcp`. Clients authenticate with a dashboard-created MCP token:
