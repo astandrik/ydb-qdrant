@@ -601,7 +601,23 @@ Evidence recorded on 2026-05-25:
 - Backend image `ydb-qdrant-code-indexer:99d0779` is deployed on `111.88.152.4`; public health returns `{"status":"ok"}` and Docker health is `healthy`.
 - Dashboard API returns `astandrik/local-ydb-toolkit` as `ready`, `chunkCount=909`, `lastIndexedAt=2026-05-25T11:50:01.923Z`.
 - Hosted MCP search by `owner/repo` returned indexed chunks; revoked token returned `401`.
+- UI static export commit `02ea6b2` is deployed to `https://ydb-qdrant.tech`; deployment backup is `/home/astandrik/ydb-qdrant-ui-out-20260525-121337.tgz`.
+- Public checks confirmed:
+  - `https://ydb-qdrant.tech/` includes the hero `Code Indexer` link and home promo.
+  - `https://ydb-qdrant.tech/ru/` includes the hero `Code Indexer` link and localized home promo.
+  - `https://ydb-qdrant.tech/code-indexer/` returns `200` with canonical, OpenGraph, and Twitter metadata.
+  - `https://ydb-qdrant.tech/code-indexer/dashboard/` includes `noindex, nofollow`.
+  - `https://ydb-qdrant.tech/sitemap.xml` lists public Code Indexer pages.
+  - `https://ydb-qdrant.tech/robots.txt` disallows `/code-indexer/dashboard/` and points to the sitemap.
+- Manual reindex diagnosis on 2026-05-25:
+  - Durable job `manual:e05d5d8f-dbdc-42de-9be1-046381a83cf7` was processed and completed.
+  - Repository `astandrik/local-ydb-toolkit` is `ready`, `chunkCount=909`, `lastIndexedAt=2026-05-25T12:15:36.951Z`.
+  - Follow-up manual job `manual:a50e30ca-1dc3-4de0-9772-a405899ff514` also completed; repository status stayed `ready`, `chunkCount=909`, `lastIndexedAt=2026-05-25T12:24:49.727Z`.
+  - UX gap found: dashboard queued a reindex but did not poll repository status, making progress hard to see.
+  - UI fix commit `94dd116` is deployed; dashboard now optimistically shows queued status, disables duplicate reindex clicks, and auto-refreshes active indexing status.
+  - Deployment backup for the UX fix is `/home/astandrik/ydb-qdrant-ui-out-20260525-122328.tgz`.
 - Local verification passed: `npm run typecheck`, `npm run lint`, `npm run build`, `npm test`, and `YDB_ANONYMOUS_CREDENTIALS=1 npm run test:integration:code-indexer`.
+- UI verification passed in `ydb-qdrant-ui`: `npm run lint`, `npm run build`.
 - Remaining destructive E2E step: uninstall App and confirm indexed collection deletion.
 
 ## Acceptance Criteria
