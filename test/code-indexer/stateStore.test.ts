@@ -681,6 +681,81 @@ describe("code-indexer durable state store", () => {
         });
     });
 
+    it("scans past locked same-repository pending jobs to claim other repositories", async () => {
+        const { stateStore, withSessionMock } = await importStateStore();
+        const firstJob = makeJobForRepo(42, "delivery-a");
+        const otherRepoJob = makeJobForRepo(43, "delivery-z");
+        const firstBlocker = createDeferred();
+        const pending = [
+            { job: firstJob, jobId: "delivery-a:job" },
+            ...Array.from({ length: 59 }, (_, index) => {
+                const deliveryId = `delivery-same-${index}`;
+                return {
+                    job: makeJobForRepo(42, deliveryId),
+                    jobId: `${deliveryId}:job`,
+                };
+            }),
+            { job: otherRepoJob, jobId: "delivery-z:job" },
+        ];
+        const processJob = vi.fn((_job, context: { jobId: string }) =>
+            context.jobId === "delivery-a:job"
+                ? firstBlocker.promise
+                : Promise.resolve()
+        );
+        const session = makeSession({
+            executeQuery: vi.fn(
+                (
+                    yql: string,
+                    params?: { $job_id?: { value?: unknown } }
+                ) => {
+                    if (yql.includes("SELECT job_id, payload, attempts")) {
+                        const offsetMatch = /OFFSET\s+(\d+)/i.exec(yql);
+                        const offset = offsetMatch ? Number(offsetMatch[1]) : 0;
+                        return Promise.resolve({
+                            resultSets: [
+                                {
+                                    rows: pending
+                                        .slice(offset, offset + 50)
+                                        .map(({ job, jobId }) =>
+                                            makeStoredJobRow(jobId, job)
+                                        ),
+                                },
+                            ],
+                        });
+                    }
+                    if (yql.includes('SET status = Utf8("running")')) {
+                        const jobId = params?.$job_id?.value;
+                        const index = pending.findIndex(
+                            (item) => item.jobId === jobId
+                        );
+                        if (index >= 0) {
+                            pending.splice(index, 1);
+                        }
+                    }
+                    return Promise.resolve({ resultSets: [] });
+                }
+            ),
+        });
+        useSession(withSessionMock, session);
+        const queue = new stateStore.YdbIndexingQueue(processJob, {
+            concurrency: 2,
+            retryBackoffMs: 0,
+        });
+
+        queue.start();
+
+        await vi.waitFor(() => {
+            expect(processJob).toHaveBeenCalledWith(firstJob, {
+                jobId: "delivery-a:job",
+            });
+            expect(processJob).toHaveBeenCalledWith(otherRepoJob, {
+                jobId: "delivery-z:job",
+            });
+        });
+
+        firstBlocker.resolve();
+    });
+
     it("retries failed durable jobs before completing a later attempt", async () => {
         const { stateStore, withSessionMock } = await importStateStore();
         const job = makeJob();

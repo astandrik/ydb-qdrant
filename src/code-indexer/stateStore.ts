@@ -34,6 +34,8 @@ export const CODE_INDEXER_JOB_PROGRESS_TABLE =
 export const CODE_INDEXER_MANIFESTS_TABLE =
     "qdrant_code_indexer_manifests";
 
+const JOB_CLAIM_SCAN_LIMIT = 50;
+
 type StoredJob = {
     attempts: number;
     job: IndexingJob;
@@ -1350,28 +1352,39 @@ export class YdbIndexingQueue implements IndexingQueue {
     }
 
     private async selectNextUnlockedPendingJob(): Promise<StoredJob | null> {
-        const selectYql = `
-            SELECT job_id, payload, attempts
-            FROM ${CODE_INDEXER_JOBS_TABLE}
-            WHERE status = Utf8("pending")
-            ORDER BY created_at
-            LIMIT 50;
-        `;
-
-        return await withSession(async (session) => {
-            const result = (await session.executeQuery(
-                selectYql,
-                {},
-                undefined,
-                createExecuteQuerySettings()
-            )) as ExecuteQueryResultLike;
-            for (const row of readRows(result)) {
+        let offset = 0;
+        while (true) {
+            const rows = await this.selectPendingJobRows(offset);
+            for (const row of rows) {
                 const storedJob = parseStoredJob(row);
                 if (!this.runningRepoKeys.has(repoLockKeyForJob(storedJob.job))) {
                     return storedJob;
                 }
             }
-            return null;
+            if (rows.length < JOB_CLAIM_SCAN_LIMIT) {
+                return null;
+            }
+            offset += JOB_CLAIM_SCAN_LIMIT;
+        }
+    }
+
+    private async selectPendingJobRows(offset: number): Promise<QueryRow[]> {
+        const yql = `
+            SELECT job_id, payload, attempts
+            FROM ${CODE_INDEXER_JOBS_TABLE}
+            WHERE status = Utf8("pending")
+            ORDER BY created_at
+            LIMIT ${JOB_CLAIM_SCAN_LIMIT} OFFSET ${offset};
+        `;
+
+        return await withSession(async (session) => {
+            const result = (await session.executeQuery(
+                yql,
+                {},
+                undefined,
+                createExecuteQuerySettings()
+            )) as ExecuteQueryResultLike;
+            return readRows(result);
         });
     }
 
