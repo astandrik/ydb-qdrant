@@ -129,10 +129,10 @@
 - [ ] Add these optional env vars with defaults:
   - `CODE_INDEXER_SESSION_TTL_SECONDS=2592000`
   - `CODE_INDEXER_OAUTH_STATE_TTL_SECONDS=600`
-  - `CODE_INDEXER_QUOTA_REPOS_PER_INSTALLATION=10`
-  - `CODE_INDEXER_QUOTA_FILES_PER_REPO=10000`
-  - `CODE_INDEXER_QUOTA_CHUNKS_PER_REPO=50000`
-  - `CODE_INDEXER_QUOTA_SEARCHES_PER_USER_PER_DAY=1000`
+  - `CODE_INDEXER_QUOTA_REPOS_PER_INSTALLATION=1000`
+  - `CODE_INDEXER_QUOTA_FILES_PER_REPO=1000000`
+  - `CODE_INDEXER_QUOTA_CHUNKS_PER_REPO=5000000`
+  - `CODE_INDEXER_QUOTA_SEARCHES_PER_USER_PER_DAY=100000`
   - `CODE_INDEXER_ALLOWED_MCP_ORIGINS=https://ydb-qdrant.tech`
 
 - [ ] Test missing required env vars fail fast with exact error messages.
@@ -342,10 +342,10 @@ git commit -m "fix: handle public github app lifecycle"
 - Test: `test/code-indexer/quota.test.ts`
 
 - [ ] Enforce public beta quotas:
-  - max 10 repositories per installation.
-  - max 10,000 indexed files per repository.
-  - max 50,000 chunks per repository.
-  - max 1,000 searches per user per UTC day.
+  - max 1,000 repositories per installation.
+  - max 1,000,000 indexed files per repository.
+  - max 5,000,000 chunks per repository.
+  - max 100,000 searches per user per UTC day.
 
 - [ ] Return deterministic API errors:
   - HTTP 429 for search quota exceeded.

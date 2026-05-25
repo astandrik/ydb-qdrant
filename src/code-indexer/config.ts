@@ -232,22 +232,22 @@ export function loadCodeIndexerConfig(): CodeIndexerConfig {
         publicBaseUrl: readRequiredEnv("CODE_INDEXER_PUBLIC_BASE_URL"),
         quotaChunksPerRepo: parseIntegerEnv(
             process.env.CODE_INDEXER_QUOTA_CHUNKS_PER_REPO,
-            50_000,
+            5_000_000,
             { min: 1 }
         ),
         quotaFilesPerRepo: parseIntegerEnv(
             process.env.CODE_INDEXER_QUOTA_FILES_PER_REPO,
-            10_000,
+            1_000_000,
             { min: 1 }
         ),
         quotaReposPerInstallation: parseIntegerEnv(
             process.env.CODE_INDEXER_QUOTA_REPOS_PER_INSTALLATION,
-            10,
+            1_000,
             { min: 1 }
         ),
         quotaSearchesPerUserPerDay: parseIntegerEnv(
             process.env.CODE_INDEXER_QUOTA_SEARCHES_PER_USER_PER_DAY,
-            1_000,
+            100_000,
             { min: 1 }
         ),
         searchApiKey:
