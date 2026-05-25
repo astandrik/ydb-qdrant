@@ -511,6 +511,90 @@ describe("collectionsRepo/deleteCollection one-table (with mocked YDB)", () => {
         expect(metaDeleteCalls).toBe(1);
     });
 
+    it("falls back to chunked deletion when BATCH DELETE is unsupported", async () => {
+        const sessionMock = {
+            describeTable: createDescribeTableMock(),
+            createTable: vi.fn(),
+            dropTable: vi.fn(),
+            executeQuery: vi.fn(),
+        };
+
+        let batchDeleteAttempts = 0;
+        let selectCalls = 0;
+        let metaDeleteCalls = 0;
+
+        type QueryExecuteArgs = { text: string; parameters?: unknown };
+        const querySessionMock: {
+            execute: Mock<(args: QueryExecuteArgs) => Promise<unknown>>;
+        } = {
+            execute: vi.fn<(args: QueryExecuteArgs) => Promise<unknown>>(),
+        };
+        querySessionMock.execute.mockImplementation((args) => {
+            if (args.text.includes("BATCH DELETE FROM qdrant_all_points")) {
+                batchDeleteAttempts += 1;
+                throw new Error(
+                    "GenericError (code 400080): Unexpected token 'BATCH'"
+                );
+            }
+            return Promise.resolve({});
+        });
+        withQuerySessionMock.mockImplementation(
+            async (fn: (s: unknown) => unknown) => {
+                await fn(querySessionMock);
+            }
+        );
+
+        sessionMock.executeQuery.mockImplementation((yql: string) => {
+            if (yql.includes("SELECT point_id")) {
+                selectCalls += 1;
+                return {
+                    resultSets: [
+                        {
+                            rows: [],
+                        },
+                    ],
+                };
+            }
+
+            if (yql.includes("DELETE FROM qdr__collections")) {
+                metaDeleteCalls += 1;
+                return {};
+            }
+
+            throw new Error(`Unexpected YQL: ${yql}`);
+        });
+
+        withSessionMock
+            .mockResolvedValueOnce({
+                resultSets: [
+                    {
+                        rows: [
+                            {
+                                items: [
+                                    { textValue: "qdrant_all_points" },
+                                    { uint32Value: 128 },
+                                    { textValue: "Cosine" },
+                                    { textValue: "float" },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            } as unknown as never)
+            .mockImplementation(async (fn: (s: unknown) => unknown) => {
+                await fn(sessionMock);
+            });
+
+        await deleteCollection(
+            "tenant_a/my_collection",
+            "qdr_tenant_a__my_collection"
+        );
+
+        expect(batchDeleteAttempts).toBe(1);
+        expect(selectCalls).toBe(1);
+        expect(metaDeleteCalls).toBe(1);
+    });
+
     it("rethrows errors that are not out-of-buffer-memory", async () => {
         const sessionMock = {
             describeTable: createDescribeTableMock(),

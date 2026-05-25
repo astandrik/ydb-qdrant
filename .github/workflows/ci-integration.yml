@@ -78,7 +78,11 @@ jobs:
           auth: false
 
       - name: Run code-indexer integration smoke
-        run: npm run test:integration:code-indexer
+        run: |
+          npx vitest run \
+            test/integration/CodeIndexerSmoke.test.ts \
+            test/integration/CodeIndexerSaasStore.test.ts \
+            test/integration/CodeIndexerPublicSaas.test.ts
         env:
           YDB_QDRANT_ENDPOINT: ${{ steps.ydb.outputs.endpoint }}
           YDB_QDRANT_DATABASE: ${{ steps.ydb.outputs.database }}

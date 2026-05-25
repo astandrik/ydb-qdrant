@@ -2,6 +2,15 @@
 
 `ydb-qdrant` includes a separate GitHub App indexing service under `src/code-indexer`. The service is intentionally not wired into the main Qdrant-compatible API server: it runs as its own process and writes code chunks into `ydb-qdrant` collections through the existing npm API.
 
+The public hosted beta uses:
+
+- UI: `https://ydb-qdrant.tech/code-indexer/`
+- Backend: `https://code-indexer.ydb-qdrant.tech`
+- OAuth callback: `https://code-indexer.ydb-qdrant.tech/github/oauth/callback`
+- Hosted MCP endpoint: `https://code-indexer.ydb-qdrant.tech/mcp`
+
+Self-hosted deployments are still supported with the same backend binary and environment variables.
+
 ### What it does today
 
 - Accepts GitHub App webhooks on `POST /github/webhook`.
@@ -14,36 +23,59 @@
 - Reads repository files through GitHub installation tokens.
 - Filters vendor/binary/oversized files, chunks source files with smart Tree-sitter/text-aware fallbacks, embeds chunks, and upserts them into `ydb-qdrant`.
 - Supports repository-level indexing config in `.ydb-qdrant-code-indexer.json`.
+- Supports GitHub OAuth sessions for the public dashboard.
+- Exposes dashboard APIs under `/api/*` for installations, repositories, MCP tokens, quotas, and data deletion.
 - Exposes `POST /search` for query embedding + vector search over a repo collection.
+- Exposes hosted Streamable HTTP MCP at `POST /mcp`.
 - Exposes an MCP stdio server with a read-only `search_code` tool for IDEs and coding agents.
-- Includes a fixture-based integration smoke test for local YDB.
+- Includes fixture-based integration tests for local YDB, including the public SaaS OAuth/webhook/MCP/uninstall flow.
 
 The durable state tables are separate from the core vector/search schema:
 
 - `qdrant_code_indexer_deliveries`
 - `qdrant_code_indexer_jobs`
 - `qdrant_code_indexer_manifests`
+- `qdrant_code_indexer_users`
+- `qdrant_code_indexer_sessions`
+- `qdrant_code_indexer_installations`
+- `qdrant_code_indexer_repositories`
+- `qdrant_code_indexer_api_tokens`
+- `qdrant_code_indexer_usage_daily`
+- `qdrant_code_indexer_audit_log`
 
 ### GitHub App configuration
+
+Public hosted beta settings:
+
+- Homepage URL: `https://ydb-qdrant.tech/code-indexer/`
+- Callback URL: `https://code-indexer.ydb-qdrant.tech/github/oauth/callback`
+- Setup URL: `https://ydb-qdrant.tech/code-indexer/dashboard/`
+- Webhook URL: `https://code-indexer.ydb-qdrant.tech/github/webhook`
+- Enable "Request user authorization (OAuth) during installation".
+- Enable expiring user authorization tokens.
+- Installation target: `Any account`.
 
 Required GitHub App permissions:
 
 - `Metadata: read`
 - `Contents: read`
 - `Pull requests: read`
-- Optional: `Checks: write` for PR status reporting and manual reruns
+- `Checks: write` if PR status reporting and manual reruns are enabled
 
 Webhook events:
 
+- `Installation target`
+- `Meta`
 - `installation`
 - `installation_repositories`
 - `push`
 - `pull_request`
-- Optional when Checks are enabled: `check_run`
+- `check_run` when Checks are enabled
+- `GitHub App authorization` if available in the settings UI
 
 ### Developer Program positioning
 
-The current release target is a self-hosted GitHub App MVP for the active GitHub Developer Program track. It is not a GitHub Marketplace listing yet. Marketplace publication should remain a separate future track after the security, support, privacy, pricing, branding, and review requirements are ready.
+The current release target is a public hosted beta for the active GitHub Developer Program track. It is not a GitHub Marketplace listing yet. Marketplace publication remains a separate track after privacy, support, pricing, branding, and review requirements are ready.
 
 ### Environment
 
@@ -51,8 +83,15 @@ Required:
 
 ```bash
 export GITHUB_APP_ID=<app-id>
+export GITHUB_CLIENT_ID=<client-id>
+export GITHUB_CLIENT_SECRET=<client-secret>
 export GITHUB_PRIVATE_KEY_FILE=/abs/path/github-app-private-key.pem
 export GITHUB_WEBHOOK_SECRET=<webhook-secret>
+
+export CODE_INDEXER_PUBLIC_BASE_URL=https://code-indexer.ydb-qdrant.tech
+export CODE_INDEXER_UI_ORIGIN=https://ydb-qdrant.tech
+export CODE_INDEXER_SESSION_SECRET=<long-random-secret>
+export CODE_INDEXER_TOKEN_PEPPER=<long-random-secret>
 
 export YDB_QDRANT_ENDPOINT=grpcs://ydb.serverless.yandexcloud.net:2135
 export YDB_QDRANT_DATABASE=/ru-central1/<cloud>/<db>
@@ -70,6 +109,13 @@ export CODE_INDEXER_STATE_RETENTION_DAYS=14
 export CODE_INDEXER_JOB_MAX_ATTEMPTS=3
 export CODE_INDEXER_JOB_RETRY_BACKOFF_MS=30000
 export CODE_INDEXER_CHECKS_ENABLED=false
+export CODE_INDEXER_ALLOWED_MCP_ORIGINS=https://ydb-qdrant.tech
+export CODE_INDEXER_SESSION_TTL_SECONDS=2592000
+export CODE_INDEXER_OAUTH_STATE_TTL_SECONDS=600
+export CODE_INDEXER_QUOTA_REPOS_PER_INSTALLATION=1000
+export CODE_INDEXER_QUOTA_FILES_PER_REPO=1000000
+export CODE_INDEXER_QUOTA_CHUNKS_PER_REPO=5000000
+export CODE_INDEXER_QUOTA_SEARCHES_PER_USER_PER_DAY=100000
 export CODE_INDEXER_EMBEDDING_PROVIDER=hash
 export CODE_INDEXER_EMBEDDING_DIMENSION=384
 export CODE_INDEXER_EMBEDDING_API_KEY=
@@ -90,6 +136,27 @@ Set `CODE_INDEXER_STATE_STORE=memory` only for local experiments where losing qu
 With the YDB state store, interrupted `running` jobs are reset to `pending` on startup. Failed durable jobs are retried up to `CODE_INDEXER_JOB_MAX_ATTEMPTS`; completed and permanently failed jobs plus old delivery ids are removed after `CODE_INDEXER_STATE_RETENTION_DAYS`.
 
 Repository manifests are saved after successful full, incremental, and PR indexing jobs. A default-branch incremental push without an existing manifest falls back to a full reindex before writing a fresh manifest. Repository and PR delete jobs remove the matching manifest together with the indexed collection.
+
+Default public beta quotas are intentionally high enough for normal use:
+
+- 1,000 repositories per installation
+- 1,000,000 indexable files per repository
+- 5,000,000 chunks per repository
+- 100,000 hosted MCP searches per GitHub user per day
+
+### Public dashboard and data lifecycle
+
+The dashboard uses GitHub OAuth and secure `__Host-ydbqci_session` cookies. It lets a signed-in user list linked installations, inspect repository indexing status, create/revoke hosted MCP tokens, and request deletion of service-owned data.
+
+The hosted service stores:
+
+- GitHub user id/login and encrypted GitHub OAuth tokens for dashboard access.
+- Installation and repository metadata required to route webhooks and searches.
+- Indexed source snippets, vectors, file paths, refs, commit SHAs, blob SHAs, line ranges, and language metadata.
+- HMAC hashes of MCP tokens, never plaintext tokens after creation.
+- Daily usage counters and audit records for quota and support diagnostics.
+
+Uninstalling the GitHub App or removing repositories enqueues delete jobs that remove matching manifests and indexed collections. Dashboard data deletion removes eligible sessions, MCP tokens, installation links, repository rows, audit/usage data, and indexed collections owned by the user's linked installations.
 
 Set `CODE_INDEXER_CHECKS_ENABLED=true` only after granting the GitHub App `Checks: write`. Check run reporting is fail-open: indexing continues if GitHub rejects check run creation or updates. A `check_run.rerequested` webhook for `YDB Qdrant Code Index` requeues a full default-branch index for the checked SHA, or a PR-scoped reindex for same-repository pull requests.
 
@@ -185,9 +252,34 @@ YDB_ANONYMOUS_CREDENTIALS=1 npm run test:integration:code-indexer
 
 The smoke test indexes an in-memory GitHub repository fixture through `RepoIndexer`, persists the repo manifest in the code-indexer YDB state table, writes chunks into the YDB-backed Qdrant-compatible store, and verifies search returns the expected source path. CI runs this smoke with `astandrik/setup-local-ydb@v1`.
 
+Run the public SaaS integration flow directly:
+
+```bash
+YDB_ANONYMOUS_CREDENTIALS=1 npx vitest run test/integration/CodeIndexerPublicSaas.test.ts
+```
+
+That test covers GitHub OAuth session creation, installation webhook processing, repository indexing, hosted MCP search by `owner/repo`, MCP token revocation, uninstall webhook processing, and indexed collection deletion. CI runs it together with the code-indexer smoke and SaaS store integration tests.
+
 ### MCP server
 
-The MCP server runs over stdio and exposes one read-only tool, `search_code`. It uses only the YDB and embedding settings above; GitHub App credentials are not required for search.
+The hosted beta exposes Streamable HTTP MCP at `https://code-indexer.ydb-qdrant.tech/mcp`. Clients authenticate with a dashboard-created MCP token:
+
+```json
+{
+  "mcpServers": {
+    "ydb-qdrant-code-indexer": {
+      "url": "https://code-indexer.ydb-qdrant.tech/mcp",
+      "headers": {
+        "Authorization": "Bearer <mcp-token>"
+      }
+    }
+  }
+}
+```
+
+The `search_code` tool accepts `owner`, `repo`, optional `prNumber`, `query`, and `top`. The server resolves the repository to the correct installation and collection through the SaaS store. Numeric `installationId` and `repoId` inputs remain supported for self-hosted and internal clients.
+
+The stdio MCP server remains available for self-hosted deployments and exposes the same read-only `search_code` tool. It uses only the YDB and embedding settings above; GitHub App credentials are not required for search.
 
 Development:
 
@@ -261,6 +353,8 @@ The smart chunker routes supported source files through Tree-sitter and emits sy
 Repository manifests store an indexing fingerprint that includes the chunker registry and effective chunking limits. A default-branch incremental push with a missing or stale fingerprint falls back to a full reindex so old and new chunk layouts are not mixed in one collection.
 
 ### Search API
+
+`POST /search` is primarily for self-hosted or trusted internal deployments. Public hosted clients should use the authenticated `/mcp` endpoint instead of direct search.
 
 Search the default branch collection:
 

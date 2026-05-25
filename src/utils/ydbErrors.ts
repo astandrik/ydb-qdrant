@@ -15,3 +15,21 @@ export function isOutOfBufferMemoryYdbError(error: unknown): boolean {
 
     return false;
 }
+
+export function isUnsupportedBatchDeleteYdbError(error: unknown): boolean {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (/Unexpected token ['"`]?BATCH/i.test(msg)) {
+        return true;
+    }
+
+    if (typeof error === "object" && error !== null && "issues" in error) {
+        const issues = error.issues;
+        if (issues !== undefined) {
+            const issuesText =
+                typeof issues === "string" ? issues : JSON.stringify(issues);
+            return /Unexpected token ['"`]?BATCH/i.test(issuesText);
+        }
+    }
+
+    return false;
+}

@@ -517,7 +517,7 @@ git commit -m "docs: add code indexer public policies"
 - Modify: `.github/workflows/ci-integration.yml`
 - Modify: `docs/github-app-code-indexer.md`
 
-- [ ] Add integration test with local YDB and mocked GitHub/OpenAI:
+- [x] Add integration test with local YDB and mocked GitHub/OpenAI:
   - OAuth callback creates user and session.
   - Installation event creates repository rows and indexing jobs.
   - Indexing writes chunks and status.
@@ -525,16 +525,16 @@ git commit -m "docs: add code indexer public policies"
   - Revoked token cannot search.
   - Uninstall deletes indexed data.
 
-- [ ] Add CI job using `astandrik/setup-local-ydb@v1`.
+- [x] Add CI job using `astandrik/setup-local-ydb@v1`.
 
-- [ ] Update docs with:
+- [x] Update docs with:
   - Public SaaS setup.
   - Self-hosted setup.
   - GitHub App permissions/events.
   - MCP config.
   - Quotas and data retention.
 
-- [ ] Run:
+- [x] Run:
 
 ```bash
 npm run lint
@@ -546,7 +546,7 @@ npm run build
 
 Expected: lint, typecheck, unit tests, code-indexer integration tests, and build pass.
 
-- [ ] Commit:
+- [x] Commit:
 
 ```bash
 git add test/integration/CodeIndexerPublicSaas.test.ts .github/workflows/ci-integration.yml docs/github-app-code-indexer.md

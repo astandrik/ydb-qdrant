@@ -421,6 +421,42 @@ describe("code-indexer SaaS store", () => {
         ]);
     });
 
+    it("preserves linked GitHub user ownership when webhook updates omit it", async () => {
+        const { saasStore, withSessionMock } = await importSaasStore();
+        const session = readyStore({ withSessionMock });
+        const store = new saasStore.YdbCodeIndexerSaasStore({
+            encryptionSecret: "encryption-secret",
+            tokenPepper: "pepper",
+        });
+        await saasStore.ensureCodeIndexerSaasTables();
+        session.executeQuery.mockClear();
+
+        await store.upsertInstallation({
+            accountLogin: "octo",
+            accountType: "User",
+            createdByGithubUserId: "123",
+            installationId: "700",
+            status: "active",
+        });
+        await store.upsertInstallation({
+            accountLogin: "octo",
+            accountType: "User",
+            installationId: "700",
+            status: "active",
+        });
+
+        expect(session.executeQuery.mock.calls[0]?.[0]).toContain(
+            "created_by_github_user_id"
+        );
+        expect(queryParamsAt(session, 0).$created_by_github_user_id?.value).toEqual({
+            textValue: "123",
+        });
+        expect(session.executeQuery.mock.calls[1]?.[0]).not.toContain(
+            "created_by_github_user_id"
+        );
+        expect(queryParamsAt(session, 1).$created_by_github_user_id).toBeUndefined();
+    });
+
     it("increments daily usage counters", async () => {
         const { saasStore, withSessionMock } = await importSaasStore();
         const session = readyStore({ withSessionMock });

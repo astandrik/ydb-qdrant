@@ -686,11 +686,39 @@ export class YdbCodeIndexerSaasStore {
         status: string;
     }): Promise<void> {
         await ensureCodeIndexerSaasTables();
-        const yql = `
+        const createdByGithubUserId =
+            params.createdByGithubUserId === undefined
+                ? undefined
+                : normalizeId(params.createdByGithubUserId);
+        const yql =
+            createdByGithubUserId === undefined
+                ? `
             DECLARE $installation_id AS Utf8;
             DECLARE $account_login AS Utf8;
             DECLARE $account_type AS Utf8;
-            DECLARE $created_by_github_user_id AS Utf8?;
+            DECLARE $status AS Utf8;
+
+            UPSERT INTO ${CODE_INDEXER_INSTALLATIONS_TABLE}
+                (
+                    installation_id,
+                    account_login,
+                    account_type,
+                    status,
+                    updated_at
+                )
+            VALUES (
+                $installation_id,
+                $account_login,
+                $account_type,
+                $status,
+                CurrentUtcTimestamp()
+            );
+        `
+                : `
+            DECLARE $installation_id AS Utf8;
+            DECLARE $account_login AS Utf8;
+            DECLARE $account_type AS Utf8;
+            DECLARE $created_by_github_user_id AS Utf8;
             DECLARE $status AS Utf8;
 
             UPSERT INTO ${CODE_INDEXER_INSTALLATIONS_TABLE}
@@ -712,21 +740,21 @@ export class YdbCodeIndexerSaasStore {
             );
         `;
         await withSession(async (session) => {
+            const queryParams: QueryParams = {
+                $account_login: TypedValues.utf8(params.accountLogin),
+                $account_type: TypedValues.utf8(params.accountType),
+                $installation_id: TypedValues.utf8(
+                    normalizeId(params.installationId)
+                ),
+                $status: TypedValues.utf8(params.status),
+            };
+            if (createdByGithubUserId !== undefined) {
+                queryParams.$created_by_github_user_id =
+                    TypedValues.utf8(createdByGithubUserId);
+            }
             await session.executeQuery(
                 yql,
-                {
-                    $account_login: TypedValues.utf8(params.accountLogin),
-                    $account_type: TypedValues.utf8(params.accountType),
-                    $created_by_github_user_id: optionalUtf8(
-                        params.createdByGithubUserId === undefined
-                            ? undefined
-                            : normalizeId(params.createdByGithubUserId)
-                    ),
-                    $installation_id: TypedValues.utf8(
-                        normalizeId(params.installationId)
-                    ),
-                    $status: TypedValues.utf8(params.status),
-                },
+                queryParams,
                 undefined,
                 createExecuteQuerySettings()
             );
