@@ -60,6 +60,7 @@ export type CodeIndexerRepositoryRecord = {
     defaultBranch: string;
     installationId: string;
     lastError?: string;
+    lastIndexedAt?: Date;
     lastIndexedSha?: string;
     owner: string;
     repo: string;
@@ -84,6 +85,7 @@ type QueryRow = {
     items?: Array<
         | {
               boolValue?: boolean;
+              timestampValue?: Date | string;
               textValue?: string;
               uint32Value?: number;
               uint64Value?: unknown;
@@ -181,6 +183,18 @@ function readUint(row: QueryRow, index: number): number | undefined {
 
 function readBool(row: QueryRow, index: number): boolean | undefined {
     return row.items?.[index]?.boolValue;
+}
+
+function readTimestamp(row: QueryRow, index: number): Date | undefined {
+    const value = row.items?.[index]?.timestampValue;
+    if (value instanceof Date) {
+        return value;
+    }
+    if (typeof value === "string") {
+        const date = new Date(value);
+        return Number.isNaN(date.getTime()) ? undefined : date;
+    }
+    return undefined;
 }
 
 function optionalNull(itemType: Ydb.IType): Ydb.ITypedValue {
@@ -344,6 +358,7 @@ async function ensureRepositoriesTable(): Promise<void> {
                 new Column("default_branch", Types.UTF8),
                 new Column("status", Types.UTF8),
                 new Column("last_indexed_sha", Types.optional(Types.UTF8)),
+                new Column("last_indexed_at", Types.optional(Types.TIMESTAMP)),
                 new Column("chunk_count", Types.optional(Types.UINT32)),
                 new Column("last_error", Types.optional(Types.UTF8)),
                 new Column("updated_at", Types.TIMESTAMP)
@@ -778,6 +793,7 @@ export class YdbCodeIndexerSaasStore {
             DECLARE $default_branch AS Utf8;
             DECLARE $status AS Utf8;
             DECLARE $last_indexed_sha AS Utf8?;
+            DECLARE $last_indexed_at AS Timestamp?;
             DECLARE $chunk_count AS Uint32?;
             DECLARE $last_error AS Utf8?;
 
@@ -790,6 +806,7 @@ export class YdbCodeIndexerSaasStore {
                     default_branch,
                     status,
                     last_indexed_sha,
+                    last_indexed_at,
                     chunk_count,
                     last_error,
                     updated_at
@@ -802,6 +819,7 @@ export class YdbCodeIndexerSaasStore {
                 $default_branch,
                 $status,
                 $last_indexed_sha,
+                $last_indexed_at,
                 $chunk_count,
                 $last_error,
                 CurrentUtcTimestamp()
@@ -832,6 +850,7 @@ export class YdbCodeIndexerSaasStore {
                 default_branch,
                 status,
                 last_indexed_sha,
+                last_indexed_at,
                 chunk_count,
                 last_error
             FROM ${CODE_INDEXER_REPOSITORIES_TABLE}
@@ -853,6 +872,7 @@ export class YdbCodeIndexerSaasStore {
     async markRepositoryStatus(params: {
         chunkCount?: number;
         lastError?: string;
+        lastIndexedAt?: Date;
         lastIndexedSha?: string;
         repoId: number | string;
         status: CodeIndexerRepositoryStatus;
@@ -862,12 +882,14 @@ export class YdbCodeIndexerSaasStore {
             DECLARE $repo_id AS Utf8;
             DECLARE $status AS Utf8;
             DECLARE $last_indexed_sha AS Utf8?;
+            DECLARE $last_indexed_at AS Timestamp?;
             DECLARE $chunk_count AS Uint32?;
             DECLARE $last_error AS Utf8?;
 
             UPDATE ${CODE_INDEXER_REPOSITORIES_TABLE}
             SET status = $status,
                 last_indexed_sha = $last_indexed_sha,
+                last_indexed_at = $last_indexed_at,
                 chunk_count = $chunk_count,
                 last_error = $last_error,
                 updated_at = CurrentUtcTimestamp()
@@ -881,6 +903,13 @@ export class YdbCodeIndexerSaasStore {
                         optionalUint32(params.chunkCount),
                     $last_error:
                         optionalUtf8(params.lastError?.slice(0, 4000)),
+                    $last_indexed_at:
+                        optionalValue(
+                            params.lastIndexedAt === undefined
+                                ? undefined
+                                : TypedValues.timestamp(params.lastIndexedAt),
+                            Types.TIMESTAMP
+                        ),
                     $last_indexed_sha:
                         optionalUtf8(params.lastIndexedSha),
                     $repo_id: TypedValues.utf8(normalizeId(params.repoId)),
@@ -907,6 +936,7 @@ export class YdbCodeIndexerSaasStore {
                 default_branch,
                 status,
                 last_indexed_sha,
+                last_indexed_at,
                 chunk_count,
                 last_error
             FROM ${CODE_INDEXER_REPOSITORIES_TABLE}
@@ -1271,6 +1301,13 @@ export class YdbCodeIndexerSaasStore {
             ),
             $last_error:
                 optionalUtf8(params.lastError?.slice(0, 4000)),
+            $last_indexed_at:
+                optionalValue(
+                    params.lastIndexedAt === undefined
+                        ? undefined
+                        : TypedValues.timestamp(params.lastIndexedAt),
+                    Types.TIMESTAMP
+                ),
             $last_indexed_sha:
                 optionalUtf8(params.lastIndexedSha),
             $owner: TypedValues.utf8(params.owner),
@@ -1306,8 +1343,11 @@ function parseRepositoryRow(row: QueryRow): CodeIndexerRepositoryRecord {
         repoId,
         status,
         ...(readText(row, 6) ? { lastIndexedSha: readText(row, 6) } : {}),
-        ...(readUint(row, 7) !== undefined ? { chunkCount: readUint(row, 7) } : {}),
-        ...(readText(row, 8) ? { lastError: readText(row, 8) } : {}),
+        ...(readTimestamp(row, 7)
+            ? { lastIndexedAt: readTimestamp(row, 7) }
+            : {}),
+        ...(readUint(row, 8) !== undefined ? { chunkCount: readUint(row, 8) } : {}),
+        ...(readText(row, 9) ? { lastError: readText(row, 9) } : {}),
     };
 }
 

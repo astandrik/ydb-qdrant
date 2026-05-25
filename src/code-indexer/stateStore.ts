@@ -33,6 +33,7 @@ type StoredJob = {
 export type YdbIndexingQueueOptions = {
     maxAttempts?: number;
     now?: () => Date;
+    onFinalFailure?: (job: IndexingJob, err: unknown) => Promise<void>;
     retentionDays?: number;
     retryBackoffMs?: number;
 };
@@ -499,6 +500,7 @@ export class YdbIndexingQueue implements IndexingQueue {
     private drainRequested = false;
     private readonly maxAttempts: number;
     private readonly now: () => Date;
+    private readonly onFinalFailure?: (job: IndexingJob, err: unknown) => Promise<void>;
     private started = false;
     private readonly processJob: (job: IndexingJob) => Promise<void>;
     private readonly retentionMs: number;
@@ -511,6 +513,7 @@ export class YdbIndexingQueue implements IndexingQueue {
         this.processJob = processJob;
         this.maxAttempts = Math.max(1, Math.floor(options.maxAttempts ?? 3));
         this.now = options.now ?? (() => new Date());
+        this.onFinalFailure = options.onFinalFailure;
         this.retentionMs =
             Math.max(1, Math.floor(options.retentionDays ?? 14)) * 86_400_000;
         this.retryBackoffMs = Math.max(
@@ -589,6 +592,7 @@ export class YdbIndexingQueue implements IndexingQueue {
                         await sleep(this.retryBackoffMs);
                     } else {
                         await this.markJobFailed(storedJob.jobId, err);
+                        await this.reportFinalFailure(storedJob.job, err);
                         logger.error(
                             {
                                 attempt,
@@ -608,6 +612,23 @@ export class YdbIndexingQueue implements IndexingQueue {
                 this.drainRequested = false;
                 this.drain();
             }
+        }
+    }
+
+    private async reportFinalFailure(
+        job: IndexingJob,
+        err: unknown
+    ): Promise<void> {
+        if (!this.onFinalFailure) {
+            return;
+        }
+        try {
+            await this.onFinalFailure(job, err);
+        } catch (reportErr: unknown) {
+            logger.error(
+                { err: reportErr, jobKind: job.kind, repoId: job.repository.repoId },
+                "code-indexer: final failure status update failed"
+            );
         }
     }
 

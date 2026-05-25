@@ -22,6 +22,15 @@ function repositoryPayload() {
     };
 }
 
+function repository() {
+    return {
+        defaultBranch: "main",
+        owner: "octo",
+        repo: "demo",
+        repoId: 42,
+    };
+}
+
 describe("code-indexer webhook mapping", () => {
     it("maps installation repository summaries to full index jobs", () => {
         const jobs = mapWebhookToJobs({
@@ -53,6 +62,57 @@ describe("code-indexer webhook mapping", () => {
                     repo: "demo",
                     repoId: 42,
                 },
+            },
+        ]);
+    });
+
+    it("maps installation lifecycle events for uninstall and suspension", () => {
+        const deleted = mapWebhookToJobs({
+            deliveryId: "delivery-install-delete",
+            event: "installation",
+            payload: {
+                action: "deleted",
+                installation: { id: 7 },
+                repositories: [repositoryPayload()],
+            },
+        });
+        const suspended = mapWebhookToJobs({
+            deliveryId: "delivery-install-suspend",
+            event: "installation",
+            payload: {
+                action: "suspend",
+                installation: { id: 7 },
+                repositories: [repositoryPayload()],
+            },
+        });
+        const unsuspended = mapWebhookToJobs({
+            deliveryId: "delivery-install-unsuspend",
+            event: "installation",
+            payload: {
+                action: "unsuspend",
+                installation: { id: 7 },
+                repositories: [repositoryPayload()],
+            },
+        });
+
+        expect(deleted).toEqual([
+            {
+                deliveryId: "delivery-install-delete",
+                installationId: 7,
+                kind: "delete-repo-index",
+                reason: "installation-deleted",
+                repository: repository(),
+            },
+        ]);
+        expect(suspended).toEqual([]);
+        expect(unsuspended).toEqual([
+            {
+                deliveryId: "delivery-install-unsuspend",
+                installationId: 7,
+                kind: "full-index",
+                reason: "installation-unsuspended",
+                ref: "main",
+                repository: repository(),
             },
         ]);
     });
@@ -339,6 +399,76 @@ describe("code-indexer webhook handler", () => {
         expect(json).toHaveBeenNthCalledWith(2, {
             enqueued: 0,
             status: "duplicate",
+        });
+    });
+
+    it("records lifecycle status before enqueueing uninstall jobs", async () => {
+        const body = Buffer.from(
+            JSON.stringify({
+                action: "deleted",
+                installation: {
+                    account: { login: "octo", type: "User" },
+                    id: 7,
+                },
+                repositories: [repositoryPayload()],
+            })
+        );
+        const enqueue = vi.fn(() => Promise.resolve());
+        const lifecycleStore = {
+            markRepositoryStatus: vi.fn(() => Promise.resolve()),
+            upsertInstallation: vi.fn(() => Promise.resolve()),
+            upsertRepository: vi.fn(() => Promise.resolve()),
+        };
+        const handler = createWebhookHandler({
+            deliveryStore: {
+                has: vi.fn(() => Promise.resolve(false)),
+                mark: vi.fn(() => Promise.resolve()),
+            },
+            lifecycleStore,
+            queue: { enqueue },
+            webhookSecret: "secret",
+        });
+        const req = {
+            body,
+            header(name: string): string | undefined {
+                const headers: Record<string, string> = {
+                    "X-GitHub-Delivery": "delivery-delete",
+                    "X-GitHub-Event": "installation",
+                    "X-Hub-Signature-256": createWebhookSignature(
+                        "secret",
+                        body
+                    ),
+                };
+                return headers[name];
+            },
+        } as unknown as Request;
+        const res = {
+            json: vi.fn(),
+            status: vi.fn(() => res),
+        } as unknown as Response;
+
+        await handler(req, res);
+
+        expect(lifecycleStore.upsertInstallation).toHaveBeenCalledWith({
+            accountLogin: "octo",
+            accountType: "User",
+            installationId: 7,
+            status: "deleted",
+        });
+        expect(lifecycleStore.upsertRepository).toHaveBeenCalledWith({
+            defaultBranch: "main",
+            installationId: 7,
+            owner: "octo",
+            repo: "demo",
+            repoId: 42,
+            status: "deleted",
+        });
+        expect(enqueue).toHaveBeenCalledWith({
+            deliveryId: "delivery-delete",
+            installationId: 7,
+            kind: "delete-repo-index",
+            reason: "installation-deleted",
+            repository: repository(),
         });
     });
 

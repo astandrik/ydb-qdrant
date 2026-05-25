@@ -17,7 +17,7 @@ import {
     type CodeIndexerPublicApiDeps,
 } from "./publicApi.js";
 import { parseCodeSearchRequest, searchCode } from "./searchAdapter.js";
-import { createWebhookHandler } from "./webhooks.js";
+import { createWebhookHandler, type WebhookLifecycleStore } from "./webhooks.js";
 import type {
     CodeIndexStore,
     DeliveryStore,
@@ -29,6 +29,7 @@ type CodeIndexerServerDeps = {
     auth?: CodeIndexerAuthDeps;
     deliveryStore: DeliveryStore;
     embeddingProvider: EmbeddingProvider;
+    lifecycleStore?: WebhookLifecycleStore;
     publicApi?: CodeIndexerPublicApiDeps;
     queue: IndexingQueue;
     searchApiKey?: string;
@@ -197,6 +198,7 @@ export function buildCodeIndexerServer(deps: CodeIndexerServerDeps) {
         express.raw({ limit: "5mb", type: "application/json" }),
         createWebhookHandler({
             deliveryStore: deps.deliveryStore,
+            lifecycleStore: deps.lifecycleStore,
             queue: deps.queue,
             webhookSecret: deps.webhookSecret,
         })

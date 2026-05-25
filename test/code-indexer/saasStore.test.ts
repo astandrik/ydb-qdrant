@@ -397,6 +397,7 @@ describe("code-indexer SaaS store", () => {
                                 { textValue: "main" },
                                 { textValue: "ready" },
                                 { textValue: "f".repeat(40) },
+                                {},
                                 { uint32Value: 17 },
                                 {},
                             ],

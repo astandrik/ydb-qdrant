@@ -37,6 +37,17 @@ export type RepoIndexerOptions = ChunkingOptions & {
     maxChangedFilesForIncremental?: number;
 };
 
+export type RepoIndexerStatusStore = {
+    markRepositoryStatus(params: {
+        chunkCount?: number;
+        lastError?: string;
+        lastIndexedAt?: Date;
+        lastIndexedSha?: string;
+        repoId: number | string;
+        status: "queued" | "indexing" | "ready" | "failed" | "deleted";
+    }): Promise<void>;
+};
+
 const DEFAULT_MAX_CHANGED_FILES = 300;
 
 function mergeChunkingOptions(
@@ -63,6 +74,7 @@ export class RepoIndexer {
     private readonly embeddingProvider: EmbeddingProvider;
     private readonly manifestStore: RepoManifestStore;
     private readonly maxChangedFilesForIncremental: number;
+    private readonly statusStore?: RepoIndexerStatusStore;
     private readonly store: CodeIndexStore;
 
     constructor(params: {
@@ -71,12 +83,14 @@ export class RepoIndexer {
         embeddingProvider: EmbeddingProvider;
         manifestStore: RepoManifestStore;
         options?: RepoIndexerOptions;
+        statusStore?: RepoIndexerStatusStore;
         store: CodeIndexStore;
     }) {
         this.clientFactory = params.clientFactory;
         this.chunker = params.chunker ?? defaultCodeChunker;
         this.embeddingProvider = params.embeddingProvider;
         this.manifestStore = params.manifestStore;
+        this.statusStore = params.statusStore;
         this.store = params.store;
         this.maxChangedFilesForIncremental =
             params.options?.maxChangedFilesForIncremental ??
@@ -92,11 +106,13 @@ export class RepoIndexer {
     async processJob(job: IndexingJob): Promise<void> {
         switch (job.kind) {
             case "full-index":
-                await this.fullIndex(job);
+                await this.markIndexing(job);
+                await this.markReady(job, await this.fullIndex(job));
                 return;
             case "incremental-push":
+                await this.markIndexing(job);
                 if (shouldFallbackToFullIndex(job)) {
-                    await this.fullIndex({
+                    const fallbackJob: FullIndexJob = {
                         deliveryId: job.deliveryId,
                         installationId: job.installationId,
                         kind: "full-index",
@@ -104,10 +120,11 @@ export class RepoIndexer {
                         ref: job.repository.defaultBranch,
                         repository: job.repository,
                         sha: job.after,
-                    });
+                    };
+                    await this.markReady(job, await this.fullIndex(fallbackJob));
                     return;
                 }
-                await this.incrementalPush(job);
+                await this.markReady(job, await this.incrementalPush(job));
                 return;
             case "delete-repo-index":
                 await this.store.deleteCollection({
@@ -118,9 +135,11 @@ export class RepoIndexer {
                     collection: defaultBranchCollectionForRepo(job.repository.repoId),
                     userUid: userUidForInstallation(job.installationId),
                 });
+                await this.markDeleted(job);
                 return;
             case "pr-index":
-                await this.pullRequestIndex(job);
+                await this.markIndexing(job);
+                await this.markReady(job, await this.pullRequestIndex(job));
                 return;
             case "delete-pr-index":
                 await this.store.deleteCollection({
@@ -141,7 +160,18 @@ export class RepoIndexer {
         }
     }
 
-    private async fullIndex(job: FullIndexJob): Promise<void> {
+    async reportFinalFailure(job: IndexingJob, err: unknown): Promise<void> {
+        if (!this.statusStore || job.kind === "delete-pr-index") {
+            return;
+        }
+        await this.statusStore.markRepositoryStatus({
+            lastError: sanitizeError(err),
+            repoId: job.repository.repoId,
+            status: "failed",
+        });
+    }
+
+    private async fullIndex(job: FullIndexJob): Promise<IndexingStatusResult> {
         const client = await this.clientFactory.forInstallation(job.installationId);
         const collection = defaultBranchCollectionForRepo(job.repository.repoId);
         const userUid = userUidForInstallation(job.installationId);
@@ -162,7 +192,7 @@ export class RepoIndexer {
             dimension: this.embeddingProvider.dimension,
             userUid,
         });
-        const files = await this.indexRepositoryRef({
+        const indexed = await this.indexRepositoryRef({
             client,
             collection,
             contentRepository: job.repository,
@@ -174,16 +204,22 @@ export class RepoIndexer {
         });
         await this.manifestStore.save({
             collection,
-            files,
+            files: indexed.files,
             indexingFingerprint,
             ref: job.ref,
             repository: job.repository,
             sha: job.sha ?? job.ref,
             userUid,
         });
+        return {
+            chunkCount: indexed.chunkCount,
+            lastIndexedSha: job.sha ?? job.ref,
+        };
     }
 
-    private async pullRequestIndex(job: PullRequestIndexJob): Promise<void> {
+    private async pullRequestIndex(
+        job: PullRequestIndexJob
+    ): Promise<IndexingStatusResult> {
         const client = await this.clientFactory.forInstallation(job.installationId);
         const collection = pullRequestCollectionForRepo(
             job.repository.repoId,
@@ -206,7 +242,7 @@ export class RepoIndexer {
             dimension: this.embeddingProvider.dimension,
             userUid,
         });
-        const files = await this.indexRepositoryRef({
+        const indexed = await this.indexRepositoryRef({
             client,
             collection,
             contentRepository: job.sourceRepository,
@@ -218,18 +254,22 @@ export class RepoIndexer {
         });
         await this.manifestStore.save({
             collection,
-            files,
+            files: indexed.files,
             indexingFingerprint,
             ref: job.headRef,
             repository: job.repository,
             sha: job.headSha,
             userUid,
         });
+        return {
+            chunkCount: indexed.chunkCount,
+            lastIndexedSha: job.headSha,
+        };
     }
 
     private async incrementalPush(
         job: Extract<IndexingJob, { kind: "incremental-push" }>
-    ): Promise<void> {
+    ): Promise<IndexingStatusResult> {
         const client = await this.clientFactory.forInstallation(job.installationId);
         const collection = defaultBranchCollectionForRepo(job.repository.repoId);
         const userUid = userUidForInstallation(job.installationId);
@@ -238,7 +278,7 @@ export class RepoIndexer {
             userUid,
         });
         if (!currentManifest) {
-            await this.fullIndex({
+            return await this.fullIndex({
                 deliveryId: job.deliveryId,
                 installationId: job.installationId,
                 kind: "full-index",
@@ -247,7 +287,6 @@ export class RepoIndexer {
                 repository: job.repository,
                 sha: job.after,
             });
-            return;
         }
         const repoConfig = await loadRepoIndexingConfig({
             client,
@@ -260,7 +299,7 @@ export class RepoIndexer {
         );
         const indexingFingerprint = this.indexingFingerprint(chunkingOptions);
         if (currentManifest.indexingFingerprint !== indexingFingerprint) {
-            await this.fullIndex({
+            return await this.fullIndex({
                 deliveryId: job.deliveryId,
                 installationId: job.installationId,
                 kind: "full-index",
@@ -269,7 +308,6 @@ export class RepoIndexer {
                 repository: job.repository,
                 sha: job.after,
             });
-            return;
         }
         const changedFiles = await client.compareCommits({
             base: job.before,
@@ -282,7 +320,7 @@ export class RepoIndexer {
         );
 
         if (changedFiles.length > this.maxChangedFilesForIncremental) {
-            await this.fullIndex({
+            return await this.fullIndex({
                 deliveryId: job.deliveryId,
                 installationId: job.installationId,
                 kind: "full-index",
@@ -291,10 +329,9 @@ export class RepoIndexer {
                 repository: job.repository,
                 sha: job.after,
             });
-            return;
         }
         if (changedFiles.some(changesRepoConfig)) {
-            await this.fullIndex({
+            return await this.fullIndex({
                 deliveryId: job.deliveryId,
                 installationId: job.installationId,
                 kind: "full-index",
@@ -303,7 +340,6 @@ export class RepoIndexer {
                 repository: job.repository,
                 sha: job.after,
             });
-            return;
         }
         await this.store.ensureCollection({
             collection,
@@ -326,7 +362,7 @@ export class RepoIndexer {
                 userUid,
             });
             if (manifestFile) {
-                filesByPath.set(manifestFile.path, manifestFile);
+                filesByPath.set(manifestFile.file.path, manifestFile.file);
             }
         }
         await this.manifestStore.save({
@@ -338,6 +374,7 @@ export class RepoIndexer {
             sha: job.after,
             userUid,
         });
+        return { lastIndexedSha: job.after };
     }
 
     private async indexRepositoryRef(params: {
@@ -349,8 +386,9 @@ export class RepoIndexer {
         repository: GitHubRepositoryRef;
         sha: string;
         userUid: string;
-    }): Promise<RepoManifestFile[]> {
+    }): Promise<IndexRepositoryRefResult> {
         const manifestFiles: RepoManifestFile[] = [];
+        let chunkCount = 0;
         const files = await params.client.listRepositoryFiles({
             owner: params.contentRepository.owner,
             ref: params.ref,
@@ -373,10 +411,14 @@ export class RepoIndexer {
                 userUid: params.userUid,
             });
             if (manifestFile) {
-                manifestFiles.push(manifestFile);
+                manifestFiles.push(manifestFile.file);
+                chunkCount += manifestFile.chunkCount;
             }
         }
-        return sortManifestFiles(manifestFiles);
+        return {
+            chunkCount,
+            files: sortManifestFiles(manifestFiles),
+        };
     }
 
     private async applyChangedFile(params: {
@@ -388,7 +430,7 @@ export class RepoIndexer {
         repository: GitHubRepositoryRef;
         sha: string;
         userUid: string;
-    }): Promise<RepoManifestFile | null> {
+    }): Promise<IndexedManifestFile | null> {
         const status = params.changedFile.status.toLowerCase();
         if (params.changedFile.previousFilename) {
             await this.store.deletePath({
@@ -439,7 +481,7 @@ export class RepoIndexer {
         repository: GitHubRepositoryRef;
         sha: string;
         userUid: string;
-    }): Promise<RepoManifestFile | null> {
+    }): Promise<IndexedManifestFile | null> {
         if (!shouldIndexFile({ path: params.path }, params.chunkingOptions)) {
             return null;
         }
@@ -479,14 +521,74 @@ export class RepoIndexer {
             vectors,
         });
         return {
-            blobSha: params.blobSha,
-            path: params.path,
+            chunkCount: chunks.length,
+            file: {
+                blobSha: params.blobSha,
+                path: params.path,
+            },
         };
     }
 
     private indexingFingerprint(options: ChunkingOptions): string {
         return indexingFingerprintForChunker(this.chunker, options);
     }
+
+    private async markDeleted(
+        job: Extract<IndexingJob, { kind: "delete-repo-index" }>
+    ): Promise<void> {
+        await this.statusStore?.markRepositoryStatus({
+            repoId: job.repository.repoId,
+            status: "deleted",
+        });
+    }
+
+    private async markIndexing(job: IndexingJob): Promise<void> {
+        if (job.kind === "delete-pr-index" || job.kind === "delete-repo-index") {
+            return;
+        }
+        await this.statusStore?.markRepositoryStatus({
+            repoId: job.repository.repoId,
+            status: "indexing",
+        });
+    }
+
+    private async markReady(
+        job: IndexingJob,
+        result: IndexingStatusResult
+    ): Promise<void> {
+        if (job.kind === "delete-pr-index" || job.kind === "delete-repo-index") {
+            return;
+        }
+        await this.statusStore?.markRepositoryStatus({
+            ...(result.chunkCount === undefined
+                ? {}
+                : { chunkCount: result.chunkCount }),
+            lastIndexedAt: new Date(),
+            lastIndexedSha: result.lastIndexedSha,
+            repoId: job.repository.repoId,
+            status: "ready",
+        });
+    }
+}
+
+type IndexedManifestFile = {
+    chunkCount: number;
+    file: RepoManifestFile;
+};
+
+type IndexRepositoryRefResult = {
+    chunkCount: number;
+    files: RepoManifestFile[];
+};
+
+type IndexingStatusResult = {
+    chunkCount?: number;
+    lastIndexedSha: string;
+};
+
+function sanitizeError(err: unknown): string {
+    const message = err instanceof Error ? err.message : String(err);
+    return message.replace(/\s+/g, " ").trim().slice(0, 4000);
 }
 
 function sortManifestFiles(files: RepoManifestFile[]): RepoManifestFile[] {

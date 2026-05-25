@@ -41,6 +41,10 @@ function start(): void {
         config.stateStore === "ydb"
             ? new YdbRepoManifestStore()
             : new InMemoryRepoManifestStore();
+    const saasStore = new YdbCodeIndexerSaasStore({
+        encryptionSecret: config.sessionSecret,
+        tokenPepper: config.tokenPepper,
+    });
     const indexer = new RepoIndexer({
         clientFactory,
         chunker,
@@ -53,15 +57,12 @@ function start(): void {
             maxFileBytes: config.maxFileBytes,
             overlapLines: config.overlapLines,
         },
+        statusStore: saasStore,
         store,
     });
     const checkRunReporter = config.checksEnabled
         ? new GitHubCheckRunReporter(clientFactory)
         : new NoopCheckRunReporter();
-    const saasStore = new YdbCodeIndexerSaasStore({
-        encryptionSecret: config.sessionSecret,
-        tokenPepper: config.tokenPepper,
-    });
     const oauthClient = new GitHubOAuthClient({
         apiBaseUrl: config.githubApiBaseUrl,
         apiVersion: config.githubApiVersion,
@@ -84,6 +85,8 @@ function start(): void {
         config.stateStore === "ydb"
             ? new YdbIndexingQueue(processJob, {
                   maxAttempts: config.jobMaxAttempts,
+                  onFinalFailure: (job, err) =>
+                      indexer.reportFinalFailure(job, err),
                   retentionDays: config.stateRetentionDays,
                   retryBackoffMs: config.jobRetryBackoffMs,
               })
@@ -102,6 +105,7 @@ function start(): void {
         },
         deliveryStore,
         embeddingProvider,
+        lifecycleStore: saasStore,
         publicApi: {
             indexStore: store,
             queue,

@@ -174,6 +174,15 @@ class FakeStore implements CodeIndexStore {
     }
 }
 
+class FakeStatusStore {
+    readonly statusUpdates: Array<Record<string, unknown>> = [];
+
+    markRepositoryStatus(params: Record<string, unknown>): Promise<void> {
+        this.statusUpdates.push(params);
+        return Promise.resolve();
+    }
+}
+
 const embeddingProvider: EmbeddingProvider = {
     dimension: 3,
     embedDocuments: vi.fn((texts: string[]) =>
@@ -208,7 +217,8 @@ function buildIndexer(
     client: FakeGitHubClient,
     store: FakeStore,
     manifestStore = new FakeManifestStore(),
-    chunker: CodeChunker = defaultTestChunker
+    chunker: CodeChunker = defaultTestChunker,
+    statusStore?: FakeStatusStore
 ): RepoIndexer {
     const clientFactory: GitHubContentClientFactory = {
         forInstallation: vi.fn(() => Promise.resolve(client)),
@@ -219,6 +229,7 @@ function buildIndexer(
         embeddingProvider,
         manifestStore,
         options: defaultTestChunkingOptions,
+        statusStore,
         store,
     });
 }
@@ -280,6 +291,45 @@ describe("code-indexer repo indexer", () => {
                 userUid: "gh_installation_7",
             },
         ]);
+    });
+
+    it("reports repository indexing and ready status for full-index jobs", async () => {
+        const client = new FakeGitHubClient();
+        client.files = [{ path: "src/server.ts", sha: "blob-1", size: 50 }];
+        client.contents.set("src/server.ts", "line1\nline2\nline3");
+        const store = new FakeStore();
+        const manifestStore = new FakeManifestStore();
+        const statusStore = new FakeStatusStore();
+        const indexer = buildIndexer(
+            client,
+            store,
+            manifestStore,
+            defaultTestChunker,
+            statusStore
+        );
+
+        await indexer.processJob({
+            installationId: 7,
+            kind: "full-index",
+            reason: "test",
+            ref: "main",
+            repository: repository(),
+            sha: "commit-1",
+        });
+
+        expect(statusStore.statusUpdates[0]).toEqual({
+            repoId: 42,
+            status: "indexing",
+        });
+
+        const readyStatus = statusStore.statusUpdates[1];
+        expect(readyStatus).toMatchObject({
+            chunkCount: 2,
+            lastIndexedSha: "commit-1",
+            repoId: 42,
+            status: "ready",
+        });
+        expect(readyStatus?.lastIndexedAt).toBeInstanceOf(Date);
     });
 
     it("uses the injected code chunker implementation", async () => {
@@ -558,7 +608,14 @@ describe("code-indexer repo indexer", () => {
         const client = new FakeGitHubClient();
         const store = new FakeStore();
         const manifestStore = new FakeManifestStore();
-        const indexer = buildIndexer(client, store, manifestStore);
+        const statusStore = new FakeStatusStore();
+        const indexer = buildIndexer(
+            client,
+            store,
+            manifestStore,
+            defaultTestChunker,
+            statusStore
+        );
 
         await indexer.processJob({
             installationId: 7,
@@ -577,6 +634,42 @@ describe("code-indexer repo indexer", () => {
             {
                 collection: "gh_repo_42_default",
                 userUid: "gh_installation_7",
+            },
+        ]);
+        expect(statusStore.statusUpdates).toContainEqual({
+            repoId: 42,
+            status: "deleted",
+        });
+    });
+
+    it("reports sanitized final indexing failures", async () => {
+        const client = new FakeGitHubClient();
+        const store = new FakeStore();
+        const statusStore = new FakeStatusStore();
+        const indexer = buildIndexer(
+            client,
+            store,
+            new FakeManifestStore(),
+            defaultTestChunker,
+            statusStore
+        );
+
+        await indexer.reportFinalFailure(
+            {
+                installationId: 7,
+                kind: "full-index",
+                reason: "test",
+                ref: "main",
+                repository: repository(),
+            },
+            new Error("boom\nwith\tunsafe whitespace")
+        );
+
+        expect(statusStore.statusUpdates).toEqual([
+            {
+                lastError: "boom with unsafe whitespace",
+                repoId: 42,
+                status: "failed",
             },
         ]);
     });

@@ -11,8 +11,31 @@ import type {
 
 type WebhookDependencies = {
     deliveryStore: DeliveryStore;
+    lifecycleStore?: WebhookLifecycleStore;
     queue: IndexingQueue;
     webhookSecret: string;
+};
+
+export type WebhookLifecycleStore = {
+    markRepositoryStatus(params: {
+        lastError?: string;
+        repoId: number | string;
+        status: "queued" | "indexing" | "ready" | "failed" | "deleted";
+    }): Promise<void>;
+    upsertInstallation(params: {
+        accountLogin: string;
+        accountType: string;
+        installationId: number | string;
+        status: string;
+    }): Promise<void>;
+    upsertRepository(params: {
+        defaultBranch: string;
+        installationId: number | string;
+        owner: string;
+        repo: string;
+        repoId: number | string;
+        status: "queued" | "indexing" | "ready" | "failed" | "deleted";
+    }): Promise<void>;
 };
 
 type GitHubRepositoryPayload = {
@@ -70,6 +93,23 @@ function readRepositoryList(payload: unknown, key: string): GitHubRepositoryRef[
     return payload[key]
         .map(readRepository)
         .filter((repo): repo is GitHubRepositoryRef => repo !== null);
+}
+
+function readInstallationAccount(
+    payload: unknown
+): { login: string; type: string } | null {
+    if (!isRecord(payload) || !isRecord(payload.installation)) {
+        return null;
+    }
+    const account = payload.installation.account;
+    if (!isRecord(account)) {
+        return null;
+    }
+    const login = account.login;
+    const type = account.type;
+    return typeof login === "string" && typeof type === "string"
+        ? { login, type }
+        : null;
 }
 
 function pushJobs(payload: unknown, deliveryId: string): IndexingJob[] {
@@ -290,6 +330,36 @@ function installationJobs(payload: unknown, deliveryId: string): IndexingJob[] {
     if (installationId === null) {
         return [];
     }
+    const action =
+        isRecord(payload) && typeof payload.action === "string"
+            ? payload.action
+            : "created";
+    if (action === "suspend") {
+        return [];
+    }
+    const repositories = readRepositoryList(payload, "repositories");
+    if (action === "deleted") {
+        return repositories.map((repository) => ({
+            deliveryId,
+            installationId,
+            kind: "delete-repo-index" as const,
+            reason: "installation-deleted",
+            repository,
+        }));
+    }
+    if (action === "unsuspend") {
+        return repositories.map((repository) => ({
+            deliveryId,
+            installationId,
+            kind: "full-index" as const,
+            reason: "installation-unsuspended",
+            ref: repository.defaultBranch,
+            repository,
+        }));
+    }
+    if (action !== "created") {
+        return [];
+    }
     return readRepositoryList(payload, "repositories").map((repository) => ({
         deliveryId,
         installationId,
@@ -391,10 +461,97 @@ export function createWebhookHandler(deps: WebhookDependencies) {
         }
 
         const jobs = mapWebhookToJobs({ deliveryId, event, payload });
+        if (deps.lifecycleStore) {
+            await recordWebhookLifecycle({
+                event,
+                jobs,
+                payload,
+                store: deps.lifecycleStore,
+            });
+        }
         for (const job of jobs) {
             await deps.queue.enqueue(job);
         }
         await deps.deliveryStore.mark(deliveryId);
         res.json({ enqueued: jobs.length, status: "accepted" });
     };
+}
+
+async function recordWebhookLifecycle(params: {
+    event: string;
+    jobs: IndexingJob[];
+    payload: unknown;
+    store: WebhookLifecycleStore;
+}): Promise<void> {
+    await recordInstallationLifecycle(params);
+    for (const job of params.jobs) {
+        await recordJobQueuedOrDeleted(params.store, job);
+    }
+}
+
+async function recordInstallationLifecycle(params: {
+    event: string;
+    jobs: IndexingJob[];
+    payload: unknown;
+    store: WebhookLifecycleStore;
+}): Promise<void> {
+    if (params.event !== "installation") {
+        return;
+    }
+    const installationId = readInstallationId(params.payload);
+    const account = readInstallationAccount(params.payload);
+    const action =
+        isRecord(params.payload) && typeof params.payload.action === "string"
+            ? params.payload.action
+            : "";
+    if (installationId === null || !account) {
+        return;
+    }
+    const statusByAction: Record<string, string> = {
+        created: "active",
+        deleted: "deleted",
+        suspend: "suspended",
+        unsuspend: "active",
+    };
+    const status = statusByAction[action];
+    if (!status) {
+        return;
+    }
+    await params.store.upsertInstallation({
+        accountLogin: account.login,
+        accountType: account.type,
+        installationId,
+        status,
+    });
+}
+
+async function recordJobQueuedOrDeleted(
+    store: WebhookLifecycleStore,
+    job: IndexingJob
+): Promise<void> {
+    if (job.kind === "delete-repo-index") {
+        await store.upsertRepository({
+            defaultBranch: job.repository.defaultBranch,
+            installationId: job.installationId,
+            owner: job.repository.owner,
+            repo: job.repository.repo,
+            repoId: job.repository.repoId,
+            status: "deleted",
+        });
+        return;
+    }
+    if (
+        job.kind === "full-index" ||
+        job.kind === "incremental-push" ||
+        job.kind === "pr-index"
+    ) {
+        await store.upsertRepository({
+            defaultBranch: job.repository.defaultBranch,
+            installationId: job.installationId,
+            owner: job.repository.owner,
+            repo: job.repository.repo,
+            repoId: job.repository.repoId,
+            status: "queued",
+        });
+    }
 }
