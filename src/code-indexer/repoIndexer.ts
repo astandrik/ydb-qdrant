@@ -29,6 +29,9 @@ import type {
     GitHubRepositoryRef,
     IndexedCodeChunk,
     IndexingJob,
+    IndexingJobExecutionContext,
+    IndexingJobProgressUpdate,
+    IndexingProgressStore,
     PullRequestIndexJob,
     RepoManifestFile,
     RepoManifestStore,
@@ -81,6 +84,7 @@ export class RepoIndexer {
     private readonly embeddingProvider: EmbeddingProvider;
     private readonly manifestStore: RepoManifestStore;
     private readonly maxChangedFilesForIncremental: number;
+    private readonly progressStore?: IndexingProgressStore;
     private readonly quota?: CodeIndexerQuota;
     private readonly quotaStore?: RepoIndexerQuotaStore;
     private readonly statusStore?: RepoIndexerStatusStore;
@@ -92,6 +96,7 @@ export class RepoIndexer {
         embeddingProvider: EmbeddingProvider;
         manifestStore: RepoManifestStore;
         options?: RepoIndexerOptions;
+        progressStore?: IndexingProgressStore;
         quota?: CodeIndexerQuota;
         quotaStore?: RepoIndexerQuotaStore;
         statusStore?: RepoIndexerStatusStore;
@@ -103,6 +108,7 @@ export class RepoIndexer {
         this.manifestStore = params.manifestStore;
         this.quota = params.quota;
         this.quotaStore = params.quotaStore;
+        this.progressStore = params.progressStore;
         this.statusStore = params.statusStore;
         this.store = params.store;
         this.maxChangedFilesForIncremental =
@@ -116,12 +122,15 @@ export class RepoIndexer {
         };
     }
 
-    async processJob(job: IndexingJob): Promise<void> {
+    async processJob(
+        job: IndexingJob,
+        context?: IndexingJobExecutionContext
+    ): Promise<void> {
         switch (job.kind) {
             case "full-index":
                 await this.assertRepositoryQuota(job);
                 await this.markIndexing(job);
-                await this.markReady(job, await this.fullIndex(job));
+                await this.markReady(job, await this.fullIndex(job, context));
                 return;
             case "incremental-push":
                 await this.assertRepositoryQuota(job);
@@ -136,12 +145,19 @@ export class RepoIndexer {
                         repository: job.repository,
                         sha: job.after,
                     };
-                    await this.markReady(job, await this.fullIndex(fallbackJob));
+                    await this.reportProgress(context, {
+                        message: "Falling back to full index: forced push or branch recreation",
+                    });
+                    await this.markReady(
+                        job,
+                        await this.fullIndex(fallbackJob, context)
+                    );
                     return;
                 }
-                await this.markReady(job, await this.incrementalPush(job));
+                await this.markReady(job, await this.incrementalPush(job, context));
                 return;
             case "delete-repo-index":
+                await this.reportProgress(context, { phase: "deleting" });
                 await this.store.deleteCollection({
                     collection: defaultBranchCollectionForRepo(job.repository.repoId),
                     userUid: userUidForInstallation(job.installationId),
@@ -155,9 +171,10 @@ export class RepoIndexer {
             case "pr-index":
                 await this.assertRepositoryQuota(job);
                 await this.markIndexing(job);
-                await this.markReady(job, await this.pullRequestIndex(job));
+                await this.markReady(job, await this.pullRequestIndex(job, context));
                 return;
             case "delete-pr-index":
+                await this.reportProgress(context, { phase: "deleting" });
                 await this.store.deleteCollection({
                     collection: pullRequestCollectionForRepo(
                         job.repository.repoId,
@@ -187,11 +204,15 @@ export class RepoIndexer {
         });
     }
 
-    private async fullIndex(job: FullIndexJob): Promise<IndexingStatusResult> {
+    private async fullIndex(
+        job: FullIndexJob,
+        context?: IndexingJobExecutionContext
+    ): Promise<IndexingStatusResult> {
         const client = await this.clientFactory.forInstallation(job.installationId);
         const collection = defaultBranchCollectionForRepo(job.repository.repoId);
         const userUid = userUidForInstallation(job.installationId);
         const ref = job.sha ?? job.ref;
+        await this.reportProgress(context, { phase: "loading_config" });
         const repoConfig = await loadRepoIndexingConfig({
             client,
             ref,
@@ -207,6 +228,7 @@ export class RepoIndexer {
             client,
             collection,
             contentRepository: job.repository,
+            context,
             chunkingOptions,
             installationId: job.installationId,
             prepareCollection: async () => {
@@ -221,6 +243,7 @@ export class RepoIndexer {
             ref,
             userUid,
         });
+        await this.reportProgress(context, { phase: "saving_manifest" });
         await this.manifestStore.save({
             collection,
             files: indexed.files,
@@ -237,7 +260,8 @@ export class RepoIndexer {
     }
 
     private async pullRequestIndex(
-        job: PullRequestIndexJob
+        job: PullRequestIndexJob,
+        context?: IndexingJobExecutionContext
     ): Promise<IndexingStatusResult> {
         const client = await this.clientFactory.forInstallation(job.installationId);
         const collection = pullRequestCollectionForRepo(
@@ -245,6 +269,7 @@ export class RepoIndexer {
             job.prNumber
         );
         const userUid = userUidForInstallation(job.installationId);
+        await this.reportProgress(context, { phase: "loading_config" });
         const repoConfig = await loadRepoIndexingConfig({
             client,
             ref: job.baseRef,
@@ -260,6 +285,7 @@ export class RepoIndexer {
             client,
             collection,
             contentRepository: job.sourceRepository,
+            context,
             chunkingOptions,
             installationId: job.installationId,
             prepareCollection: async () => {
@@ -274,6 +300,7 @@ export class RepoIndexer {
             ref: job.headSha,
             userUid,
         });
+        await this.reportProgress(context, { phase: "saving_manifest" });
         await this.manifestStore.save({
             collection,
             files: indexed.files,
@@ -290,7 +317,8 @@ export class RepoIndexer {
     }
 
     private async incrementalPush(
-        job: Extract<IndexingJob, { kind: "incremental-push" }>
+        job: Extract<IndexingJob, { kind: "incremental-push" }>,
+        context?: IndexingJobExecutionContext
     ): Promise<IndexingStatusResult> {
         const client = await this.clientFactory.forInstallation(job.installationId);
         const collection = defaultBranchCollectionForRepo(job.repository.repoId);
@@ -300,6 +328,9 @@ export class RepoIndexer {
             userUid,
         });
         if (!currentManifest) {
+            await this.reportProgress(context, {
+                message: "Falling back to full index: missing-manifest",
+            });
             return await this.fullIndex({
                 deliveryId: job.deliveryId,
                 installationId: job.installationId,
@@ -308,8 +339,9 @@ export class RepoIndexer {
                 ref: job.repository.defaultBranch,
                 repository: job.repository,
                 sha: job.after,
-            });
+            }, context);
         }
+        await this.reportProgress(context, { phase: "loading_config" });
         const repoConfig = await loadRepoIndexingConfig({
             client,
             ref: job.after,
@@ -321,6 +353,9 @@ export class RepoIndexer {
         );
         const indexingFingerprint = this.indexingFingerprint(chunkingOptions);
         if (currentManifest.indexingFingerprint !== indexingFingerprint) {
+            await this.reportProgress(context, {
+                message: "Falling back to full index: indexing-fingerprint-changed",
+            });
             return await this.fullIndex({
                 deliveryId: job.deliveryId,
                 installationId: job.installationId,
@@ -329,8 +364,9 @@ export class RepoIndexer {
                 ref: job.repository.defaultBranch,
                 repository: job.repository,
                 sha: job.after,
-            });
+            }, context);
         }
+        await this.reportProgress(context, { phase: "fetching_tree" });
         const changedFiles = await client.compareCommits({
             base: job.before,
             head: job.after,
@@ -342,6 +378,9 @@ export class RepoIndexer {
         );
 
         if (changedFiles.length > this.maxChangedFilesForIncremental) {
+            await this.reportProgress(context, {
+                message: "Falling back to full index: too-many-changed-files",
+            });
             return await this.fullIndex({
                 deliveryId: job.deliveryId,
                 installationId: job.installationId,
@@ -350,9 +389,12 @@ export class RepoIndexer {
                 ref: job.repository.defaultBranch,
                 repository: job.repository,
                 sha: job.after,
-            });
+            }, context);
         }
         if (changedFiles.some(changesRepoConfig)) {
+            await this.reportProgress(context, {
+                message: "Falling back to full index: repo-config-changed",
+            });
             return await this.fullIndex({
                 deliveryId: job.deliveryId,
                 installationId: job.installationId,
@@ -361,8 +403,14 @@ export class RepoIndexer {
                 ref: job.repository.defaultBranch,
                 repository: job.repository,
                 sha: job.after,
-            });
+            }, context);
         }
+        await this.reportProgress(context, {
+            phase: "processing_files",
+            processedChunks: 0,
+            processedFiles: 0,
+            totalFiles: changedFiles.length,
+        });
         const projectedFilesByPath = new Map(filesByPath);
         for (const changedFile of changedFiles) {
             if (changedFile.previousFilename) {
@@ -400,6 +448,7 @@ export class RepoIndexer {
                 changedFile,
                 client,
                 collection,
+                context,
                 currentChunkCount: 0,
                 ref: job.after,
                 installationId: job.installationId,
@@ -431,6 +480,7 @@ export class RepoIndexer {
         client: GitHubContentClient;
         collection: string;
         contentRepository: GitHubRepositoryRef;
+        context?: IndexingJobExecutionContext;
         chunkingOptions: ChunkingOptions;
         installationId: number;
         prepareCollection: () => Promise<void>;
@@ -441,6 +491,8 @@ export class RepoIndexer {
     }): Promise<IndexRepositoryRefResult> {
         const manifestFiles: RepoManifestFile[] = [];
         let chunkCount = 0;
+        let processedFiles = 0;
+        await this.reportProgress(params.context, { phase: "fetching_tree" });
         const files = await params.client.listRepositoryFiles({
             owner: params.contentRepository.owner,
             ref: params.ref,
@@ -454,6 +506,14 @@ export class RepoIndexer {
             installationId: params.installationId,
             repoId: params.repository.repoId,
         });
+        await this.reportProgress(params.context, {
+            phase: "processing_files",
+            processedChunks: 0,
+            processedFiles: 0,
+            totalChunks: 0,
+            totalFiles: indexableFiles.length,
+        });
+        await this.reportProgress(params.context, { phase: "resetting_collection" });
         await params.prepareCollection();
         for (const file of indexableFiles) {
             const manifestFile = await this.indexSingleFile({
@@ -462,6 +522,7 @@ export class RepoIndexer {
                 client: params.client,
                 collection: params.collection,
                 contentRepository: params.contentRepository,
+                context: params.context,
                 currentChunkCount: chunkCount,
                 installationId: params.installationId,
                 path: file.path,
@@ -474,6 +535,13 @@ export class RepoIndexer {
                 manifestFiles.push(manifestFile.file);
                 chunkCount += manifestFile.chunkCount;
             }
+            processedFiles += 1;
+            await this.reportProgress(params.context, {
+                currentPath: file.path,
+                phase: "processing_files",
+                processedChunks: chunkCount,
+                processedFiles,
+            });
         }
         return {
             chunkCount,
@@ -486,6 +554,7 @@ export class RepoIndexer {
         chunkingOptions: ChunkingOptions;
         client: GitHubContentClient;
         collection: string;
+        context?: IndexingJobExecutionContext;
         currentChunkCount: number;
         installationId: number;
         ref: string;
@@ -524,6 +593,7 @@ export class RepoIndexer {
             client: params.client,
             collection: params.collection,
             contentRepository: params.repository,
+            context: params.context,
             currentChunkCount: params.currentChunkCount,
             installationId: params.installationId,
             path: params.changedFile.filename,
@@ -540,6 +610,7 @@ export class RepoIndexer {
         client: GitHubContentClient;
         collection: string;
         contentRepository: GitHubRepositoryRef;
+        context?: IndexingJobExecutionContext;
         currentChunkCount: number;
         installationId: number;
         path: string;
@@ -551,6 +622,10 @@ export class RepoIndexer {
         if (!shouldIndexFile({ path: params.path }, params.chunkingOptions)) {
             return null;
         }
+        await this.reportProgress(params.context, {
+            currentPath: params.path,
+            phase: "fetching_file",
+        });
         const content = await params.client.getFileContent({
             owner: params.contentRepository.owner,
             path: params.path,
@@ -560,6 +635,10 @@ export class RepoIndexer {
         if (content === null) {
             return null;
         }
+        await this.reportProgress(params.context, {
+            currentPath: params.path,
+            phase: "chunking",
+        });
         const chunks = this.chunker.chunkFile({
             content,
             options: params.chunkingOptions,
@@ -582,9 +661,18 @@ export class RepoIndexer {
             repoId: params.repository.repoId,
             sha: params.sha,
         }));
+        await this.reportProgress(params.context, {
+            currentPath: params.path,
+            phase: "embedding",
+            totalChunks: params.currentChunkCount + chunks.length,
+        });
         const vectors = await this.embeddingProvider.embedDocuments(
             indexedChunks.map((chunk) => chunk.text)
         );
+        await this.reportProgress(params.context, {
+            currentPath: params.path,
+            phase: "upserting",
+        });
         await this.store.upsertChunks({
             chunks: indexedChunks,
             collection: params.collection,
@@ -625,6 +713,19 @@ export class RepoIndexer {
         await this.statusStore?.markRepositoryStatus({
             repoId: job.repository.repoId,
             status: "deleted",
+        });
+    }
+
+    private async reportProgress(
+        context: IndexingJobExecutionContext | undefined,
+        update: IndexingJobProgressUpdate
+    ): Promise<void> {
+        if (!context || !this.progressStore) {
+            return;
+        }
+        await this.progressStore.updateJobProgress({
+            jobId: context.jobId,
+            update,
         });
     }
 

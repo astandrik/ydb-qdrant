@@ -41,11 +41,17 @@ vi.mock("../../src/ydb/client.js", () => {
             optional: (inner: unknown) => ({ optional: inner }),
         },
         TypedValues: {
+            VOID: { value: "VOID" },
             jsonDocument: vi.fn((value: string) => ({
                 type: "JsonDocument",
                 value,
             })),
+            optional: vi.fn((value: unknown) => ({
+                optional: true,
+                value,
+            })),
             timestamp: vi.fn((value: Date) => ({ type: "Timestamp", value })),
+            uint32: vi.fn((value: number) => ({ type: "Uint32", value })),
             utf8: vi.fn((value: string) => ({ type: "Utf8", value })),
         },
         createExecuteQuerySettings: vi.fn(() => ({ settings: true })),
@@ -145,6 +151,10 @@ describe("code-indexer durable state store", () => {
         );
         expect(session.createTable).toHaveBeenCalledWith(
             stateStore.CODE_INDEXER_JOBS_TABLE,
+            expect.anything()
+        );
+        expect(session.createTable).toHaveBeenCalledWith(
+            stateStore.CODE_INDEXER_JOB_PROGRESS_TABLE,
             expect.anything()
         );
         expect(session.createTable).toHaveBeenCalledWith(
@@ -283,6 +293,104 @@ describe("code-indexer durable state store", () => {
         expect(stateStore.jobIdForJob(job)).toMatch(/^delivery-1:[a-f0-9]{24}$/);
     });
 
+    it("persists and reads job progress in YDB", async () => {
+        const { stateStore, withSessionMock } = await importStateStore();
+        const createdAt = new Date("2026-05-25T12:00:00.000Z");
+        const startedAt = new Date("2026-05-25T12:00:05.000Z");
+        const updatedAt = new Date("2026-05-25T12:00:10.000Z");
+        const row = {
+            items: [
+                { textValue: "manual:job-1" },
+                { textValue: "7" },
+                { textValue: "42" },
+                { textValue: "octo" },
+                { textValue: "demo" },
+                { textValue: "incremental-push" },
+                { textValue: "running" },
+                { textValue: "embedding" },
+                { textValue: "Embedding chunks" },
+                { uint32Value: 3 },
+                { uint32Value: 2 },
+                { uint32Value: 10 },
+                { uint32Value: 8 },
+                { textValue: "src/index.ts" },
+                { textValue: "" },
+                { timestampValue: createdAt },
+                { timestampValue: startedAt },
+                { timestampValue: updatedAt },
+                { nullFlagValue: 0 },
+            ],
+        };
+        const session = makeSession({
+            executeQuery: vi.fn((yql: string) => {
+                if (yql.includes("SELECT") && yql.includes("WHERE job_id")) {
+                    return Promise.resolve({ resultSets: [{ rows: [row] }] });
+                }
+                if (
+                    yql.includes("SELECT") &&
+                    yql.includes("WHERE installation_id")
+                ) {
+                    return Promise.resolve({ resultSets: [{ rows: [row] }] });
+                }
+                return Promise.resolve({ resultSets: [] });
+            }),
+        });
+        useSession(withSessionMock, session);
+        const progressStore = new stateStore.YdbIndexingProgressStore();
+
+        await progressStore.createJobProgress({
+            job: makeJob(),
+            jobId: "manual:job-1",
+        });
+        await progressStore.updateJobProgress({
+            jobId: "manual:job-1",
+            update: {
+                currentPath: "src/index.ts",
+                message: "Embedding chunks",
+                phase: "embedding",
+                processedChunks: 8,
+                processedFiles: 2,
+                startedAt,
+                status: "running",
+                totalChunks: 10,
+                totalFiles: 3,
+            },
+        });
+
+        await expect(progressStore.getJobProgress("manual:job-1")).resolves.toMatchObject({
+            currentPath: "src/index.ts",
+            installationId: "7",
+            jobId: "manual:job-1",
+            jobKind: "incremental-push",
+            message: "Embedding chunks",
+            owner: "octo",
+            phase: "embedding",
+            processedChunks: 8,
+            processedFiles: 2,
+            repo: "demo",
+            repoId: "42",
+            startedAt,
+            status: "running",
+            totalChunks: 10,
+            totalFiles: 3,
+            updatedAt,
+        });
+        await expect(
+            progressStore.listActiveJobsForInstallation("7")
+        ).resolves.toHaveLength(1);
+
+        expect(
+            session.executeQuery.mock.calls.some(([yql]: [string]) =>
+                yql.includes("UPSERT INTO qdrant_code_indexer_job_progress")
+            )
+        ).toBe(true);
+        expect(
+            session.executeQuery.mock.calls.some(([yql]: [string]) =>
+                yql.includes("UPDATE qdrant_code_indexer_job_progress")
+            )
+        ).toBe(true);
+    });
+
     it("persists enqueued jobs and drains no-op pending state", async () => {
         const { stateStore, withSessionMock } = await importStateStore();
         const session = makeSession({
@@ -305,7 +413,11 @@ describe("code-indexer durable state store", () => {
         const upsertCall = executeCalls.find(([yql]) =>
             yql.includes("UPSERT INTO qdrant_code_indexer_jobs")
         );
+        const progressUpsertCall = executeCalls.find(([yql]) =>
+            yql.includes("UPSERT INTO qdrant_code_indexer_job_progress")
+        );
         expect(upsertCall).toBeDefined();
+        expect(progressUpsertCall).toBeDefined();
         expect(upsertCall?.[0]).toContain('Utf8("pending")');
         expect(upsertCall?.[0]).toContain("0u");
         const params = upsertCall?.[1] as
@@ -361,7 +473,7 @@ describe("code-indexer durable state store", () => {
         await flushAsync();
         await flushAsync();
 
-        expect(processJob).toHaveBeenCalledWith(job);
+        expect(processJob).toHaveBeenCalledWith(job, { jobId: "delivery-1:job" });
         expect(
             session.executeQuery.mock.calls.some(([yql]: [string]) =>
                 yql.includes('SET status = Utf8("pending")')
@@ -375,6 +487,28 @@ describe("code-indexer durable state store", () => {
         expect(
             session.executeQuery.mock.calls.some(([yql]: [string]) =>
                 yql.includes('SET status = Utf8("completed")')
+            )
+        ).toBe(true);
+        expect(
+            session.executeQuery.mock.calls.some(
+                ([yql, params]: [
+                    string,
+                    { $status?: { value?: unknown }; $phase?: { value?: unknown } },
+                ]) =>
+                    yql.includes("UPDATE qdrant_code_indexer_job_progress") &&
+                    params.$status?.value === "running" &&
+                    params.$phase?.value === "claiming"
+            )
+        ).toBe(true);
+        expect(
+            session.executeQuery.mock.calls.some(
+                ([yql, params]: [
+                    string,
+                    { $status?: { value?: unknown }; $phase?: { value?: unknown } },
+                ]) =>
+                    yql.includes("UPDATE qdrant_code_indexer_job_progress") &&
+                    params.$status?.value === "completed" &&
+                    params.$phase?.value === "completed"
             )
         ).toBe(true);
     });
@@ -430,6 +564,17 @@ describe("code-indexer durable state store", () => {
             session.executeQuery.mock.calls.some(([yql]: [string]) =>
                 yql.includes('SET status = Utf8("pending")') &&
                 yql.includes("last_error = $last_error")
+            )
+        ).toBe(true);
+        expect(
+            session.executeQuery.mock.calls.some(
+                ([yql, params]: [
+                    string,
+                    { $status?: { value?: unknown }; $phase?: { value?: unknown } },
+                ]) =>
+                    yql.includes("UPDATE qdrant_code_indexer_job_progress") &&
+                    params.$status?.value === "pending" &&
+                    params.$phase?.value === "queued"
             )
         ).toBe(true);
         expect(
@@ -494,6 +639,17 @@ describe("code-indexer durable state store", () => {
                 yql.includes("last_error = $last_error")
             )
         ).toBe(false);
+        expect(
+            session.executeQuery.mock.calls.some(
+                ([yql, params]: [
+                    string,
+                    { $status?: { value?: unknown }; $phase?: { value?: unknown } },
+                ]) =>
+                    yql.includes("UPDATE qdrant_code_indexer_job_progress") &&
+                    params.$status?.value === "failed" &&
+                    params.$phase?.value === "failed"
+            )
+        ).toBe(true);
     });
 
     it("cleans up completed jobs, failed jobs, and old delivery ids on startup", async () => {

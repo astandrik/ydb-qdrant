@@ -24,6 +24,7 @@ import type {
     GitHubFileEntry,
     GitHubRepositoryRef,
     IndexingJob,
+    IndexingProgressStore,
     IndexingQueue,
 } from "../../src/code-indexer/types.js";
 import { withSession } from "../../src/ydb/client.js";
@@ -70,10 +71,25 @@ class MemoryDeliveryStore implements DeliveryStore {
 class MemoryQueue implements IndexingQueue {
     readonly jobs: IndexingJob[] = [];
 
-    enqueue(job: IndexingJob): Promise<void> {
+    enqueue(job: IndexingJob): Promise<{
+        jobId: string;
+        phase: "queued";
+        status: "pending";
+    }> {
         this.jobs.push(job);
-        return Promise.resolve();
+        return Promise.resolve({
+            jobId: `memory:${this.jobs.length}`,
+            phase: "queued",
+            status: "pending",
+        });
     }
+}
+
+class MemoryProgressStore implements IndexingProgressStore {
+    createJobProgress = () => Promise.reject(new Error("not used"));
+    getJobProgress = () => Promise.resolve(null);
+    listActiveJobsForInstallation = () => Promise.resolve([]);
+    updateJobProgress = () => Promise.resolve();
 }
 
 class FixtureGitHubClient implements GitHubContentClient {
@@ -347,6 +363,7 @@ describe("code-indexer public SaaS integration", () => {
             },
             publicApi: {
                 indexStore,
+                progressStore: new MemoryProgressStore(),
                 queue,
                 store: saasStore,
             },

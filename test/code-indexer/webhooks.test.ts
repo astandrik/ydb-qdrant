@@ -350,7 +350,11 @@ describe("code-indexer webhook handler", () => {
         const queue: IndexingQueue = {
             enqueue: vi.fn((job: IndexingJob) => {
                 enqueued.push(job);
-                return Promise.resolve();
+                return Promise.resolve({
+                    jobId: "job-1",
+                    phase: "queued",
+                    status: "pending",
+                });
             }),
         };
         const seen = new Set<string>();
@@ -413,7 +417,13 @@ describe("code-indexer webhook handler", () => {
                 repositories: [repositoryPayload()],
             })
         );
-        const enqueue = vi.fn(() => Promise.resolve());
+        const enqueue = vi.fn(() =>
+            Promise.resolve({
+                jobId: "job-1",
+                phase: "queued",
+                status: "pending",
+            })
+        );
         const lifecycleStore = {
             markRepositoryStatus: vi.fn(() => Promise.resolve()),
             upsertInstallation: vi.fn(() => Promise.resolve()),
@@ -473,7 +483,13 @@ describe("code-indexer webhook handler", () => {
     });
 
     it("rejects invalid signatures before enqueueing", async () => {
-        const enqueue = vi.fn(() => Promise.resolve());
+        const enqueue = vi.fn(() =>
+            Promise.resolve({
+                jobId: "job-1",
+                phase: "queued",
+                status: "pending",
+            })
+        );
         const queue: IndexingQueue = {
             enqueue,
         };

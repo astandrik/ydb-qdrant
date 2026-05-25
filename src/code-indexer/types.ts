@@ -114,6 +114,85 @@ export type IndexingJob =
     | PullRequestIndexJob
     | DeletePullRequestIndexJob;
 
+export type IndexingJobStatus = "pending" | "running" | "completed" | "failed";
+
+export type IndexingJobPhase =
+    | "queued"
+    | "claiming"
+    | "loading_config"
+    | "fetching_tree"
+    | "resetting_collection"
+    | "processing_files"
+    | "fetching_file"
+    | "chunking"
+    | "embedding"
+    | "upserting"
+    | "saving_manifest"
+    | "deleting"
+    | "completed"
+    | "failed";
+
+export type EnqueuedIndexingJob = {
+    jobId: string;
+    phase: IndexingJobPhase;
+    status: IndexingJobStatus;
+};
+
+export type IndexingJobExecutionContext = {
+    jobId: string;
+};
+
+export type IndexingJobProgressRecord = {
+    createdAt: Date;
+    currentPath?: string;
+    finishedAt?: Date;
+    installationId: string;
+    jobId: string;
+    jobKind: IndexingJob["kind"];
+    lastError?: string;
+    message?: string;
+    owner: string;
+    phase: IndexingJobPhase;
+    processedChunks: number;
+    processedFiles: number;
+    repo: string;
+    repoId: string;
+    startedAt?: Date;
+    status: IndexingJobStatus;
+    totalChunks?: number;
+    totalFiles?: number;
+    updatedAt: Date;
+};
+
+export type IndexingJobProgressUpdate = {
+    currentPath?: string | null;
+    finishedAt?: Date | null;
+    lastError?: string | null;
+    message?: string | null;
+    phase?: IndexingJobPhase;
+    processedChunks?: number;
+    processedFiles?: number;
+    startedAt?: Date | null;
+    status?: IndexingJobStatus;
+    totalChunks?: number | null;
+    totalFiles?: number | null;
+};
+
+export interface IndexingProgressStore {
+    createJobProgress(params: {
+        job: IndexingJob;
+        jobId: string;
+    }): Promise<IndexingJobProgressRecord>;
+    getJobProgress(jobId: string): Promise<IndexingJobProgressRecord | null>;
+    listActiveJobsForInstallation(
+        installationId: number | string
+    ): Promise<IndexingJobProgressRecord[]>;
+    updateJobProgress(params: {
+        jobId: string;
+        update: IndexingJobProgressUpdate;
+    }): Promise<void>;
+}
+
 export interface EmbeddingProvider {
     readonly dimension: number;
     embedDocuments(texts: string[]): Promise<number[][]>;
@@ -227,7 +306,7 @@ export interface CodeIndexStore {
 }
 
 export interface IndexingQueue {
-    enqueue(job: IndexingJob): Promise<void>;
+    enqueue(job: IndexingJob): Promise<EnqueuedIndexingJob>;
 }
 
 export interface DeliveryStore {

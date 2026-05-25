@@ -39,7 +39,7 @@ UI files:
 - Test: `test/code-indexer/publicApi.test.ts`
 - Test: `test/code-indexer/checkRuns.test.ts`
 
-- [ ] **Step 1: Add core progress types**
+- [x] **Step 1: Add core progress types**
 
 Add these exported types to `src/code-indexer/types.ts`:
 
@@ -132,7 +132,7 @@ export interface IndexingQueue {
 }
 ```
 
-- [ ] **Step 2: Update in-memory queue**
+- [x] **Step 2: Update in-memory queue**
 
 In `src/code-indexer/queue.ts`, import `randomUUID` and update `InMemoryIndexingQueue.enqueue` to return:
 
@@ -151,7 +151,7 @@ Store `QueuedMemoryJob[]`, log `jobId`, and call:
 await this.processJob(job, context);
 ```
 
-- [ ] **Step 3: Update check-run wrapper**
+- [x] **Step 3: Update check-run wrapper**
 
 Change `withCheckRunReporting` in `src/code-indexer/checkRuns.ts` so `processJob` receives `(job, context)` and the returned wrapper also accepts `(job, context)`. It must still call `reporter.start(job)` and `reporter.complete(result)`, but forward context with:
 
@@ -159,7 +159,7 @@ Change `withCheckRunReporting` in `src/code-indexer/checkRuns.ts` so `processJob
 await params.processJob(job, context);
 ```
 
-- [ ] **Step 4: Update tests for compile-time contract**
+- [x] **Step 4: Update tests for compile-time contract**
 
 In `test/code-indexer/publicApi.test.ts`, update `createBaseDeps`:
 
@@ -179,7 +179,7 @@ await wrapped(job, context);
 expect(processJob).toHaveBeenCalledWith(job, context);
 ```
 
-- [ ] **Step 5: Run focused tests**
+- [x] **Step 5: Run focused tests**
 
 Run:
 
@@ -196,7 +196,7 @@ Expected: tests compile and pass after subsequent tasks complete. If they fail o
 - Modify: `src/code-indexer/stateStore.ts`
 - Test: `test/code-indexer/stateStore.test.ts`
 
-- [ ] **Step 1: Add failing state store tests**
+- [x] **Step 1: Add failing state store tests**
 
 Add tests in `test/code-indexer/stateStore.test.ts` that verify:
 
@@ -234,7 +234,7 @@ Assert that parsed camelCase output contains:
 }
 ```
 
-- [ ] **Step 2: Implement progress table creation**
+- [x] **Step 2: Implement progress table creation**
 
 In `src/code-indexer/stateStore.ts`, export:
 
@@ -245,7 +245,7 @@ export const CODE_INDEXER_JOB_PROGRESS_TABLE =
 
 Add `ensureJobProgressTable()` with the columns from the design spec and primary key `job_id`. Include it in `ensureCodeIndexerStateTables()`.
 
-- [ ] **Step 3: Implement `YdbIndexingProgressStore`**
+- [x] **Step 3: Implement `YdbIndexingProgressStore`**
 
 Implement methods:
 
@@ -256,7 +256,7 @@ Implement methods:
 
 Use the existing `readText`, `readUint`, and timestamp helpers or add local equivalents if needed. Invalid rows should throw `stored code-indexer job progress row is invalid`.
 
-- [ ] **Step 4: Run focused state store tests**
+- [x] **Step 4: Run focused state store tests**
 
 Run:
 
@@ -274,7 +274,7 @@ Expected: all state store tests pass.
 - Modify: `src/code-indexer/index.ts`
 - Test: `test/code-indexer/stateStore.test.ts`
 
-- [ ] **Step 1: Add failing queue lifecycle tests**
+- [x] **Step 1: Add failing queue lifecycle tests**
 
 Extend `test/code-indexer/stateStore.test.ts`:
 
@@ -285,7 +285,7 @@ Extend `test/code-indexer/stateStore.test.ts`:
 - retryable failure updates progress back to `pending` with `last_error`.
 - final failure updates progress to `failed/failed`.
 
-- [ ] **Step 2: Inject progress store into `YdbIndexingQueue`**
+- [x] **Step 2: Inject progress store into `YdbIndexingQueue`**
 
 Change `YdbIndexingQueueOptions` to accept:
 
@@ -299,7 +299,7 @@ Default it in the constructor:
 this.progressStore = options.progressStore ?? new YdbIndexingProgressStore();
 ```
 
-- [ ] **Step 3: Generate job id once**
+- [x] **Step 3: Generate job id once**
 
 Change `enqueue(job)` to:
 
@@ -313,7 +313,7 @@ return { jobId, phase: "queued", status: "pending" };
 
 Update `enqueueStoredJob(job, jobId)` to use the provided id.
 
-- [ ] **Step 4: Update processing lifecycle**
+- [x] **Step 4: Update processing lifecycle**
 
 When a stored job is claimed, call:
 
@@ -327,7 +327,7 @@ await this.processJob(storedJob.job, { jobId: storedJob.jobId });
 
 On completion, retry, and final failure, update progress as specified in the design.
 
-- [ ] **Step 5: Wire production startup**
+- [x] **Step 5: Wire production startup**
 
 In `src/code-indexer/index.ts`, create:
 
@@ -341,7 +341,7 @@ Pass it to:
 - `new YdbIndexingQueue(processJob, { maxAttempts, onFinalFailure, progressStore, retentionDays, retryBackoffMs })`
 - `publicApi: { indexStore, progressStore, quota, queue, store }`
 
-- [ ] **Step 6: Run focused tests**
+- [x] **Step 6: Run focused tests**
 
 Run:
 
@@ -358,7 +358,7 @@ Expected: all state store tests pass.
 - Modify: `src/code-indexer/repoIndexer.ts`
 - Test: `test/code-indexer/repoIndexer.test.ts`
 
-- [ ] **Step 1: Add failing progress reporter tests**
+- [x] **Step 1: Add failing progress reporter tests**
 
 In `test/code-indexer/repoIndexer.test.ts`, add tests for full index progress:
 
@@ -394,7 +394,7 @@ Call:
 await indexer.processJob(job, { jobId: "job-1" });
 ```
 
-- [ ] **Step 2: Add progress dependency**
+- [x] **Step 2: Add progress dependency**
 
 Extend `RepoIndexer` constructor params with:
 
@@ -419,11 +419,11 @@ private async reportProgress(
 }
 ```
 
-- [ ] **Step 3: Thread context**
+- [x] **Step 3: Thread context**
 
 Change `processJob(job)` to `processJob(job, context?)` and pass `context` into full, incremental, PR, delete, and helper methods.
 
-- [ ] **Step 4: Report full and PR phases**
+- [x] **Step 4: Report full and PR phases**
 
 In full/PR paths:
 
@@ -439,7 +439,7 @@ Inside file processing:
 - report `fetching_file`, `chunking`, `embedding`, `upserting`
 - after each file, increment counters.
 
-- [ ] **Step 5: Report incremental and delete phases**
+- [x] **Step 5: Report incremental and delete phases**
 
 For incremental:
 
@@ -453,7 +453,7 @@ For delete jobs:
 await this.reportProgress(context, { phase: "deleting" });
 ```
 
-- [ ] **Step 6: Run focused tests**
+- [x] **Step 6: Run focused tests**
 
 Run:
 
@@ -471,7 +471,7 @@ Expected: all repo indexer tests pass.
 - Modify: `src/code-indexer/server.ts`
 - Test: `test/code-indexer/publicApi.test.ts`
 
-- [ ] **Step 1: Add failing API tests**
+- [x] **Step 1: Add failing API tests**
 
 In `test/code-indexer/publicApi.test.ts`, add fake `progressStore` to `createBaseDeps`.
 
@@ -490,11 +490,11 @@ Test `GET /api/jobs/manual:test-job` returns progress for authorized repo.
 
 Test `GET /api/jobs/job-for-other-repo` returns `403`.
 
-- [ ] **Step 2: Extend public API deps**
+- [x] **Step 2: Extend public API deps**
 
 Add `progressStore: IndexingProgressStore` to `CodeIndexerPublicApiDeps`.
 
-- [ ] **Step 3: Return job from reindex**
+- [x] **Step 3: Return job from reindex**
 
 Change manual reindex to:
 
@@ -509,7 +509,7 @@ const job = await deps.queue.enqueue({
 res.status(202).json({ job, status: "ok" });
 ```
 
-- [ ] **Step 4: Attach active jobs to repositories**
+- [x] **Step 4: Attach active jobs to repositories**
 
 In `GET /api/repositories`, call:
 
@@ -519,7 +519,7 @@ const activeJobs = await deps.progressStore.listActiveJobsForInstallation(instal
 
 Map latest active job by `repoId`, serialize dates to ISO strings, and add `activeJob` to matching repository objects.
 
-- [ ] **Step 5: Add direct job endpoint**
+- [x] **Step 5: Add direct job endpoint**
 
 Add:
 
@@ -553,11 +553,11 @@ It must:
 4. call `requireRepositoryAccess` with `progress.repoId`;
 5. return `{ job: serializeProgress(progress), status: "ok" }`.
 
-- [ ] **Step 6: Wire server deps**
+- [x] **Step 6: Wire server deps**
 
 Update `src/code-indexer/server.ts` type usage so the new public API dependency is required by callers.
 
-- [ ] **Step 7: Run focused API tests**
+- [x] **Step 7: Run focused API tests**
 
 Run:
 
@@ -574,7 +574,7 @@ Expected: tests pass.
 - Modify: `test/integration/CodeIndexerSmoke.test.ts` or `test/integration/CodeIndexerPublicSaas.test.ts`
 - Modify: `docs/github-app-code-indexer.md`
 
-- [ ] **Step 1: Add integration assertion**
+- [x] **Step 1: Add integration assertion**
 
 In an existing code-indexer integration test, assert that after an indexing job:
 
@@ -582,7 +582,7 @@ In an existing code-indexer integration test, assert that after an indexing job:
 - row reaches `completed`;
 - `processed_files` and `processed_chunks` are greater than zero for a fixture that indexes files.
 
-- [ ] **Step 2: Update docs**
+- [x] **Step 2: Update docs**
 
 Add a short "Job progress" section to `docs/github-app-code-indexer.md`:
 
@@ -593,7 +593,7 @@ in `qdrant_code_indexer_job_progress` and includes phase, counters, current path
 timestamps, and the last backend error.
 ```
 
-- [ ] **Step 3: Run backend verification**
+- [x] **Step 3: Run backend verification**
 
 Run:
 
@@ -606,7 +606,7 @@ YDB_ANONYMOUS_CREDENTIALS=1 npm run test:integration:code-indexer
 
 Expected: all commands pass.
 
-- [ ] **Step 4: Commit backend**
+- [x] **Step 4: Commit backend**
 
 Commit only backend progress files and docs:
 

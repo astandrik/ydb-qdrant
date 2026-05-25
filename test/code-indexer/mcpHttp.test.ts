@@ -105,7 +105,13 @@ function createBaseDeps() {
         mark: vi.fn(),
     };
     const queue: IndexingQueue = {
-        enqueue: vi.fn(),
+        enqueue: vi.fn(() =>
+            Promise.resolve({
+                jobId: "job-1",
+                phase: "queued",
+                status: "pending",
+            })
+        ),
     };
     return { deliveryStore, embeddingProvider, indexStore, queue, search };
 }

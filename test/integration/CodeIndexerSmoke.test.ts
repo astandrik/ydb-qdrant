@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { HashEmbeddingProvider } from "../../src/code-indexer/embeddings.js";
 import { YdbQdrantIndexStore } from "../../src/code-indexer/indexStore.js";
@@ -8,7 +8,11 @@ import {
 } from "../../src/code-indexer/naming.js";
 import { RepoIndexer } from "../../src/code-indexer/repoIndexer.js";
 import { searchCode } from "../../src/code-indexer/searchAdapter.js";
-import { YdbRepoManifestStore } from "../../src/code-indexer/stateStore.js";
+import {
+    YdbIndexingProgressStore,
+    YdbIndexingQueue,
+    YdbRepoManifestStore,
+} from "../../src/code-indexer/stateStore.js";
 import type {
     GitHubChangedFile,
     GitHubContentClient,
@@ -87,6 +91,7 @@ describe("code-indexer YDB integration smoke", () => {
     const userUid = userUidForInstallation(installationId);
     const embeddingProvider = new HashEmbeddingProvider(64);
     const manifestStore = new YdbRepoManifestStore();
+    const progressStore = new YdbIndexingProgressStore();
     const store = new YdbQdrantIndexStore({ includeTextInPayload: true });
     let ydbReady = false;
 
@@ -114,11 +119,16 @@ describe("code-indexer YDB integration smoke", () => {
             embeddingProvider,
             manifestStore,
             options: { chunkLines: 4, overlapLines: 0 },
+            progressStore,
             store,
         });
+        const queue = new YdbIndexingQueue(
+            (job, context) => indexer.processJob(job, context),
+            { progressStore, retryBackoffMs: 0 }
+        );
 
-        await indexer.processJob({
-            deliveryId: "integration-code-indexer-smoke",
+        const enqueued = await queue.enqueue({
+            deliveryId: `integration-code-indexer-smoke-${repoId}`,
             installationId,
             kind: "full-index",
             reason: "integration-smoke",
@@ -126,6 +136,23 @@ describe("code-indexer YDB integration smoke", () => {
             repository,
             sha: "f".repeat(40),
         });
+
+        await vi.waitFor(
+            async () => {
+                const progress = await progressStore.getJobProgress(
+                    enqueued.jobId
+                );
+                expect(progress).toMatchObject({
+                    jobId: enqueued.jobId,
+                    phase: "completed",
+                    processedFiles: 1,
+                    status: "completed",
+                    totalFiles: 1,
+                });
+                expect(progress?.processedChunks).toBeGreaterThan(0);
+            },
+            { timeout: 30_000 }
+        );
 
         const manifest = await manifestStore.get({ collection, userUid });
         expect(manifest?.files).toEqual([

@@ -19,6 +19,8 @@ import type {
     GitHubFileEntry,
     IndexedCodeChunk,
     IndexingJob,
+    IndexingProgressStore,
+    IndexingJobProgressUpdate,
     RepoIndexManifest,
     RepoManifestStore,
 } from "../../src/code-indexer/types.js";
@@ -189,6 +191,25 @@ class FakeStatusStore {
     }
 }
 
+class FakeProgressStore implements IndexingProgressStore {
+    readonly updates: Array<{
+        jobId: string;
+        update: IndexingJobProgressUpdate;
+    }> = [];
+
+    createJobProgress = vi.fn();
+    getJobProgress = vi.fn();
+    listActiveJobsForInstallation = vi.fn();
+
+    updateJobProgress(params: {
+        jobId: string;
+        update: IndexingJobProgressUpdate;
+    }): Promise<void> {
+        this.updates.push(params);
+        return Promise.resolve();
+    }
+}
+
 const embeddingProvider: EmbeddingProvider = {
     dimension: 3,
     embedDocuments: vi.fn((texts: string[]) =>
@@ -225,7 +246,8 @@ function buildIndexer(
     manifestStore = new FakeManifestStore(),
     chunker: CodeChunker = defaultTestChunker,
     statusStore?: FakeStatusStore,
-    quota?: CodeIndexerQuota
+    quota?: CodeIndexerQuota,
+    progressStore?: IndexingProgressStore
 ): RepoIndexer {
     const clientFactory: GitHubContentClientFactory = {
         forInstallation: vi.fn(() => Promise.resolve(client)),
@@ -236,6 +258,7 @@ function buildIndexer(
         embeddingProvider,
         manifestStore,
         options: defaultTestChunkingOptions,
+        progressStore,
         quota,
         statusStore,
         store,
@@ -338,6 +361,76 @@ describe("code-indexer repo indexer", () => {
             status: "ready",
         });
         expect(readyStatus?.lastIndexedAt).toBeInstanceOf(Date);
+    });
+
+    it("reports full-index job progress phases and counters", async () => {
+        const client = new FakeGitHubClient();
+        client.files = [{ path: "src/server.ts", sha: "blob-1", size: 50 }];
+        client.contents.set("src/server.ts", "line1\nline2\nline3");
+        const store = new FakeStore();
+        const progressStore = new FakeProgressStore();
+        const indexer = buildIndexer(
+            client,
+            store,
+            new FakeManifestStore(),
+            defaultTestChunker,
+            undefined,
+            undefined,
+            progressStore
+        );
+
+        await indexer.processJob(
+            {
+                installationId: 7,
+                kind: "full-index",
+                reason: "test",
+                ref: "main",
+                repository: repository(),
+                sha: "commit-1",
+            },
+            { jobId: "job-1" }
+        );
+
+        expect(progressStore.updates.map((entry) => entry.update.phase)).toEqual(
+            expect.arrayContaining([
+                "loading_config",
+                "fetching_tree",
+                "processing_files",
+                "resetting_collection",
+                "fetching_file",
+                "chunking",
+                "embedding",
+                "upserting",
+                "saving_manifest",
+            ])
+        );
+        expect(progressStore.updates).toContainEqual({
+            jobId: "job-1",
+            update: {
+                phase: "processing_files",
+                processedChunks: 0,
+                processedFiles: 0,
+                totalChunks: 0,
+                totalFiles: 1,
+            },
+        });
+        expect(progressStore.updates).toContainEqual({
+            jobId: "job-1",
+            update: {
+                currentPath: "src/server.ts",
+                phase: "embedding",
+                totalChunks: 2,
+            },
+        });
+        expect(progressStore.updates).toContainEqual({
+            jobId: "job-1",
+            update: {
+                currentPath: "src/server.ts",
+                phase: "processing_files",
+                processedChunks: 2,
+                processedFiles: 1,
+            },
+        });
     });
 
     it("rejects full indexing before content reads when the file quota is exceeded", async () => {

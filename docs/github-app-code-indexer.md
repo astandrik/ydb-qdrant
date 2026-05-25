@@ -160,6 +160,10 @@ The hosted service stores:
 
 Uninstalling the GitHub App or removing repositories enqueues delete jobs that remove matching manifests and indexed collections. Dashboard data deletion removes eligible sessions, MCP tokens, installation links, repository rows, audit/usage data, and indexed collections owned by the user's linked installations.
 
+### Job progress
+
+The dashboard reads job progress from `GET /api/repositories?installationId=<id>` and can inspect a single job through `GET /api/jobs/:jobId`. Progress is stored in `qdrant_code_indexer_job_progress` and includes phase, counters, current path, timestamps, and the last backend error.
+
 Set `CODE_INDEXER_CHECKS_ENABLED=true` only after granting the GitHub App `Checks: write`. Check run reporting is fail-open: indexing continues if GitHub rejects check run creation or updates. A `check_run.rerequested` webhook for `YDB Qdrant Code Index` requeues a full default-branch index for the checked SHA, or a PR-scoped reindex for same-repository pull requests.
 
 Set `CODE_INDEXER_SEARCH_API_KEY` before exposing `POST /search` outside a trusted local network. When it is set, search requests must send `Authorization: Bearer <token>`. The MCP stdio server does not use this HTTP token.

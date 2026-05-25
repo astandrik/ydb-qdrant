@@ -26,6 +26,8 @@ import type {
 import type {
     CodeIndexStore,
     GitHubRepositoryRef,
+    IndexingJobProgressRecord,
+    IndexingProgressStore,
     IndexingQueue,
 } from "./types.js";
 
@@ -59,6 +61,7 @@ export type CodeIndexerPublicApiDeps = {
     createPlaintextToken?: () => string;
     createTokenId?: () => string;
     indexStore: CodeIndexStore;
+    progressStore: IndexingProgressStore;
     quota?: CodeIndexerQuota;
     queue: IndexingQueue;
     store: CodeIndexerPublicApiStore;
@@ -132,6 +135,42 @@ function repositoryRefFromRecord(
         owner: repository.owner,
         repo: repository.repo,
         repoId: toSafeIntegerId(repository.repoId, "repoId"),
+    };
+}
+
+function serializeProgress(progress: IndexingJobProgressRecord) {
+    return {
+        createdAt: progress.createdAt.toISOString(),
+        ...(progress.currentPath === undefined
+            ? {}
+            : { currentPath: progress.currentPath }),
+        ...(progress.finishedAt === undefined
+            ? {}
+            : { finishedAt: progress.finishedAt.toISOString() }),
+        installationId: progress.installationId,
+        jobId: progress.jobId,
+        jobKind: progress.jobKind,
+        ...(progress.lastError === undefined
+            ? {}
+            : { lastError: progress.lastError }),
+        ...(progress.message === undefined ? {} : { message: progress.message }),
+        owner: progress.owner,
+        phase: progress.phase,
+        processedChunks: progress.processedChunks,
+        processedFiles: progress.processedFiles,
+        repo: progress.repo,
+        repoId: progress.repoId,
+        ...(progress.startedAt === undefined
+            ? {}
+            : { startedAt: progress.startedAt.toISOString() }),
+        status: progress.status,
+        ...(progress.totalChunks === undefined
+            ? {}
+            : { totalChunks: progress.totalChunks }),
+        ...(progress.totalFiles === undefined
+            ? {}
+            : { totalFiles: progress.totalFiles }),
+        updatedAt: progress.updatedAt.toISOString(),
     };
 }
 
@@ -214,6 +253,13 @@ export function createPublicApiRouter(deps: CodeIndexerPublicApiDeps) {
                     await deps.store.listRepositoriesForInstallation(
                         installationId
                     );
+                const activeJobs =
+                    await deps.progressStore.listActiveJobsForInstallation(
+                        installationId
+                    );
+                const activeJobsByRepoId = new Map(
+                    activeJobs.map((job) => [job.repoId, serializeProgress(job)])
+                );
                 deps.quota?.assertRepositoriesPerInstallation({
                     githubUserId: context.user.githubUserId,
                     installationId,
@@ -221,7 +267,19 @@ export function createPublicApiRouter(deps: CodeIndexerPublicApiDeps) {
                         (repository) => repository.status !== "deleted"
                     ).length,
                 });
-                res.json({ repositories, status: "ok" });
+                res.json({
+                    repositories: repositories.map((repository) => ({
+                        ...repository,
+                        ...(activeJobsByRepoId.has(repository.repoId)
+                            ? {
+                                  activeJob: activeJobsByRepoId.get(
+                                      repository.repoId
+                                  ),
+                              }
+                            : {}),
+                    })),
+                    status: "ok",
+                });
             } catch (err: unknown) {
                 sendApiError(res, err);
             }
@@ -249,7 +307,7 @@ export function createPublicApiRouter(deps: CodeIndexerPublicApiDeps) {
                         (candidate) => candidate.status !== "deleted"
                     ).length,
                 });
-                await deps.queue.enqueue({
+                const job = await deps.queue.enqueue({
                     installationId: toSafeIntegerId(
                         repository.installationId,
                         "installationId"
@@ -259,7 +317,30 @@ export function createPublicApiRouter(deps: CodeIndexerPublicApiDeps) {
                     ref: repository.defaultBranch,
                     repository: repositoryRefFromRecord(repository),
                 });
-                res.status(202).json({ status: "ok" });
+                res.status(202).json({ job, status: "ok" });
+            } catch (err: unknown) {
+                sendApiError(res, err);
+            }
+        }
+    );
+
+    router.get(
+        "/jobs/:jobId",
+        async (req: Request, res: Response): Promise<void> => {
+            try {
+                const context = await requireContext(deps, req);
+                const progress = await deps.progressStore.getJobProgress(
+                    readPathParam(req, "jobId")
+                );
+                if (!progress) {
+                    throw apiError("not_found", "job not found", 404);
+                }
+                await requireRepositoryAccess({
+                    context,
+                    repoId: progress.repoId,
+                    store: deps.store,
+                });
+                res.json({ job: serializeProgress(progress), status: "ok" });
             } catch (err: unknown) {
                 sendApiError(res, err);
             }

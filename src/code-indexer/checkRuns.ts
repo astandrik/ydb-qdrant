@@ -4,6 +4,7 @@ import type {
     GitHubCheckRunHandle,
     GitHubChecksClientFactory,
     IndexingJob,
+    IndexingJobExecutionContext,
 } from "./types.js";
 
 export const CHECK_RUN_NAME = "YDB Qdrant Code Index";
@@ -93,10 +94,19 @@ export function checkRunShaForJob(job: IndexingJob): string | null {
 }
 
 export function withCheckRunReporting(params: {
-    processJob: (job: IndexingJob) => Promise<void>;
+    processJob: (
+        job: IndexingJob,
+        context: IndexingJobExecutionContext
+    ) => Promise<void>;
     reporter: CheckRunReporter;
-}): (job: IndexingJob) => Promise<void> {
-    return async (job: IndexingJob): Promise<void> => {
+}): ((
+    job: IndexingJob,
+    context: IndexingJobExecutionContext
+) => Promise<void>) {
+    return async (
+        job: IndexingJob,
+        context: IndexingJobExecutionContext
+    ): Promise<void> => {
         let handle: GitHubCheckRunHandle | null = null;
         try {
             handle = await params.reporter.start(job);
@@ -105,7 +115,7 @@ export function withCheckRunReporting(params: {
         }
 
         try {
-            await params.processJob(job);
+            await params.processJob(job, context);
             try {
                 await params.reporter.complete(handle, {
                     conclusion: "success",

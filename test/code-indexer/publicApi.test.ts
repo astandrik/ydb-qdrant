@@ -9,6 +9,7 @@ import type {
     CodeIndexStore,
     DeliveryStore,
     EmbeddingProvider,
+    IndexingProgressStore,
     IndexingQueue,
 } from "../../src/code-indexer/types.js";
 
@@ -54,7 +55,13 @@ type TestApiToken = {
 
 function createBaseDeps() {
     const deleteCollection = vi.fn(() => Promise.resolve());
-    const enqueue = vi.fn(() => Promise.resolve());
+    const enqueue = vi.fn(() =>
+        Promise.resolve({
+            jobId: "manual:test-job",
+            phase: "queued" as const,
+            status: "pending" as const,
+        })
+    );
     const embeddingProvider: EmbeddingProvider = {
         dimension: 2,
         embedDocuments: vi.fn(),
@@ -73,6 +80,14 @@ function createBaseDeps() {
         has: vi.fn(),
         mark: vi.fn(),
     };
+    const getJobProgress = vi.fn(() => Promise.resolve(null));
+    const listActiveJobsForInstallation = vi.fn(() => Promise.resolve([]));
+    const progressStore: IndexingProgressStore = {
+        createJobProgress: vi.fn(),
+        getJobProgress,
+        listActiveJobsForInstallation,
+        updateJobProgress: vi.fn(),
+    };
     const queue: IndexingQueue = {
         enqueue,
     };
@@ -81,7 +96,10 @@ function createBaseDeps() {
         deliveryStore,
         embeddingProvider,
         enqueue,
+        getJobProgress,
         indexStore,
+        listActiveJobsForInstallation,
+        progressStore,
         queue,
     };
 }
@@ -279,6 +297,7 @@ async function startPublicApiServer(options: {
             createPlaintextToken: () => "ydbqci_plaintext",
             createTokenId: () => "token-id",
             indexStore: deps.indexStore,
+            progressStore: deps.progressStore,
             quota: options.quota,
             queue: deps.queue,
             store,
@@ -458,7 +477,14 @@ describe("code-indexer public API", () => {
             });
 
             expect(response.statusCode).toBe(202);
-            expect(JSON.parse(response.body)).toMatchObject({ status: "ok" });
+            expect(JSON.parse(response.body)).toMatchObject({
+                job: {
+                    jobId: "manual:test-job",
+                    phase: "queued",
+                    status: "pending",
+                },
+                status: "ok",
+            });
             expect(deps.enqueue).toHaveBeenCalledWith({
                 installationId: 777,
                 kind: "full-index",
@@ -471,6 +497,104 @@ describe("code-indexer public API", () => {
                     repoId: 456,
                 },
             });
+        } finally {
+            await closeServer(server);
+        }
+    });
+
+    it("returns active repository job progress and direct authorized job progress", async () => {
+        const { baseUrl, deps, server } = await startPublicApiServer();
+        const progress = {
+            createdAt: new Date("2026-05-25T12:00:00.000Z"),
+            currentPath: "src/index.ts",
+            installationId: "777",
+            jobId: "manual:test-job",
+            jobKind: "full-index" as const,
+            owner: "astandrik",
+            phase: "embedding" as const,
+            processedChunks: 4,
+            processedFiles: 2,
+            repo: "local-ydb-toolkit",
+            repoId: "456",
+            startedAt: new Date("2026-05-25T12:00:01.000Z"),
+            status: "running" as const,
+            totalChunks: 6,
+            totalFiles: 3,
+            updatedAt: new Date("2026-05-25T12:00:02.000Z"),
+        };
+        deps.listActiveJobsForInstallation.mockResolvedValue([progress]);
+        deps.getJobProgress.mockResolvedValue(progress);
+
+        try {
+            const repositories = await request({
+                baseUrl,
+                cookie: sessionCookie(),
+                path: "/api/repositories?installationId=777",
+            });
+            const job = await request({
+                baseUrl,
+                cookie: sessionCookie(),
+                path: "/api/jobs/manual:test-job",
+            });
+
+            expect(JSON.parse(repositories.body)).toMatchObject({
+                repositories: [
+                    {
+                        activeJob: {
+                            currentPath: "src/index.ts",
+                            jobId: "manual:test-job",
+                            phase: "embedding",
+                            processedChunks: 4,
+                            processedFiles: 2,
+                            status: "running",
+                            totalChunks: 6,
+                            totalFiles: 3,
+                            updatedAt: "2026-05-25T12:00:02.000Z",
+                        },
+                        repoId: "456",
+                    },
+                ],
+                status: "ok",
+            });
+            expect(JSON.parse(job.body)).toMatchObject({
+                job: {
+                    jobId: "manual:test-job",
+                    phase: "embedding",
+                    repoId: "456",
+                    status: "running",
+                },
+                status: "ok",
+            });
+        } finally {
+            await closeServer(server);
+        }
+    });
+
+    it("rejects direct job progress for repositories outside the user's installations", async () => {
+        const { baseUrl, deps, server } = await startPublicApiServer();
+        deps.getJobProgress.mockResolvedValue({
+            createdAt: new Date("2026-05-25T12:00:00.000Z"),
+            installationId: "999",
+            jobId: "job-for-other-repo",
+            jobKind: "full-index",
+            owner: "other",
+            phase: "embedding",
+            processedChunks: 0,
+            processedFiles: 0,
+            repo: "private",
+            repoId: "999001",
+            status: "running",
+            updatedAt: new Date("2026-05-25T12:00:02.000Z"),
+        });
+
+        try {
+            const response = await request({
+                baseUrl,
+                cookie: sessionCookie(),
+                path: "/api/jobs/job-for-other-repo",
+            });
+
+            expect(response.statusCode).toBe(403);
         } finally {
             await closeServer(server);
         }

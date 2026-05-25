@@ -109,10 +109,11 @@ describe("code-indexer check runs", () => {
         const processJob = vi.fn(() => Promise.resolve());
         const wrapped = withCheckRunReporting({ processJob, reporter });
         const job = pushJob();
+        const context = { jobId: "job-1" };
 
-        await expect(wrapped(job)).resolves.toBeUndefined();
+        await expect(wrapped(job, context)).resolves.toBeUndefined();
 
-        expect(processJob).toHaveBeenCalledWith(job);
+        expect(processJob).toHaveBeenCalledWith(job, context);
         expect(start).toHaveBeenCalledWith(job);
         expect(complete).toHaveBeenCalledWith(null, {
             conclusion: "success",
@@ -140,8 +141,10 @@ describe("code-indexer check runs", () => {
             processJob: vi.fn(() => Promise.reject(processErr)),
             reporter,
         });
+        const job = pushJob();
+        const context = { jobId: "job-1" };
 
-        await expect(wrapped(pushJob())).rejects.toThrow("index failed");
+        await expect(wrapped(job, context)).rejects.toThrow("index failed");
 
         expect(complete).toHaveBeenCalledWith(
             {

@@ -1,7 +1,10 @@
+import { randomUUID } from "node:crypto";
+
 import { logger } from "../logging/logger.js";
 import type {
     DeliveryStore,
     IndexingJob,
+    IndexingJobExecutionContext,
     IndexingQueue,
     RepoIndexManifest,
     RepoManifestStore,
@@ -47,17 +50,32 @@ export class InMemoryRepoManifestStore implements RepoManifestStore {
 
 export class InMemoryIndexingQueue implements IndexingQueue {
     private active = false;
-    private readonly jobs: IndexingJob[] = [];
-    private readonly processJob: (job: IndexingJob) => Promise<void>;
+    private readonly jobs: QueuedMemoryJob[] = [];
+    private readonly processJob: (
+        job: IndexingJob,
+        context: IndexingJobExecutionContext
+    ) => Promise<void>;
 
-    constructor(processJob: (job: IndexingJob) => Promise<void>) {
+    constructor(
+        processJob: (
+            job: IndexingJob,
+            context: IndexingJobExecutionContext
+        ) => Promise<void>
+    ) {
         this.processJob = processJob;
     }
 
-    enqueue(job: IndexingJob): Promise<void> {
-        this.jobs.push(job);
+    enqueue(job: IndexingJob): Promise<{
+        jobId: string;
+        phase: "queued";
+        status: "pending";
+    }> {
+        const jobId = job.deliveryId
+            ? `${job.deliveryId}:memory`
+            : `memory:${randomUUID()}`;
+        this.jobs.push({ context: { jobId }, job });
         this.drain();
-        return Promise.resolve();
+        return Promise.resolve({ jobId, phase: "queued", status: "pending" });
     }
 
     private drain(): void {
@@ -71,25 +89,28 @@ export class InMemoryIndexingQueue implements IndexingQueue {
     private async drainLoop(): Promise<void> {
         try {
             while (this.jobs.length > 0) {
-                const job = this.jobs.shift();
-                if (!job) {
+                const item = this.jobs.shift();
+                if (!item) {
                     continue;
                 }
+                const { context, job } = item;
                 try {
                     logger.info(
                         {
                             deliveryId: job.deliveryId,
                             installationId: job.installationId,
+                            jobId: context.jobId,
                             jobKind: job.kind,
                             repoId: job.repository.repoId,
                         },
                         "code-indexer: processing job"
                     );
-                    await this.processJob(job);
+                    await this.processJob(job, context);
                     logger.info(
                         {
                             deliveryId: job.deliveryId,
                             installationId: job.installationId,
+                            jobId: context.jobId,
                             jobKind: job.kind,
                             repoId: job.repository.repoId,
                         },
@@ -101,6 +122,7 @@ export class InMemoryIndexingQueue implements IndexingQueue {
                             deliveryId: job.deliveryId,
                             err,
                             installationId: job.installationId,
+                            jobId: context.jobId,
                             jobKind: job.kind,
                             repoId: job.repository.repoId,
                         },
@@ -116,3 +138,8 @@ export class InMemoryIndexingQueue implements IndexingQueue {
         }
     }
 }
+
+type QueuedMemoryJob = {
+    context: IndexingJobExecutionContext;
+    job: IndexingJob;
+};

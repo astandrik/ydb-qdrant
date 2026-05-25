@@ -21,6 +21,7 @@ import { buildCodeIndexerServer } from "./server.js";
 import {
     YdbDeliveryStore,
     YdbIndexingQueue,
+    YdbIndexingProgressStore,
     YdbRepoManifestStore,
 } from "./stateStore.js";
 import { logger } from "../logging/logger.js";
@@ -42,6 +43,7 @@ function start(): void {
         config.stateStore === "ydb"
             ? new YdbRepoManifestStore()
             : new InMemoryRepoManifestStore();
+    const progressStore = new YdbIndexingProgressStore();
     const saasStore = new YdbCodeIndexerSaasStore({
         encryptionSecret: config.sessionSecret,
         tokenPepper: config.tokenPepper,
@@ -67,6 +69,7 @@ function start(): void {
             maxFileBytes: config.maxFileBytes,
             overlapLines: config.overlapLines,
         },
+        progressStore,
         quota,
         quotaStore: saasStore,
         statusStore: saasStore,
@@ -86,7 +89,7 @@ function start(): void {
         ).toString(),
     });
     const processJob = withCheckRunReporting({
-        processJob: (job) => indexer.processJob(job),
+        processJob: (job, context) => indexer.processJob(job, context),
         reporter: checkRunReporter,
     });
     const deliveryStore =
@@ -99,6 +102,7 @@ function start(): void {
                   maxAttempts: config.jobMaxAttempts,
                   onFinalFailure: (job, err) =>
                       indexer.reportFinalFailure(job, err),
+                  progressStore,
                   retentionDays: config.stateRetentionDays,
                   retryBackoffMs: config.jobRetryBackoffMs,
               })
@@ -127,6 +131,7 @@ function start(): void {
         },
         publicApi: {
             indexStore: store,
+            progressStore,
             quota,
             queue,
             store: saasStore,

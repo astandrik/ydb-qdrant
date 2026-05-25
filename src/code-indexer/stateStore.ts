@@ -1,5 +1,6 @@
 import { randomUUID, createHash } from "node:crypto";
 import stableStringify from "fast-json-stable-stringify";
+import type { Ydb } from "ydb-sdk";
 
 import {
     Column,
@@ -12,7 +13,14 @@ import {
 import { logger } from "../logging/logger.js";
 import type {
     DeliveryStore,
+    EnqueuedIndexingJob,
     IndexingJob,
+    IndexingJobExecutionContext,
+    IndexingJobPhase,
+    IndexingJobProgressRecord,
+    IndexingJobProgressUpdate,
+    IndexingJobStatus,
+    IndexingProgressStore,
     IndexingQueue,
     RepoIndexManifest,
     RepoManifestStore,
@@ -21,6 +29,8 @@ import type {
 export const CODE_INDEXER_DELIVERIES_TABLE =
     "qdrant_code_indexer_deliveries";
 export const CODE_INDEXER_JOBS_TABLE = "qdrant_code_indexer_jobs";
+export const CODE_INDEXER_JOB_PROGRESS_TABLE =
+    "qdrant_code_indexer_job_progress";
 export const CODE_INDEXER_MANIFESTS_TABLE =
     "qdrant_code_indexer_manifests";
 
@@ -34,6 +44,7 @@ export type YdbIndexingQueueOptions = {
     maxAttempts?: number;
     now?: () => Date;
     onFinalFailure?: (job: IndexingJob, err: unknown) => Promise<void>;
+    progressStore?: IndexingProgressStore;
     retentionDays?: number;
     retryBackoffMs?: number;
 };
@@ -44,6 +55,8 @@ type QueryRow = {
               textValue?: string;
               uint32Value?: number;
               uint64Value?: unknown;
+              timestampValue?: Date | string;
+              nullFlagValue?: unknown;
           }
         | undefined
     >;
@@ -122,8 +135,73 @@ function toSafeNumber(value: unknown): number | null {
     return null;
 }
 
+function optionalNull(itemType: Ydb.IType): Ydb.ITypedValue {
+    return {
+        type: Types.optional(itemType),
+        value: TypedValues.VOID.value,
+    } as Ydb.ITypedValue;
+}
+
+function optionalValue(
+    value: Ydb.ITypedValue | undefined,
+    itemType: Ydb.IType
+): Ydb.ITypedValue {
+    return value === undefined ? optionalNull(itemType) : TypedValues.optional(value);
+}
+
+function optionalUtf8(value: string | null): Ydb.ITypedValue {
+    return optionalValue(
+        value === null ? undefined : TypedValues.utf8(value),
+        Types.UTF8
+    );
+}
+
+function optionalTimestamp(value: Date | null): Ydb.ITypedValue {
+    return optionalValue(
+        value === null ? undefined : TypedValues.timestamp(value),
+        Types.TIMESTAMP
+    );
+}
+
+function optionalUint32(value: number | null): Ydb.ITypedValue {
+    return optionalValue(
+        value === null ? undefined : TypedValues.uint32(value),
+        Types.UINT32
+    );
+}
+
 function readFirstRow(result: ExecuteQueryResultLike): QueryRow | null {
     return result.resultSets?.[0]?.rows?.[0] ?? null;
+}
+
+function readText(row: QueryRow, index: number): string | undefined {
+    const value = row.items?.[index]?.textValue;
+    return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function readUint(row: QueryRow, index: number): number | undefined {
+    return (
+        toSafeNumber(row.items?.[index]?.uint32Value) ??
+        toSafeNumber(row.items?.[index]?.uint64Value) ??
+        undefined
+    );
+}
+
+function readTimestamp(row: QueryRow, index: number): Date | undefined {
+    const item = row.items?.[index];
+    const value = item?.timestampValue;
+    if (value instanceof Date) {
+        return value;
+    }
+    const numericValue = toSafeNumber(value) ?? toSafeNumber(item?.uint64Value);
+    if (numericValue !== null) {
+        return new Date(Math.trunc(numericValue / 1000));
+    }
+    if (typeof value === "string") {
+        const date = new Date(value);
+        return Number.isNaN(date.getTime()) ? undefined : date;
+    }
+    return undefined;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -131,6 +209,11 @@ function sleep(ms: number): Promise<void> {
         return Promise.resolve();
     }
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function sanitizeError(err: unknown): string {
+    const message = err instanceof Error ? err.message : String(err);
+    return message.slice(0, 4000);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -221,6 +304,204 @@ function parseStoredJob(row: QueryRow): StoredJob {
         job: parseIndexingJob(JSON.parse(payloadText) as unknown),
         jobId,
     };
+}
+
+function isIndexingJobStatus(value: unknown): value is IndexingJobStatus {
+    return (
+        value === "pending" ||
+        value === "running" ||
+        value === "completed" ||
+        value === "failed"
+    );
+}
+
+function isIndexingJobPhase(value: unknown): value is IndexingJobPhase {
+    return (
+        value === "queued" ||
+        value === "claiming" ||
+        value === "loading_config" ||
+        value === "fetching_tree" ||
+        value === "resetting_collection" ||
+        value === "processing_files" ||
+        value === "fetching_file" ||
+        value === "chunking" ||
+        value === "embedding" ||
+        value === "upserting" ||
+        value === "saving_manifest" ||
+        value === "deleting" ||
+        value === "completed" ||
+        value === "failed"
+    );
+}
+
+function isIndexingJobKind(value: unknown): value is IndexingJob["kind"] {
+    return (
+        value === "full-index" ||
+        value === "incremental-push" ||
+        value === "delete-repo-index" ||
+        value === "pr-index" ||
+        value === "delete-pr-index"
+    );
+}
+
+function parseJobProgressRow(row: QueryRow): IndexingJobProgressRecord {
+    const jobId = readText(row, 0);
+    const installationId = readText(row, 1);
+    const repoId = readText(row, 2);
+    const owner = readText(row, 3);
+    const repo = readText(row, 4);
+    const jobKind = readText(row, 5);
+    const status = readText(row, 6);
+    const phase = readText(row, 7);
+    const createdAt = readTimestamp(row, 15);
+    const updatedAt = readTimestamp(row, 17);
+    const processedFiles = readUint(row, 10);
+    const processedChunks = readUint(row, 12);
+
+    if (
+        !jobId ||
+        !installationId ||
+        !repoId ||
+        !owner ||
+        !repo ||
+        !isIndexingJobKind(jobKind) ||
+        !isIndexingJobStatus(status) ||
+        !isIndexingJobPhase(phase) ||
+        !createdAt ||
+        !updatedAt ||
+        processedFiles === undefined ||
+        processedChunks === undefined
+    ) {
+        throw new Error("stored code-indexer job progress row is invalid");
+    }
+
+    return {
+        createdAt,
+        installationId,
+        jobId,
+        jobKind,
+        owner,
+        phase,
+        processedChunks,
+        processedFiles,
+        repo,
+        repoId,
+        status,
+        updatedAt,
+        ...(readText(row, 8) ? { message: readText(row, 8) } : {}),
+        ...(readUint(row, 9) !== undefined ? { totalFiles: readUint(row, 9) } : {}),
+        ...(readUint(row, 11) !== undefined
+            ? { totalChunks: readUint(row, 11) }
+            : {}),
+        ...(readText(row, 13) ? { currentPath: readText(row, 13) } : {}),
+        ...(readText(row, 14) ? { lastError: readText(row, 14) } : {}),
+        ...(readTimestamp(row, 16) ? { startedAt: readTimestamp(row, 16) } : {}),
+        ...(readTimestamp(row, 18) ? { finishedAt: readTimestamp(row, 18) } : {}),
+    };
+}
+
+function selectJobProgressColumns(): string {
+    return `
+            SELECT
+                job_id,
+                installation_id,
+                repo_id,
+                owner,
+                repo,
+                job_kind,
+                status,
+                phase,
+                message,
+                total_files,
+                processed_files,
+                total_chunks,
+                processed_chunks,
+                current_path,
+                last_error,
+                created_at,
+                started_at,
+                updated_at,
+                finished_at`;
+}
+
+function addUtf8Update(params: {
+    assignments: string[];
+    column: string;
+    declarations: string[];
+    param: string;
+    queryParams: Record<string, Ydb.ITypedValue>;
+    value: string | undefined;
+}): void {
+    if (params.value === undefined) {
+        return;
+    }
+    params.declarations.push(`DECLARE ${params.param} AS Utf8;`);
+    params.assignments.push(`${params.column} = ${params.param}`);
+    params.queryParams[params.param] = TypedValues.utf8(params.value);
+}
+
+function addUint32Update(params: {
+    assignments: string[];
+    column: string;
+    declarations: string[];
+    param: string;
+    queryParams: Record<string, Ydb.ITypedValue>;
+    value: number | undefined;
+}): void {
+    if (params.value === undefined) {
+        return;
+    }
+    params.declarations.push(`DECLARE ${params.param} AS Uint32;`);
+    params.assignments.push(`${params.column} = ${params.param}`);
+    params.queryParams[params.param] = TypedValues.uint32(params.value);
+}
+
+function addOptionalUtf8Update(params: {
+    assignments: string[];
+    column: string;
+    declarations: string[];
+    param: string;
+    queryParams: Record<string, Ydb.ITypedValue>;
+    value: string | null | undefined;
+}): void {
+    if (params.value === undefined) {
+        return;
+    }
+    params.declarations.push(`DECLARE ${params.param} AS Utf8?;`);
+    params.assignments.push(`${params.column} = ${params.param}`);
+    params.queryParams[params.param] = optionalUtf8(params.value);
+}
+
+function addOptionalUint32Update(params: {
+    assignments: string[];
+    column: string;
+    declarations: string[];
+    param: string;
+    queryParams: Record<string, Ydb.ITypedValue>;
+    value: number | null | undefined;
+}): void {
+    if (params.value === undefined) {
+        return;
+    }
+    params.declarations.push(`DECLARE ${params.param} AS Uint32?;`);
+    params.assignments.push(`${params.column} = ${params.param}`);
+    params.queryParams[params.param] = optionalUint32(params.value);
+}
+
+function addOptionalTimestampUpdate(params: {
+    assignments: string[];
+    column: string;
+    declarations: string[];
+    param: string;
+    queryParams: Record<string, Ydb.ITypedValue>;
+    value: Date | null | undefined;
+}): void {
+    if (params.value === undefined) {
+        return;
+    }
+    params.declarations.push(`DECLARE ${params.param} AS Timestamp?;`);
+    params.assignments.push(`${params.column} = ${params.param}`);
+    params.queryParams[params.param] = optionalTimestamp(params.value);
 }
 
 function manifestIdFor(params: { collection: string; userUid: string }): string {
@@ -318,6 +599,53 @@ async function ensureJobsTable(): Promise<void> {
     });
 }
 
+async function ensureJobProgressTable(): Promise<void> {
+    await withSession(async (session) => {
+        try {
+            await session.describeTable(CODE_INDEXER_JOB_PROGRESS_TABLE);
+            return;
+        } catch (err: unknown) {
+            if (!isTableNotFoundError(err)) {
+                throw err;
+            }
+        }
+
+        const desc = new TableDescription()
+            .withColumns(
+                new Column("job_id", Types.UTF8),
+                new Column("installation_id", Types.UTF8),
+                new Column("repo_id", Types.UTF8),
+                new Column("owner", Types.UTF8),
+                new Column("repo", Types.UTF8),
+                new Column("job_kind", Types.UTF8),
+                new Column("status", Types.UTF8),
+                new Column("phase", Types.UTF8),
+                new Column("message", Types.optional(Types.UTF8)),
+                new Column("total_files", Types.optional(Types.UINT32)),
+                new Column("processed_files", Types.UINT32),
+                new Column("total_chunks", Types.optional(Types.UINT32)),
+                new Column("processed_chunks", Types.UINT32),
+                new Column("current_path", Types.optional(Types.UTF8)),
+                new Column("last_error", Types.optional(Types.UTF8)),
+                new Column("created_at", Types.TIMESTAMP),
+                new Column("started_at", Types.optional(Types.TIMESTAMP)),
+                new Column("updated_at", Types.TIMESTAMP),
+                new Column("finished_at", Types.optional(Types.TIMESTAMP))
+            )
+            .withPrimaryKeys("job_id");
+        try {
+            await session.createTable(CODE_INDEXER_JOB_PROGRESS_TABLE, desc);
+            logger.info(
+                `created code-indexer job progress table ${CODE_INDEXER_JOB_PROGRESS_TABLE}`
+            );
+        } catch (err: unknown) {
+            if (!isAlreadyExistsError(err)) {
+                throw err;
+            }
+        }
+    });
+}
+
 async function ensureManifestsTable(): Promise<void> {
     await withSession(async (session) => {
         try {
@@ -361,6 +689,7 @@ export async function ensureCodeIndexerStateTables(): Promise<void> {
     stateTablesReadyInFlight = Promise.all([
         ensureDeliveryTable(),
         ensureJobsTable(),
+        ensureJobProgressTable(),
         ensureManifestsTable(),
     ]).then(() => undefined);
     try {
@@ -380,6 +709,269 @@ export function jobIdForJob(job: IndexingJob): string {
         .digest("hex")
         .slice(0, 24);
     return `${job.deliveryId}:${digest}`;
+}
+
+export class YdbIndexingProgressStore implements IndexingProgressStore {
+    async createJobProgress(params: {
+        job: IndexingJob;
+        jobId: string;
+    }): Promise<IndexingJobProgressRecord> {
+        await ensureCodeIndexerStateTables();
+        const yql = `
+            DECLARE $job_id AS Utf8;
+            DECLARE $installation_id AS Utf8;
+            DECLARE $repo_id AS Utf8;
+            DECLARE $owner AS Utf8;
+            DECLARE $repo AS Utf8;
+            DECLARE $job_kind AS Utf8;
+
+            UPSERT INTO ${CODE_INDEXER_JOB_PROGRESS_TABLE}
+                (
+                    job_id,
+                    installation_id,
+                    repo_id,
+                    owner,
+                    repo,
+                    job_kind,
+                    status,
+                    phase,
+                    message,
+                    total_files,
+                    processed_files,
+                    total_chunks,
+                    processed_chunks,
+                    current_path,
+                    last_error,
+                    created_at,
+                    started_at,
+                    updated_at,
+                    finished_at
+                )
+            VALUES (
+                $job_id,
+                $installation_id,
+                $repo_id,
+                $owner,
+                $repo,
+                $job_kind,
+                Utf8("pending"),
+                Utf8("queued"),
+                CAST(NULL AS Utf8?),
+                CAST(NULL AS Uint32?),
+                0u,
+                CAST(NULL AS Uint32?),
+                0u,
+                CAST(NULL AS Utf8?),
+                CAST(NULL AS Utf8?),
+                CurrentUtcTimestamp(),
+                CAST(NULL AS Timestamp?),
+                CurrentUtcTimestamp(),
+                CAST(NULL AS Timestamp?)
+            );
+        `;
+        await withSession(async (session) => {
+            await session.executeQuery(
+                yql,
+                {
+                    $installation_id: TypedValues.utf8(
+                        String(params.job.installationId)
+                    ),
+                    $job_id: TypedValues.utf8(params.jobId),
+                    $job_kind: TypedValues.utf8(params.job.kind),
+                    $owner: TypedValues.utf8(params.job.repository.owner),
+                    $repo: TypedValues.utf8(params.job.repository.repo),
+                    $repo_id: TypedValues.utf8(
+                        String(params.job.repository.repoId)
+                    ),
+                },
+                undefined,
+                createExecuteQuerySettings()
+            );
+        });
+        const now = new Date();
+        return {
+            createdAt: now,
+            installationId: String(params.job.installationId),
+            jobId: params.jobId,
+            jobKind: params.job.kind,
+            owner: params.job.repository.owner,
+            phase: "queued",
+            processedChunks: 0,
+            processedFiles: 0,
+            repo: params.job.repository.repo,
+            repoId: String(params.job.repository.repoId),
+            status: "pending",
+            updatedAt: now,
+        };
+    }
+
+    async getJobProgress(
+        jobId: string
+    ): Promise<IndexingJobProgressRecord | null> {
+        await ensureCodeIndexerStateTables();
+        const yql = `
+            DECLARE $job_id AS Utf8;
+
+            ${selectJobProgressColumns()}
+            FROM ${CODE_INDEXER_JOB_PROGRESS_TABLE}
+            WHERE job_id = $job_id
+            LIMIT 1;
+        `;
+        const result = await withSession(async (session) => {
+            return (await session.executeQuery(
+                yql,
+                { $job_id: TypedValues.utf8(jobId) },
+                undefined,
+                createExecuteQuerySettings()
+            )) as ExecuteQueryResultLike;
+        });
+        const row = readFirstRow(result);
+        return row ? parseJobProgressRow(row) : null;
+    }
+
+    async listActiveJobsForInstallation(
+        installationId: number | string
+    ): Promise<IndexingJobProgressRecord[]> {
+        await ensureCodeIndexerStateTables();
+        const yql = `
+            DECLARE $installation_id AS Utf8;
+
+            ${selectJobProgressColumns()}
+            FROM ${CODE_INDEXER_JOB_PROGRESS_TABLE}
+            WHERE installation_id = $installation_id
+              AND status IN (Utf8("pending"), Utf8("running"))
+            ORDER BY updated_at DESC;
+        `;
+        const result = await withSession(async (session) => {
+            return (await session.executeQuery(
+                yql,
+                { $installation_id: TypedValues.utf8(String(installationId)) },
+                undefined,
+                createExecuteQuerySettings()
+            )) as ExecuteQueryResultLike;
+        });
+        return (result.resultSets?.[0]?.rows ?? []).map(parseJobProgressRow);
+    }
+
+    async updateJobProgress(params: {
+        jobId: string;
+        update: IndexingJobProgressUpdate;
+    }): Promise<void> {
+        await ensureCodeIndexerStateTables();
+        const assignments = ["updated_at = CurrentUtcTimestamp()"];
+        const declarations = ["DECLARE $job_id AS Utf8;"];
+        const queryParams: Record<string, Ydb.ITypedValue> = {
+            $job_id: TypedValues.utf8(params.jobId),
+        };
+
+        addUtf8Update({
+            assignments,
+            column: "status",
+            declarations,
+            param: "$status",
+            queryParams,
+            value: params.update.status,
+        });
+        addUtf8Update({
+            assignments,
+            column: "phase",
+            declarations,
+            param: "$phase",
+            queryParams,
+            value: params.update.phase,
+        });
+        addOptionalUtf8Update({
+            assignments,
+            column: "message",
+            declarations,
+            param: "$message",
+            queryParams,
+            value: params.update.message,
+        });
+        addOptionalUint32Update({
+            assignments,
+            column: "total_files",
+            declarations,
+            param: "$total_files",
+            queryParams,
+            value: params.update.totalFiles,
+        });
+        addUint32Update({
+            assignments,
+            column: "processed_files",
+            declarations,
+            param: "$processed_files",
+            queryParams,
+            value: params.update.processedFiles,
+        });
+        addOptionalUint32Update({
+            assignments,
+            column: "total_chunks",
+            declarations,
+            param: "$total_chunks",
+            queryParams,
+            value: params.update.totalChunks,
+        });
+        addUint32Update({
+            assignments,
+            column: "processed_chunks",
+            declarations,
+            param: "$processed_chunks",
+            queryParams,
+            value: params.update.processedChunks,
+        });
+        addOptionalUtf8Update({
+            assignments,
+            column: "current_path",
+            declarations,
+            param: "$current_path",
+            queryParams,
+            value: params.update.currentPath,
+        });
+        addOptionalUtf8Update({
+            assignments,
+            column: "last_error",
+            declarations,
+            param: "$last_error",
+            queryParams,
+            value:
+                typeof params.update.lastError === "string"
+                    ? params.update.lastError.slice(0, 4000)
+                    : params.update.lastError,
+        });
+        addOptionalTimestampUpdate({
+            assignments,
+            column: "started_at",
+            declarations,
+            param: "$started_at",
+            queryParams,
+            value: params.update.startedAt,
+        });
+        addOptionalTimestampUpdate({
+            assignments,
+            column: "finished_at",
+            declarations,
+            param: "$finished_at",
+            queryParams,
+            value: params.update.finishedAt,
+        });
+
+        const yql = `
+            ${declarations.join("\n            ")}
+
+            UPDATE ${CODE_INDEXER_JOB_PROGRESS_TABLE}
+            SET ${assignments.join(",\n                ")}
+            WHERE job_id = $job_id;
+        `;
+        await withSession(async (session) => {
+            await session.executeQuery(
+                yql,
+                queryParams,
+                undefined,
+                createExecuteQuerySettings()
+            );
+        });
+    }
 }
 
 export class YdbDeliveryStore implements DeliveryStore {
@@ -501,19 +1093,28 @@ export class YdbIndexingQueue implements IndexingQueue {
     private readonly maxAttempts: number;
     private readonly now: () => Date;
     private readonly onFinalFailure?: (job: IndexingJob, err: unknown) => Promise<void>;
+    private readonly progressStore: IndexingProgressStore;
     private started = false;
-    private readonly processJob: (job: IndexingJob) => Promise<void>;
+    private readonly processJob: (
+        job: IndexingJob,
+        context: IndexingJobExecutionContext
+    ) => Promise<void>;
     private readonly retentionMs: number;
     private readonly retryBackoffMs: number;
 
     constructor(
-        processJob: (job: IndexingJob) => Promise<void>,
+        processJob: (
+            job: IndexingJob,
+            context: IndexingJobExecutionContext
+        ) => Promise<void>,
         options: YdbIndexingQueueOptions = {}
     ) {
         this.processJob = processJob;
         this.maxAttempts = Math.max(1, Math.floor(options.maxAttempts ?? 3));
         this.now = options.now ?? (() => new Date());
         this.onFinalFailure = options.onFinalFailure;
+        this.progressStore =
+            options.progressStore ?? new YdbIndexingProgressStore();
         this.retentionMs =
             Math.max(1, Math.floor(options.retentionDays ?? 14)) * 86_400_000;
         this.retryBackoffMs = Math.max(
@@ -522,10 +1123,13 @@ export class YdbIndexingQueue implements IndexingQueue {
         );
     }
 
-    async enqueue(job: IndexingJob): Promise<void> {
+    async enqueue(job: IndexingJob): Promise<EnqueuedIndexingJob> {
         await ensureCodeIndexerStateTables();
-        await this.enqueueStoredJob(job);
+        const jobId = jobIdForJob(job);
+        await this.enqueueStoredJob(job, jobId);
+        await this.progressStore.createJobProgress({ job, jobId });
         this.drain();
+        return { jobId, phase: "queued", status: "pending" };
     }
 
     start(): void {
@@ -561,6 +1165,14 @@ export class YdbIndexingQueue implements IndexingQueue {
                 }
 
                 try {
+                    await this.progressStore.updateJobProgress({
+                        jobId: storedJob.jobId,
+                        update: {
+                            phase: "claiming",
+                            startedAt: this.now(),
+                            status: "running",
+                        },
+                    });
                     logger.info(
                         {
                             attempts: storedJob.attempts + 1,
@@ -572,12 +1184,33 @@ export class YdbIndexingQueue implements IndexingQueue {
                         },
                         "code-indexer: processing durable job"
                     );
-                    await this.processJob(storedJob.job);
+                    await this.processJob(storedJob.job, {
+                        jobId: storedJob.jobId,
+                    });
                     await this.markJobCompleted(storedJob.jobId);
+                    await this.progressStore.updateJobProgress({
+                        jobId: storedJob.jobId,
+                        update: {
+                            finishedAt: this.now(),
+                            lastError: null,
+                            message: null,
+                            phase: "completed",
+                            status: "completed",
+                        },
+                    });
                 } catch (err: unknown) {
                     const attempt = storedJob.attempts + 1;
                     if (attempt < this.maxAttempts) {
                         await this.markJobPendingForRetry(storedJob.jobId, err);
+                        await this.progressStore.updateJobProgress({
+                            jobId: storedJob.jobId,
+                            update: {
+                                lastError: sanitizeError(err),
+                                message: `Retrying after attempt ${attempt} failed.`,
+                                phase: "queued",
+                                status: "pending",
+                            },
+                        });
                         logger.warn(
                             {
                                 attempt,
@@ -592,6 +1225,16 @@ export class YdbIndexingQueue implements IndexingQueue {
                         await sleep(this.retryBackoffMs);
                     } else {
                         await this.markJobFailed(storedJob.jobId, err);
+                        await this.progressStore.updateJobProgress({
+                            jobId: storedJob.jobId,
+                            update: {
+                                finishedAt: this.now(),
+                                lastError: sanitizeError(err),
+                                message: "Indexing failed permanently.",
+                                phase: "failed",
+                                status: "failed",
+                            },
+                        });
                         await this.reportFinalFailure(storedJob.job, err);
                         logger.error(
                             {
@@ -632,7 +1275,10 @@ export class YdbIndexingQueue implements IndexingQueue {
         }
     }
 
-    private async enqueueStoredJob(job: IndexingJob): Promise<void> {
+    private async enqueueStoredJob(
+        job: IndexingJob,
+        jobId: string
+    ): Promise<void> {
         const yql = `
             DECLARE $job_id AS Utf8;
             DECLARE $payload AS JsonDocument;
@@ -653,7 +1299,7 @@ export class YdbIndexingQueue implements IndexingQueue {
             await session.executeQuery(
                 yql,
                 {
-                    $job_id: TypedValues.utf8(jobIdForJob(job)),
+                    $job_id: TypedValues.utf8(jobId),
                     $payload: TypedValues.jsonDocument(ensureJsonSerializable(job)),
                 },
                 undefined,
