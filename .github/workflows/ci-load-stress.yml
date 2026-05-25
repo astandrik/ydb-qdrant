@@ -45,7 +45,7 @@ jobs:
         uses: astandrik/setup-local-ydb@v1
         with:
           version: 26.1.1.6
-          tenant: /local
+          tenant: /local/qdrant
           auth: false
 
       - name: Bootstrap metadata table (qdr__collections)
@@ -368,7 +368,7 @@ jobs:
         uses: astandrik/setup-local-ydb@v1
         with:
           version: 26.1.1.6
-          tenant: /local
+          tenant: /local/qdrant
           auth: false
 
       - name: Bootstrap metadata table (qdr__collections)
