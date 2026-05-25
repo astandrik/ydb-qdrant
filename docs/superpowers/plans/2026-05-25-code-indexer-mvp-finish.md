@@ -10,6 +10,22 @@
 
 ---
 
+## Execution Status
+
+Completed on 2026-05-25.
+
+- Implementation committed in `b6715b6 feat: add GitHub App code indexer MVP`.
+- E2E fixes committed in `ae0d8e2 fix: handle installation indexing state`.
+- Production service is deployed as Docker image `ydb-qdrant-code-indexer:ae0d8e2` at `https://code-indexer.ydb-qdrant.tech`.
+- Verified local gates: `npm run typecheck`, `npm run lint`, `npm run test:code-indexer`, `npm test`, `npm run build`.
+- Verified integration smoke: `npm run test:integration:code-indexer`.
+- Verified GitHub App install full-index on `astandrik/local-ydb-toolkit` installation `135399283`, repo `1220812874`.
+- Verified default-branch push incremental add/delete through temporary direct pushes to `astandrik/local-ydb-toolkit/main`.
+- Verified PR open, synchronize, search, close, and PR collection deletion through temporary PR `astandrik/local-ydb-toolkit#70`.
+- Verified HTTP `/search` with `CODE_INDEXER_SEARCH_API_KEY` and MCP `search_code` against the indexed repository.
+- Temporary branches/worktrees were cleaned up; PR `#70` was closed unmerged.
+- Unrelated local changes in `src/logging/logger.ts`, `test/Server.errorHandler.test.ts`, and `test/Server.requestCorrelation.test.ts` remain outside the code-indexer feature scope.
+
 ## Current State
 
 - The code-indexer implementation exists in `src/code-indexer/*` but is currently untracked.
