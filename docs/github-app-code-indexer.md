@@ -109,6 +109,10 @@ export CODE_INDEXER_PORT=8090
 export CODE_INDEXER_STATE_STORE=ydb
 export CODE_INDEXER_STATE_RETENTION_DAYS=14
 export CODE_INDEXER_JOB_CONCURRENCY=2
+export CODE_INDEXER_FILE_CONCURRENCY=4
+export CODE_INDEXER_EMBEDDING_BATCH_SIZE=64
+export CODE_INDEXER_EMBEDDING_BATCH_MAX_CHARS=200000
+export CODE_INDEXER_EMBEDDING_CONCURRENCY=2
 export CODE_INDEXER_JOB_MAX_ATTEMPTS=3
 export CODE_INDEXER_JOB_RETRY_BACKOFF_MS=30000
 export CODE_INDEXER_CHECKS_ENABLED=false
@@ -136,7 +140,7 @@ export CODE_INDEXER_EMBED_SNIPPET_TEXT=true
 
 Set `CODE_INDEXER_STATE_STORE=memory` only for local experiments where losing queued jobs and delivery dedupe state on process restart is acceptable.
 
-With the YDB state store, interrupted `running` jobs are reset to `pending` on startup. Failed durable jobs are retried up to `CODE_INDEXER_JOB_MAX_ATTEMPTS`; completed and permanently failed jobs plus old delivery ids are removed after `CODE_INDEXER_STATE_RETENTION_DAYS`. `CODE_INDEXER_JOB_CONCURRENCY` controls how many repositories one backend process may index at once. Jobs for different repositories can run in parallel; jobs for the same installation/repository stay serialized to avoid collection reset, incremental update, and manifest conflicts.
+With the YDB state store, interrupted `running` jobs are reset to `pending` on startup. Failed durable jobs are retried up to `CODE_INDEXER_JOB_MAX_ATTEMPTS`; completed and permanently failed jobs plus old delivery ids are removed after `CODE_INDEXER_STATE_RETENTION_DAYS`. `CODE_INDEXER_JOB_CONCURRENCY` controls how many repositories one backend process may index at once. Jobs for different repositories can run in parallel; jobs for the same installation/repository stay serialized to avoid collection reset, incremental update, and manifest conflicts. Inside a full repository index, `CODE_INDEXER_FILE_CONCURRENCY` bounds parallel file reads/chunking, while `CODE_INDEXER_EMBEDDING_BATCH_SIZE`, `CODE_INDEXER_EMBEDDING_BATCH_MAX_CHARS`, and `CODE_INDEXER_EMBEDDING_CONCURRENCY` bound embedding batch size and outbound embedding request concurrency.
 
 Repository manifests are saved after successful full, incremental, and PR indexing jobs. A default-branch incremental push without an existing manifest falls back to a full reindex before writing a fresh manifest. Repository and PR delete jobs remove the matching manifest together with the indexed collection.
 
@@ -278,8 +282,10 @@ Verified on 2026-05-25 against `https://ydb-qdrant.tech/code-indexer/` and `http
 - Hosted MCP `search_code` by `owner/repo` returned indexed chunks from `astandrik/local-ydb-toolkit`.
 - Revoking the MCP token made the same bearer token fail with `401 unauthorized`.
 - Public health check returns `{"status":"ok"}` and the Docker healthcheck uses the code-indexer port `8090`.
-
-Remaining destructive verification: uninstalling the App and confirming indexed collection deletion should be run deliberately on a disposable installation or after the beta test repository can be temporarily disconnected.
+- The GitHub App was uninstalled from `astandrik`; GitHub App API then returned no active installations.
+- Production backend logs recorded delivery `b8503720-586d-11f1-8697-fea7439750bd` and four `delete-repo-index` jobs for installation `135399283`.
+- Production YDB verification for prefix `gh_installation_135399283/` returned `qdr__collections=0`, `qdrant_all_points=0`, and `qdrant_points_by_file=0`.
+- Production SaaS state marks installation `135399283` and the tested repositories as `deleted` with `chunks=0`.
 
 ### MCP server
 
@@ -298,9 +304,22 @@ The hosted beta exposes Streamable HTTP MCP at `https://code-indexer.ydb-qdrant.
 }
 ```
 
-The `search_code` tool accepts `owner`, `repo`, optional `prNumber`, `query`, and `top`. The server resolves the repository to the correct installation and collection through the SaaS store. Numeric `installationId` and `repoId` inputs remain supported for self-hosted and internal clients.
+Hosted MCP exposes three read-only tools:
 
-The stdio MCP server remains available for self-hosted deployments and exposes the same read-only `search_code` tool. It uses only the YDB and embedding settings above; GitHub App credentials are not required for search.
+- `list_repositories`: returns repositories available to the token, including owner, repo, repo id, installation id, default branch, status, indexed chunk count, and last indexed SHA/time.
+- `list_repository_indexes`: returns the default branch index plus recent pull request indexes for one repository. Use `owner` and `repo`, or numeric `installationId` and `repoId`.
+- `search_code`: searches indexed chunks. It accepts `owner`, `repo`, optional `prNumber`, `query`, and `top`.
+
+Recommended agent flow:
+
+1. Call `list_repositories` to discover what the token can search.
+2. Call `list_repository_indexes` for the selected repository to see whether the default branch and relevant PR indexes exist.
+3. Call `search_code` with `{ "owner": "...", "repo": "...", "query": "..." }` for default-branch search.
+4. Call `search_code` with `{ "owner": "...", "repo": "...", "prNumber": 123, "query": "..." }` for PR-scoped search.
+
+The hosted server resolves `owner`/`repo` to the correct GitHub App installation and collection through the SaaS store. Numeric `installationId` and `repoId` inputs remain supported for self-hosted and internal clients.
+
+The stdio MCP server remains available for self-hosted deployments and exposes the read-only `search_code` tool. It uses only the YDB and embedding settings above; GitHub App credentials are not required for search.
 
 Development:
 
