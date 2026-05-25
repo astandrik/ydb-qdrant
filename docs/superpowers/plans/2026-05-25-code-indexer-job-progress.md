@@ -622,7 +622,7 @@ git commit -m "feat: track code indexer job progress"
 - Modify: `/Users/astandrik/workspace/ydb-qdrant-ui/src/components/CodeIndexer/CodeIndexerDashboard.tsx`
 - Modify: `/Users/astandrik/workspace/ydb-qdrant-ui/src/components/CodeIndexer/CodeIndexer.scss`
 
-- [ ] **Step 1: Extend UI types**
+- [x] **Step 1: Extend UI types**
 
 Add:
 
@@ -647,7 +647,7 @@ type ActiveJob = {
 
 Add `activeJob?: ActiveJob` to `Repository`.
 
-- [ ] **Step 2: Store manual job id**
+- [x] **Step 2: Store manual job id**
 
 Update `handleReindex` to read:
 
@@ -660,7 +660,7 @@ const data = await apiRequest<{ job: ActiveJob; status: "ok" }>(
 
 Use `data.job.jobId` in the action message.
 
-- [ ] **Step 3: Poll while active jobs exist**
+- [x] **Step 3: Poll while active jobs exist**
 
 Change `hasActiveIndexingJob` to check:
 
@@ -670,7 +670,7 @@ repository.status === "queued" ||
 repository.status === "indexing"
 ```
 
-- [ ] **Step 4: Render progress**
+- [x] **Step 4: Render progress**
 
 Add a compact progress block inside each repo card:
 
@@ -682,7 +682,7 @@ Add a compact progress block inside each repo card:
 - stale warning if `Date.now() - Date.parse(updatedAt) > 5 * 60 * 1000`
 - error row when `activeJob.lastError` exists.
 
-- [ ] **Step 5: Add CSS**
+- [x] **Step 5: Add CSS**
 
 Add classes:
 
@@ -695,7 +695,7 @@ Add classes:
 
 Use existing color tokens and keep the layout compact inside the repository card.
 
-- [ ] **Step 6: Verify UI**
+- [x] **Step 6: Verify UI**
 
 Run in `/Users/astandrik/workspace/ydb-qdrant-ui`:
 
@@ -706,7 +706,7 @@ npm run build
 
 Expected: both pass.
 
-- [ ] **Step 7: Commit UI**
+- [x] **Step 7: Commit UI**
 
 Commit in UI repo:
 
@@ -721,11 +721,11 @@ git commit -m "feat: show code indexer job progress"
 
 - Modify: `docs/superpowers/plans/2026-05-25-code-indexer-public-saas.md`
 
-- [ ] **Step 1: Build backend Docker image**
+- [x] **Step 1: Build backend Docker image**
 
 Use the existing deployment flow for `ydb-qdrant-code-indexer` and build an image tagged with the current short commit.
 
-- [ ] **Step 2: Deploy backend first**
+- [x] **Step 2: Deploy backend first**
 
 Deploy backend to `111.88.152.4`, keeping current env:
 
@@ -733,7 +733,7 @@ Deploy backend to `111.88.152.4`, keeping current env:
 - `YDB_QDRANT_DATABASE=/local/qdrant-v3`
 - existing GitHub App secrets and OpenAI proxy env.
 
-- [ ] **Step 3: Verify backend health**
+- [x] **Step 3: Verify backend health**
 
 Run:
 
@@ -744,7 +744,7 @@ ssh -l astandrik 111.88.152.4 'docker ps --format "{{.Names}} {{.Image}} {{.Stat
 
 Expected: health returns `{"status":"ok"}` and active container is healthy.
 
-- [ ] **Step 4: Deploy UI**
+- [x] **Step 4: Deploy UI**
 
 In `/Users/astandrik/workspace/ydb-qdrant-ui`, run:
 
@@ -764,7 +764,13 @@ Verify by API/YDB:
 - row reaches `completed`.
 - repository returns to `ready`.
 
-- [ ] **Step 6: Record evidence**
+Production progress was verified through durable YDB/API rows: a manual reindex reached
+`running/upserting` with file/chunk counters and then `completed`. The authenticated
+dashboard visual state was not directly verified by the agent because the available
+browser session was unauthenticated; the deployed UI code renders the returned
+`activeJob` progress fields.
+
+- [x] **Step 6: Record evidence**
 
 Append production evidence to `docs/superpowers/plans/2026-05-25-code-indexer-public-saas.md` and commit:
 

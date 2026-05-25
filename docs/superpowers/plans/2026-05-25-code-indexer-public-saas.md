@@ -616,6 +616,18 @@ Evidence recorded on 2026-05-25:
   - UX gap found: dashboard queued a reindex but did not poll repository status, making progress hard to see.
   - UI fix commit `94dd116` is deployed; dashboard now optimistically shows queued status, disables duplicate reindex clicks, and auto-refreshes active indexing status.
   - Deployment backup for the UX fix is `/home/astandrik/ydb-qdrant-ui-out-20260525-122328.tgz`.
+- Job progress implementation and deploy on 2026-05-25:
+  - Backend commit `71769a6` added durable job progress in `qdrant_code_indexer_job_progress`, `GET /api/jobs/:jobId`, `activeJob` on repository responses, and progress reporting from the indexer.
+  - Backend commit `b696748` fixed active-job selection to prefer a currently `running` job over older queued records for the same repository.
+  - Current production backend image is `ydb-qdrant-code-indexer:b696748` on `111.88.152.4`; `https://code-indexer.ydb-qdrant.tech/health` returned `{"status":"ok"}` and Docker reports the container as `healthy`.
+  - UI commit `6b06045` renders phase, counters, current path, stale state, and errors from `activeJob`; static export was deployed to `https://ydb-qdrant.tech`.
+  - UI deploy backup is `/home/astandrik/ydb-qdrant-ui-out-20260525-130903.tgz`.
+  - Production progress row `manual:5bfb5282-a554-4aa1-92e3-c16338739c4f` was observed while running at `phase=upserting`, `processedFiles=20/26`, `processedChunks=83/85`, `currentPath=src/client/utils/AssetManager.ts`.
+  - The same job completed with `processedFiles=26/26`, `processedChunks=114/114`, `finishedAt=2026-05-25T13:11:33.562Z`.
+  - Follow-up job `manual:09e194e4-92a9-431a-b097-965d1dc5c333` also completed with `processedFiles=26/26`, `processedChunks=114/114`, `finishedAt=2026-05-25T13:12:52.775Z`.
+  - After completion, `listActiveJobsForInstallation(135399283)` returned no active rows.
+  - A synthetic `check_run.rerequested` webhook delivery was accepted and recorded failed progress with `lastError=GitHub request failed: 422 Unprocessable Entity`; this verifies failure-path persistence, not a successful indexing path.
+  - Authenticated dashboard visual verification was not performed by the agent because the available browser session was unauthenticated; deployed UI code and production API/YDB progress rows were verified.
 - Local verification passed: `npm run typecheck`, `npm run lint`, `npm run build`, `npm test`, and `YDB_ANONYMOUS_CREDENTIALS=1 npm run test:integration:code-indexer`.
 - UI verification passed in `ydb-qdrant-ui`: `npm run lint`, `npm run build`.
 - Remaining destructive E2E step: uninstall App and confirm indexed collection deletion.
