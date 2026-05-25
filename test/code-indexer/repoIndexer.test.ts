@@ -6,6 +6,7 @@ import {
     type CodeChunker,
 } from "../../src/code-indexer/chunker.js";
 import { RepoIndexer } from "../../src/code-indexer/repoIndexer.js";
+import { createCodeIndexerQuota, type CodeIndexerQuota } from "../../src/code-indexer/quota.js";
 import { REPO_CONFIG_PATH } from "../../src/code-indexer/repoConfig.js";
 import type {
     CodeChunk,
@@ -218,7 +219,8 @@ function buildIndexer(
     store: FakeStore,
     manifestStore = new FakeManifestStore(),
     chunker: CodeChunker = defaultTestChunker,
-    statusStore?: FakeStatusStore
+    statusStore?: FakeStatusStore,
+    quota?: CodeIndexerQuota
 ): RepoIndexer {
     const clientFactory: GitHubContentClientFactory = {
         forInstallation: vi.fn(() => Promise.resolve(client)),
@@ -229,6 +231,7 @@ function buildIndexer(
         embeddingProvider,
         manifestStore,
         options: defaultTestChunkingOptions,
+        quota,
         statusStore,
         store,
     });
@@ -330,6 +333,54 @@ describe("code-indexer repo indexer", () => {
             status: "ready",
         });
         expect(readyStatus?.lastIndexedAt).toBeInstanceOf(Date);
+    });
+
+    it("rejects full indexing before content reads when the file quota is exceeded", async () => {
+        const client = new FakeGitHubClient();
+        client.files = [
+            { path: "src/a.ts", sha: "blob-a", size: 50 },
+            { path: "src/b.ts", sha: "blob-b", size: 50 },
+            { path: "src/c.ts", sha: "blob-c", size: 50 },
+        ];
+        const store = new FakeStore();
+        const quota = createCodeIndexerQuota({
+            limits: {
+                chunksPerRepo: 50,
+                filesPerRepo: 2,
+                reposPerInstallation: 10,
+                searchesPerUserPerDay: 100,
+            },
+            logger: { warn: vi.fn() },
+        });
+        const indexer = buildIndexer(
+            client,
+            store,
+            new FakeManifestStore(),
+            defaultTestChunker,
+            undefined,
+            quota
+        );
+
+        await expect(
+            indexer.processJob({
+                installationId: 7,
+                kind: "full-index",
+                reason: "test",
+                ref: "main",
+                repository: repository(),
+            })
+        ).rejects.toMatchObject({
+            code: "quota_files_per_repo_exceeded",
+            statusCode: 422,
+        });
+        expect(client.contentRequests).toEqual([
+            {
+                owner: "octo",
+                path: REPO_CONFIG_PATH,
+                repo: "demo",
+            },
+        ]);
+        expect(store.upserts).toEqual([]);
     });
 
     it("uses the injected code chunker implementation", async () => {

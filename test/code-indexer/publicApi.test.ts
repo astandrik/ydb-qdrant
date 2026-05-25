@@ -3,6 +3,7 @@ import http from "node:http";
 import { describe, expect, it, vi } from "vitest";
 
 import { CODE_INDEXER_SESSION_COOKIE } from "../../src/code-indexer/auth.js";
+import { createCodeIndexerQuota } from "../../src/code-indexer/quota.js";
 import { buildCodeIndexerServer } from "../../src/code-indexer/server.js";
 import type {
     CodeIndexStore,
@@ -247,7 +248,10 @@ function createPublicApiStore() {
     return { store, tokens };
 }
 
-async function startPublicApiServer(): Promise<{
+async function startPublicApiServer(options: {
+    extraRepositories?: TestRepository[];
+    quota?: ReturnType<typeof createCodeIndexerQuota>;
+} = {}): Promise<{
     baseUrl: string;
     deps: ReturnType<typeof createBaseDeps>;
     server: http.Server;
@@ -255,6 +259,18 @@ async function startPublicApiServer(): Promise<{
 }> {
     const deps = createBaseDeps();
     const { store } = createPublicApiStore();
+    if (options.extraRepositories) {
+        const originalList = store.listRepositoriesForInstallation;
+        store.listRepositoriesForInstallation = vi.fn(
+            async (installationId: number | string) => [
+                ...(await originalList(installationId)),
+                ...options.extraRepositories!.filter(
+                    (repository) =>
+                        repository.installationId === String(installationId)
+                ),
+            ]
+        );
+    }
     const app = buildCodeIndexerServer({
         deliveryStore: deps.deliveryStore,
         embeddingProvider: deps.embeddingProvider,
@@ -262,6 +278,7 @@ async function startPublicApiServer(): Promise<{
             createPlaintextToken: () => "ydbqci_plaintext",
             createTokenId: () => "token-id",
             indexStore: deps.indexStore,
+            quota: options.quota,
             queue: deps.queue,
             store,
         },
@@ -453,6 +470,48 @@ describe("code-indexer public API", () => {
                     repoId: 456,
                 },
             });
+        } finally {
+            await closeServer(server);
+        }
+    });
+
+    it("rejects manual reindex when the installation is over the repository quota", async () => {
+        const quota = createCodeIndexerQuota({
+            limits: {
+                chunksPerRepo: 50,
+                filesPerRepo: 10,
+                reposPerInstallation: 1,
+                searchesPerUserPerDay: 5,
+            },
+            logger: { warn: vi.fn() },
+        });
+        const { baseUrl, deps, server } = await startPublicApiServer({
+            extraRepositories: [
+                {
+                    defaultBranch: "main",
+                    installationId: "777",
+                    owner: "astandrik",
+                    repo: "another-repo",
+                    repoId: "457",
+                    status: "ready",
+                },
+            ],
+            quota,
+        });
+        try {
+            const response = await request({
+                baseUrl,
+                cookie: sessionCookie(),
+                method: "POST",
+                path: "/api/repositories/456/reindex",
+            });
+
+            expect(response.statusCode).toBe(422);
+            expect(JSON.parse(response.body)).toMatchObject({
+                error: "quota repos_per_installation exceeded: 2 exceeds limit 1",
+                status: "error",
+            });
+            expect(deps.enqueue).not.toHaveBeenCalled();
         } finally {
             await closeServer(server);
         }

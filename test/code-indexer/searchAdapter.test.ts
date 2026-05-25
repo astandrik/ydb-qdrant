@@ -5,6 +5,7 @@ import {
     parseCodeSearchRequest,
     searchCode,
 } from "../../src/code-indexer/searchAdapter.js";
+import { createCodeIndexerQuota } from "../../src/code-indexer/quota.js";
 import type {
     CodeIndexStore,
     EmbeddingProvider,
@@ -107,6 +108,43 @@ describe("code-indexer search adapter", () => {
         });
         expect(result.collection).toBe("gh_repo_42_pr_3");
         expect(result.points).toHaveLength(1);
+    });
+
+    it("counts authenticated searches before embedding the query", async () => {
+        const { embedQuery, provider } = embeddingProvider();
+        const { search, store } = indexStore();
+        const incrementDailyUsage = vi.fn(() => Promise.resolve(6));
+        const quota = createCodeIndexerQuota({
+            limits: {
+                chunksPerRepo: 50,
+                filesPerRepo: 10,
+                reposPerInstallation: 3,
+                searchesPerUserPerDay: 5,
+            },
+            logger: { warn: vi.fn() },
+            store: { incrementDailyUsage },
+        });
+
+        await expect(
+            searchCode(
+                { embeddingProvider: provider, quota, store },
+                {
+                    githubUserId: 123,
+                    installationId: 7,
+                    query: "build server",
+                    repoId: 42,
+                }
+            )
+        ).rejects.toMatchObject({
+            code: "quota_searches_per_user_per_day_exceeded",
+            statusCode: 429,
+        });
+        expect(incrementDailyUsage).toHaveBeenCalledWith({
+            githubUserId: 123,
+            metric: "search",
+        });
+        expect(embedQuery).not.toHaveBeenCalled();
+        expect(search).not.toHaveBeenCalled();
     });
 
     it("formats search results as concise text", () => {

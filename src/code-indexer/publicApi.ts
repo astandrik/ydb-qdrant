@@ -15,6 +15,10 @@ import {
     defaultBranchCollectionForRepo,
     userUidForInstallation,
 } from "./naming.js";
+import {
+    CodeIndexerQuotaError,
+    type CodeIndexerQuota,
+} from "./quota.js";
 import type {
     CodeIndexerApiTokenRecord,
     CodeIndexerRepositoryRecord,
@@ -55,6 +59,7 @@ export type CodeIndexerPublicApiDeps = {
     createPlaintextToken?: () => string;
     createTokenId?: () => string;
     indexStore: CodeIndexStore;
+    quota?: CodeIndexerQuota;
     queue: IndexingQueue;
     store: CodeIndexerPublicApiStore;
 };
@@ -137,6 +142,7 @@ function createDefaultPlaintextToken(): string {
 function sendApiError(res: Response, err: unknown): void {
     const knownError =
         err instanceof CodeIndexerAccessError ||
+        err instanceof CodeIndexerQuotaError ||
         err instanceof CodeIndexerPublicApiError;
     const statusCode = knownError ? err.statusCode : 500;
     const message = err instanceof Error ? err.message : String(err);
@@ -208,6 +214,13 @@ export function createPublicApiRouter(deps: CodeIndexerPublicApiDeps) {
                     await deps.store.listRepositoriesForInstallation(
                         installationId
                     );
+                deps.quota?.assertRepositoriesPerInstallation({
+                    githubUserId: context.user.githubUserId,
+                    installationId,
+                    repoCount: repositories.filter(
+                        (repository) => repository.status !== "deleted"
+                    ).length,
+                });
                 res.json({ repositories, status: "ok" });
             } catch (err: unknown) {
                 sendApiError(res, err);
@@ -224,6 +237,17 @@ export function createPublicApiRouter(deps: CodeIndexerPublicApiDeps) {
                     context,
                     repoId: readPathParam(req, "repoId"),
                     store: deps.store,
+                });
+                const repositories =
+                    await deps.store.listRepositoriesForInstallation(
+                        repository.installationId
+                    );
+                deps.quota?.assertRepositoriesPerInstallation({
+                    githubUserId: context.user.githubUserId,
+                    installationId: repository.installationId,
+                    repoCount: repositories.filter(
+                        (candidate) => candidate.status !== "deleted"
+                    ).length,
                 });
                 await deps.queue.enqueue({
                     installationId: toSafeIntegerId(

@@ -8,6 +8,7 @@ import {
 } from "./checkRuns.js";
 import { GitHubAppClientFactory } from "./githubClient.js";
 import { YdbQdrantIndexStore } from "./indexStore.js";
+import { createCodeIndexerQuota } from "./quota.js";
 import {
     InMemoryDeliveryStore,
     InMemoryIndexingQueue,
@@ -45,6 +46,15 @@ function start(): void {
         encryptionSecret: config.sessionSecret,
         tokenPepper: config.tokenPepper,
     });
+    const quota = createCodeIndexerQuota({
+        limits: {
+            chunksPerRepo: config.quotaChunksPerRepo,
+            filesPerRepo: config.quotaFilesPerRepo,
+            reposPerInstallation: config.quotaReposPerInstallation,
+            searchesPerUserPerDay: config.quotaSearchesPerUserPerDay,
+        },
+        store: saasStore,
+    });
     const indexer = new RepoIndexer({
         clientFactory,
         chunker,
@@ -57,6 +67,8 @@ function start(): void {
             maxFileBytes: config.maxFileBytes,
             overlapLines: config.overlapLines,
         },
+        quota,
+        quotaStore: saasStore,
         statusStore: saasStore,
         store,
     });
@@ -108,6 +120,7 @@ function start(): void {
         lifecycleStore: saasStore,
         publicApi: {
             indexStore: store,
+            quota,
             queue,
             store: saasStore,
         },

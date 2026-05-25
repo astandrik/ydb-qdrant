@@ -18,6 +18,7 @@ import {
     REPO_CONFIG_PATH,
     type RepoIndexingConfig,
 } from "./repoConfig.js";
+import type { CodeIndexerQuota } from "./quota.js";
 import type {
     CodeIndexStore,
     EmbeddingProvider,
@@ -48,6 +49,12 @@ export type RepoIndexerStatusStore = {
     }): Promise<void>;
 };
 
+export type RepoIndexerQuotaStore = {
+    listRepositoriesForInstallation(
+        installationId: number | string
+    ): Promise<Array<{ status?: string }>>;
+};
+
 const DEFAULT_MAX_CHANGED_FILES = 300;
 
 function mergeChunkingOptions(
@@ -74,6 +81,8 @@ export class RepoIndexer {
     private readonly embeddingProvider: EmbeddingProvider;
     private readonly manifestStore: RepoManifestStore;
     private readonly maxChangedFilesForIncremental: number;
+    private readonly quota?: CodeIndexerQuota;
+    private readonly quotaStore?: RepoIndexerQuotaStore;
     private readonly statusStore?: RepoIndexerStatusStore;
     private readonly store: CodeIndexStore;
 
@@ -83,6 +92,8 @@ export class RepoIndexer {
         embeddingProvider: EmbeddingProvider;
         manifestStore: RepoManifestStore;
         options?: RepoIndexerOptions;
+        quota?: CodeIndexerQuota;
+        quotaStore?: RepoIndexerQuotaStore;
         statusStore?: RepoIndexerStatusStore;
         store: CodeIndexStore;
     }) {
@@ -90,6 +101,8 @@ export class RepoIndexer {
         this.chunker = params.chunker ?? defaultCodeChunker;
         this.embeddingProvider = params.embeddingProvider;
         this.manifestStore = params.manifestStore;
+        this.quota = params.quota;
+        this.quotaStore = params.quotaStore;
         this.statusStore = params.statusStore;
         this.store = params.store;
         this.maxChangedFilesForIncremental =
@@ -106,10 +119,12 @@ export class RepoIndexer {
     async processJob(job: IndexingJob): Promise<void> {
         switch (job.kind) {
             case "full-index":
+                await this.assertRepositoryQuota(job);
                 await this.markIndexing(job);
                 await this.markReady(job, await this.fullIndex(job));
                 return;
             case "incremental-push":
+                await this.assertRepositoryQuota(job);
                 await this.markIndexing(job);
                 if (shouldFallbackToFullIndex(job)) {
                     const fallbackJob: FullIndexJob = {
@@ -138,6 +153,7 @@ export class RepoIndexer {
                 await this.markDeleted(job);
                 return;
             case "pr-index":
+                await this.assertRepositoryQuota(job);
                 await this.markIndexing(job);
                 await this.markReady(job, await this.pullRequestIndex(job));
                 return;
@@ -187,16 +203,19 @@ export class RepoIndexer {
         );
         const indexingFingerprint = this.indexingFingerprint(chunkingOptions);
 
-        await this.store.resetCollection({
-            collection,
-            dimension: this.embeddingProvider.dimension,
-            userUid,
-        });
         const indexed = await this.indexRepositoryRef({
             client,
             collection,
             contentRepository: job.repository,
             chunkingOptions,
+            installationId: job.installationId,
+            prepareCollection: async () => {
+                await this.store.resetCollection({
+                    collection,
+                    dimension: this.embeddingProvider.dimension,
+                    userUid,
+                });
+            },
             repository: job.repository,
             sha: job.sha ?? job.ref,
             ref,
@@ -237,16 +256,19 @@ export class RepoIndexer {
         );
         const indexingFingerprint = this.indexingFingerprint(chunkingOptions);
 
-        await this.store.resetCollection({
-            collection,
-            dimension: this.embeddingProvider.dimension,
-            userUid,
-        });
         const indexed = await this.indexRepositoryRef({
             client,
             collection,
             contentRepository: job.sourceRepository,
             chunkingOptions,
+            installationId: job.installationId,
+            prepareCollection: async () => {
+                await this.store.resetCollection({
+                    collection,
+                    dimension: this.embeddingProvider.dimension,
+                    userUid,
+                });
+            },
             repository: job.repository,
             sha: job.headSha,
             ref: job.headSha,
@@ -341,6 +363,29 @@ export class RepoIndexer {
                 sha: job.after,
             });
         }
+        const projectedFilesByPath = new Map(filesByPath);
+        for (const changedFile of changedFiles) {
+            if (changedFile.previousFilename) {
+                projectedFilesByPath.delete(changedFile.previousFilename);
+            }
+            projectedFilesByPath.delete(changedFile.filename);
+            const status = changedFile.status.toLowerCase();
+            if (
+                status !== "removed" &&
+                status !== "deleted" &&
+                shouldIndexFile({ path: changedFile.filename }, chunkingOptions)
+            ) {
+                projectedFilesByPath.set(changedFile.filename, {
+                    blobSha: changedFile.sha ?? job.after,
+                    path: changedFile.filename,
+                });
+            }
+        }
+        this.quota?.assertFilesPerRepo({
+            fileCount: projectedFilesByPath.size,
+            installationId: job.installationId,
+            repoId: job.repository.repoId,
+        });
         await this.store.ensureCollection({
             collection,
             dimension: this.embeddingProvider.dimension,
@@ -355,7 +400,9 @@ export class RepoIndexer {
                 changedFile,
                 client,
                 collection,
+                currentChunkCount: 0,
                 ref: job.after,
+                installationId: job.installationId,
                 repository: job.repository,
                 chunkingOptions,
                 sha: job.after,
@@ -382,6 +429,8 @@ export class RepoIndexer {
         collection: string;
         contentRepository: GitHubRepositoryRef;
         chunkingOptions: ChunkingOptions;
+        installationId: number;
+        prepareCollection: () => Promise<void>;
         ref: string;
         repository: GitHubRepositoryRef;
         sha: string;
@@ -394,16 +443,24 @@ export class RepoIndexer {
             ref: params.ref,
             repo: params.contentRepository.repo,
         });
-        for (const file of files) {
-            if (!shouldIndexFile(file, params.chunkingOptions)) {
-                continue;
-            }
+        const indexableFiles = files.filter((file) =>
+            shouldIndexFile(file, params.chunkingOptions)
+        );
+        this.quota?.assertFilesPerRepo({
+            fileCount: indexableFiles.length,
+            installationId: params.installationId,
+            repoId: params.repository.repoId,
+        });
+        await params.prepareCollection();
+        for (const file of indexableFiles) {
             const manifestFile = await this.indexSingleFile({
                 blobSha: file.sha,
                 chunkingOptions: params.chunkingOptions,
                 client: params.client,
                 collection: params.collection,
                 contentRepository: params.contentRepository,
+                currentChunkCount: chunkCount,
+                installationId: params.installationId,
                 path: file.path,
                 ref: params.ref,
                 repository: params.repository,
@@ -426,6 +483,8 @@ export class RepoIndexer {
         chunkingOptions: ChunkingOptions;
         client: GitHubContentClient;
         collection: string;
+        currentChunkCount: number;
+        installationId: number;
         ref: string;
         repository: GitHubRepositoryRef;
         sha: string;
@@ -462,6 +521,8 @@ export class RepoIndexer {
             client: params.client,
             collection: params.collection,
             contentRepository: params.repository,
+            currentChunkCount: params.currentChunkCount,
+            installationId: params.installationId,
             path: params.changedFile.filename,
             ref: params.ref,
             repository: params.repository,
@@ -476,6 +537,8 @@ export class RepoIndexer {
         client: GitHubContentClient;
         collection: string;
         contentRepository: GitHubRepositoryRef;
+        currentChunkCount: number;
+        installationId: number;
         path: string;
         ref: string;
         repository: GitHubRepositoryRef;
@@ -502,6 +565,11 @@ export class RepoIndexer {
         if (chunks.length === 0) {
             return null;
         }
+        this.quota?.assertChunksPerRepo({
+            chunkCount: params.currentChunkCount + chunks.length,
+            installationId: params.installationId,
+            repoId: params.repository.repoId,
+        });
         const indexedChunks: IndexedCodeChunk[] = chunks.map((chunk) => ({
             ...chunk,
             blobSha: params.blobSha,
@@ -531,6 +599,21 @@ export class RepoIndexer {
 
     private indexingFingerprint(options: ChunkingOptions): string {
         return indexingFingerprintForChunker(this.chunker, options);
+    }
+
+    private async assertRepositoryQuota(job: IndexingJob): Promise<void> {
+        if (!this.quota || !this.quotaStore) {
+            return;
+        }
+        const repositories = await this.quotaStore.listRepositoriesForInstallation(
+            job.installationId
+        );
+        this.quota.assertRepositoriesPerInstallation({
+            installationId: job.installationId,
+            repoCount: repositories.filter(
+                (repository) => repository.status !== "deleted"
+            ).length,
+        });
     }
 
     private async markDeleted(

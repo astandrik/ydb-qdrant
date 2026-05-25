@@ -9,8 +9,10 @@ import type {
     CodeSearchResult,
     EmbeddingProvider,
 } from "./types.js";
+import type { CodeIndexerQuota } from "./quota.js";
 
 export type CodeSearchRequest = {
+    githubUserId?: number | string;
     installationId: number;
     prNumber?: number;
     query: string;
@@ -26,6 +28,7 @@ export type CodeSearchResponse = {
 
 export type CodeSearchDeps = {
     embeddingProvider: EmbeddingProvider;
+    quota?: CodeIndexerQuota;
     store: CodeIndexStore;
 };
 
@@ -98,6 +101,13 @@ export async function searchCode(
         request.prNumber === undefined
             ? defaultBranchCollectionForRepo(request.repoId)
             : pullRequestCollectionForRepo(request.repoId, request.prNumber);
+    if (request.githubUserId !== undefined) {
+        await deps.quota?.recordSearch({
+            githubUserId: request.githubUserId,
+            installationId: request.installationId,
+            repoId: request.repoId,
+        });
+    }
     const queryVector = await deps.embeddingProvider.embedQuery(request.query);
     const points = await deps.store.search({
         collection,
