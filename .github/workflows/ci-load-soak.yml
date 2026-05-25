@@ -17,13 +17,6 @@ jobs:
       contents: write
       pull-requests: write
 
-    services:
-      ydb:
-        image: ghcr.io/ydb-platform/local-ydb:stable-25-3
-        ports:
-          - 2136:2136
-        options: --hostname localhost
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,25 +40,19 @@ jobs:
       - name: Build application
         run: npm run build
 
-      - name: Wait for YDB to be ready
-        run: |
-          echo "Waiting for YDB at grpc://localhost:2136 ..."
-          for i in {1..30}; do
-            if nc -z localhost 2136; then
-              echo "YDB is accepting connections on port 2136"
-              exit 0
-            fi
-            echo "YDB not ready yet, retrying..."
-            sleep 2
-          done
-          echo "YDB did not become ready in time"
-          exit 1
+      - name: Setup local YDB
+        id: ydb
+        uses: astandrik/setup-local-ydb@v1
+        with:
+          version: 26.1.1.6
+          tenant: /local
+          auth: false
 
       - name: Bootstrap metadata table (qdr__collections)
         run: node dist/ydb/bootstrapMetaTable.js
         env:
-          YDB_QDRANT_ENDPOINT: grpc://localhost:2136
-          YDB_QDRANT_DATABASE: /local
+          YDB_QDRANT_ENDPOINT: ${{ steps.ydb.outputs.endpoint }}
+          YDB_QDRANT_DATABASE: ${{ steps.ydb.outputs.database }}
           YDB_ANONYMOUS_CREDENTIALS: "1"
 
       - name: Start HTTP server
@@ -74,8 +61,8 @@ jobs:
           echo $! > server.pid
           sleep 5
         env:
-          YDB_QDRANT_ENDPOINT: grpc://localhost:2136
-          YDB_QDRANT_DATABASE: /local
+          YDB_QDRANT_ENDPOINT: ${{ steps.ydb.outputs.endpoint }}
+          YDB_QDRANT_DATABASE: ${{ steps.ydb.outputs.database }}
           YDB_ANONYMOUS_CREDENTIALS: "1"
           PORT: 8080
           LOG_LEVEL: warn
