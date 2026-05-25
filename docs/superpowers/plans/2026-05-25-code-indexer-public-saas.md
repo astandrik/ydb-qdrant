@@ -656,9 +656,18 @@ Evidence recorded on 2026-05-25:
   - Production backend logs recorded real delivery `b8503720-586d-11f1-8697-fea7439750bd` and four `delete-repo-index` jobs for installation `135399283` and repositories `857065347`, `901628611`, `982758944`, and `1220812874`.
   - Production YDB verification for prefix `gh_installation_135399283/` returned `qdr__collections=0`, `qdrant_all_points=0`, and `qdrant_points_by_file=0`.
   - Production SaaS state shows installation `135399283` as `deleted`; repositories `astandrik/local-ydb-toolkit`, `astandrik/civitai-grabber`, `astandrik/skeleton-killer`, and `astandrik/ai-sandbox` are `deleted` with `chunks=0`.
+- Fresh continuation audit on 2026-05-25 22:39 MSK:
+  - Backend repo has a clean worktree after commit `edca1d5` (`feat: complete hosted code indexer operations`), covering hosted MCP discovery, admin API, archive-based GitHub reads, concurrency/batching, and related tests.
+  - UI repo has a clean worktree after commit `78310d2` (`feat: add code indexer admin dashboard`), covering `/code-indexer/admin/`, dashboard progress improvements, robots, and the `Recent activity` layout fix.
+  - Fresh backend verification passed: `npm run typecheck`, `npm run lint`, `npm run test:code-indexer`, `npm run build`, and `npm test`.
+  - Fresh UI verification passed: `npm run lint`; `npm run build` passed as part of `scripts/deploy-static.sh`.
+  - Public backend health returned `{"status":"ok"}`.
+  - Production `https://ydb-qdrant.tech/code-indexer/`, `/dashboard/`, and `/admin/` returned `200`.
+  - Anonymous `GET https://github.com/apps/ydb-qdrant-code-indexer` returned a public GitHub App page; anonymous `GET https://github.com/apps/ydb-qdrant-code-indexer/installations/new` redirected to GitHub login with `integration=ydb-qdrant-code-indexer`.
+  - GitHub App API currently reports installation `135559688` on account `astandrik`, `repository_selection=selected`, events `check_run`, `pull_request`, and `push`, with permissions `checks:write`, `contents:read`, `metadata:read`, and `pull_requests:read`.
 - Remaining external/manual gates:
   - GitHub installation lifecycle behavior has been verified by the real uninstall webhook and delete jobs.
-  - Confirm the GitHub App can be installed by any account, not only `@astandrik`.
+  - Confirm the GitHub App can be installed by any account, not only `@astandrik`. GitHub's public docs state that public GitHub Apps can be installed by other accounts, but the REST `/app` response used for audits does not expose the App visibility setting directly; the strongest remaining proof is either a UI confirmation of `Any account` or a real install from a non-owner account/organization.
   - Destructive real E2E uninstall step has been completed.
 
 Manual GitHub App settings update checklist:
