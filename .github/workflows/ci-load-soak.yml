@@ -47,6 +47,17 @@ jobs:
           version: 26.1.1.6
           tenant: /local/qdrant
           auth: false
+          container-prefix: ydb-qdrant-soak-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Map local YDB Docker hostnames
+        run: |
+          for container in \
+            ydb-qdrant-soak-${{ github.run_id }}-${{ github.run_attempt }}-static \
+            ydb-qdrant-soak-${{ github.run_id }}-${{ github.run_attempt }}-dynamic
+          do
+            host="$(docker inspect -f '{{.Config.Hostname}}' "$container")"
+            echo "127.0.0.1 $host" | sudo tee -a /etc/hosts
+          done
 
       - name: Bootstrap metadata table (qdr__collections)
         run: node dist/ydb/bootstrapMetaTable.js

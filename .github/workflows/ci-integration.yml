@@ -32,6 +32,17 @@ jobs:
           version: 26.1.1.6
           tenant: /local/qdrant
           auth: false
+          container-prefix: ydb-qdrant-integration-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Map local YDB Docker hostnames
+        run: |
+          for container in \
+            ydb-qdrant-integration-${{ github.run_id }}-${{ github.run_attempt }}-static \
+            ydb-qdrant-integration-${{ github.run_id }}-${{ github.run_attempt }}-dynamic
+          do
+            host="$(docker inspect -f '{{.Config.Hostname}}' "$container")"
+            echo "127.0.0.1 $host" | sudo tee -a /etc/hosts
+          done
 
       - name: Run integration tests
         run: npm run test:integration
@@ -63,6 +74,17 @@ jobs:
           version: 26.1.1.6
           tenant: /local/code-indexer
           auth: false
+          container-prefix: ydb-qdrant-code-indexer-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Map local YDB Docker hostnames
+        run: |
+          for container in \
+            ydb-qdrant-code-indexer-${{ github.run_id }}-${{ github.run_attempt }}-static \
+            ydb-qdrant-code-indexer-${{ github.run_id }}-${{ github.run_attempt }}-dynamic
+          do
+            host="$(docker inspect -f '{{.Config.Hostname}}' "$container")"
+            echo "127.0.0.1 $host" | sudo tee -a /etc/hosts
+          done
 
       - name: Run code-indexer integration smoke
         run: |
