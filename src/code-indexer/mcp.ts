@@ -36,6 +36,29 @@ const PROTOCOL_VERSION = "2025-11-25";
 const SERVER_NAME = "ydb-qdrant-code-indexer";
 const TOOL_NAME = "search_code";
 
+export type CodeIndexerMcpAccessContext = {
+    githubUserId: number | string;
+};
+
+export type CodeIndexerMcpResolvedRepository = {
+    installationId: number;
+    repoId: number;
+};
+
+export type CodeIndexerMcpRepositoryResolver = {
+    resolveRepository(params: {
+        githubUserId: number | string;
+        installationId?: number;
+        owner?: string;
+        repo?: string;
+        repoId?: number;
+    }): Promise<CodeIndexerMcpResolvedRepository | null>;
+};
+
+export type CodeIndexerMcpDeps = CodeSearchDeps & {
+    repositoryResolver?: CodeIndexerMcpRepositoryResolver;
+};
+
 class McpProtocolError extends Error {
     readonly code: number;
 
@@ -76,10 +99,18 @@ function errorResponse(
 function toolInputSchema() {
     return {
         additionalProperties: false,
+        anyOf: [
+            { required: ["owner", "repo", "query"] },
+            { required: ["installationId", "repoId", "query"] },
+        ],
         properties: {
             installationId: {
                 description: "GitHub App installation id.",
                 type: "number",
+            },
+            owner: {
+                description: "GitHub repository owner or organization.",
+                type: "string",
             },
             prNumber: {
                 description: "Optional pull request number for PR-scoped search.",
@@ -87,6 +118,10 @@ function toolInputSchema() {
             },
             query: {
                 description: "Natural-language or code search query.",
+                type: "string",
+            },
+            repo: {
+                description: "GitHub repository name.",
                 type: "string",
             },
             repoId: {
@@ -100,19 +135,21 @@ function toolInputSchema() {
                 type: "number",
             },
         },
-        required: ["installationId", "repoId", "query"],
         type: "object",
     };
 }
 
 export class CodeIndexerMcpServer {
-    private readonly deps: CodeSearchDeps;
+    private readonly deps: CodeIndexerMcpDeps;
 
-    constructor(deps: CodeSearchDeps) {
+    constructor(deps: CodeIndexerMcpDeps) {
         this.deps = deps;
     }
 
-    async handleJsonRpcMessage(raw: string): Promise<JsonRpcResponse | null> {
+    async handleJsonRpcMessage(
+        raw: string,
+        context?: CodeIndexerMcpAccessContext
+    ): Promise<JsonRpcResponse | null> {
         let parsed: unknown;
         try {
             parsed = JSON.parse(raw) as unknown;
@@ -136,7 +173,7 @@ export class CodeIndexerMcpServer {
                 case "tools/call":
                     return response(
                         parsed.id,
-                        await this.toolsCallResult(parsed.params)
+                        await this.toolsCallResult(parsed.params, context)
                     );
                 default:
                     return errorResponse(
@@ -191,7 +228,10 @@ export class CodeIndexerMcpServer {
         };
     }
 
-    private async toolsCallResult(params: unknown): Promise<unknown> {
+    private async toolsCallResult(
+        params: unknown,
+        context: CodeIndexerMcpAccessContext | undefined
+    ): Promise<unknown> {
         if (!isRecord(params) || params.name !== TOOL_NAME) {
             throw new McpProtocolError(
                 -32602,
@@ -200,7 +240,7 @@ export class CodeIndexerMcpServer {
         }
         let request;
         try {
-            request = parseCodeSearchRequest(params.arguments);
+            request = await this.parseSearchArguments(params.arguments, context);
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : String(err);
             throw new McpProtocolError(-32602, message);
@@ -229,6 +269,81 @@ export class CodeIndexerMcpServer {
             };
         }
     }
+
+    private async parseSearchArguments(
+        args: unknown,
+        context: CodeIndexerMcpAccessContext | undefined
+    ) {
+        if (!isRecord(args)) {
+            return parseCodeSearchRequest(args);
+        }
+        const owner = readString(args.owner);
+        const repo = readString(args.repo);
+        if (owner && repo) {
+            if (!context || !this.deps.repositoryResolver) {
+                throw new Error(
+                    "owner/repo search requires authenticated MCP access"
+                );
+            }
+            const top = readNumber(args.top) ?? 10;
+            if (top <= 0) {
+                throw new Error("top must be greater than 0");
+            }
+            const prNumber = readNumber(args.prNumber);
+            const resolved = await this.deps.repositoryResolver.resolveRepository({
+                githubUserId: context.githubUserId,
+                owner,
+                repo,
+            });
+            if (!resolved) {
+                throw new Error(
+                    "repository is not accessible to the authenticated token"
+                );
+            }
+            return {
+                githubUserId: context.githubUserId,
+                installationId: resolved.installationId,
+                ...(prNumber === null ? {} : { prNumber }),
+                query: requiredString(args.query, "query"),
+                repoId: resolved.repoId,
+                top,
+            };
+        }
+
+        const request = parseCodeSearchRequest(args);
+        if (context && this.deps.repositoryResolver) {
+            const resolved = await this.deps.repositoryResolver.resolveRepository({
+                githubUserId: context.githubUserId,
+                installationId: request.installationId,
+                repoId: request.repoId,
+            });
+            if (!resolved) {
+                throw new Error(
+                    "repository is not accessible to the authenticated token"
+                );
+            }
+            return { ...request, githubUserId: context.githubUserId };
+        }
+        return context ? { ...request, githubUserId: context.githubUserId } : request;
+    }
+}
+
+function readNumber(value: unknown): number | null {
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readString(value: unknown): string | null {
+    return typeof value === "string" && value.trim().length > 0
+        ? value.trim()
+        : null;
+}
+
+function requiredString(value: unknown, name: string): string {
+    const text = readString(value);
+    if (!text) {
+        throw new Error(`${name} is required`);
+    }
+    return text;
 }
 
 export function startMcpStdioServer(params: {

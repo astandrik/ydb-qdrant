@@ -131,6 +131,59 @@ describe("code-indexer MCP server", () => {
         });
     });
 
+    it("resolves owner and repo tool input through the access context", async () => {
+        const { search, store, embeddingProvider } = makeServer();
+        const resolveRepository = vi.fn(() =>
+            Promise.resolve({
+                installationId: 7,
+                repoId: 42,
+            })
+        );
+        const server = new CodeIndexerMcpServer({
+            embeddingProvider,
+            repositoryResolver: { resolveRepository },
+            store,
+        });
+
+        const result = await server.handleJsonRpcMessage(
+            JSON.stringify({
+                id: "call-by-name",
+                jsonrpc: "2.0",
+                method: "tools/call",
+                params: {
+                    arguments: {
+                        owner: "octo",
+                        query: "build server",
+                        repo: "demo",
+                    },
+                    name: "search_code",
+                },
+            }),
+            { githubUserId: "123" }
+        );
+
+        expect(resolveRepository).toHaveBeenCalledWith({
+            githubUserId: "123",
+            owner: "octo",
+            repo: "demo",
+        });
+        expect(search).toHaveBeenCalledWith({
+            collection: "gh_repo_42_default",
+            queryVector: [0.1, 0.2],
+            top: 10,
+            userUid: "gh_installation_7",
+        });
+        expect(result).toMatchObject({
+            id: "call-by-name",
+            jsonrpc: "2.0",
+            result: {
+                structuredContent: {
+                    collection: "gh_repo_42_default",
+                },
+            },
+        });
+    });
+
     it("returns protocol errors for malformed JSON-RPC requests", async () => {
         const { server } = makeServer();
 

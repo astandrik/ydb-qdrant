@@ -16,6 +16,10 @@ import {
     createPublicApiRouter,
     type CodeIndexerPublicApiDeps,
 } from "./publicApi.js";
+import {
+    createMcpHttpRouter,
+    type CodeIndexerMcpHttpDeps,
+} from "./mcpHttp.js";
 import { parseCodeSearchRequest, searchCode } from "./searchAdapter.js";
 import { createWebhookHandler, type WebhookLifecycleStore } from "./webhooks.js";
 import type {
@@ -30,6 +34,7 @@ type CodeIndexerServerDeps = {
     deliveryStore: DeliveryStore;
     embeddingProvider: EmbeddingProvider;
     lifecycleStore?: WebhookLifecycleStore;
+    mcp?: CodeIndexerMcpHttpDeps;
     publicApi?: CodeIndexerPublicApiDeps;
     queue: IndexingQueue;
     searchApiKey?: string;
@@ -191,6 +196,9 @@ export function buildCodeIndexerServer(deps: CodeIndexerServerDeps) {
     }
     if (deps.publicApi) {
         app.use("/api", createPublicApiRouter(deps.publicApi));
+    }
+    if (deps.mcp) {
+        app.use("/mcp", createMcpHttpRouter(deps.mcp));
     }
 
     app.post(

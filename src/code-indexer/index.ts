@@ -118,6 +118,13 @@ function start(): void {
         deliveryStore,
         embeddingProvider,
         lifecycleStore: saasStore,
+        mcp: {
+            accessStore: saasStore,
+            allowedOrigins: config.allowedMcpOrigins,
+            embeddingProvider,
+            quota,
+            store,
+        },
         publicApi: {
             indexStore: store,
             quota,
