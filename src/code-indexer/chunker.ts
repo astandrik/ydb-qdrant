@@ -8,7 +8,7 @@ const DEFAULT_MAX_FILE_BYTES = 512 * 1024;
 const DEFAULT_CHUNK_LINES = 80;
 const DEFAULT_OVERLAP_LINES = 10;
 const DEFAULT_MAX_CHUNK_CHARS = 8000;
-const TREE_SITTER_REGISTRY_VERSION = "js-ts-python-go-rust:v1";
+const TREE_SITTER_REGISTRY_VERSION = "js-ts-python-go-rust:v2";
 
 const EXCLUDED_DIRECTORIES = new Set([
     ".git",
@@ -287,7 +287,7 @@ export class LineWindowChunker implements CodeChunker {
     }
 
     fingerprint(options?: ChunkingOptions): string {
-        return `line-window:v1:${chunkingOptionsFingerprint(options)}`;
+        return `line-window:v2:${chunkingOptionsFingerprint(options)}`;
     }
 }
 
@@ -332,6 +332,7 @@ function chunkFileWithLineWindows(params: ChunkFileParams & {
 
     const chunkLines = normalizedChunkLines(params.options);
     const overlapLines = normalizedOverlapLines(params.options);
+    const maxChunkChars = normalizedMaxChunkChars(params.options);
     const step = chunkLines - overlapLines;
     const lines = params.content.split(/\r?\n/);
     const chunks: CodeChunk[] = [];
@@ -339,28 +340,101 @@ function chunkFileWithLineWindows(params: ChunkFileParams & {
 
     for (let start = 0; start < lines.length; start += step) {
         const endExclusive = Math.min(start + chunkLines, lines.length);
-        const text = lines.slice(start, endExclusive).join("\n").trim();
-        if (text.length > 0) {
-            chunks.push({
-                chunker: params.chunker,
-                chunkIndex: chunks.length,
-                chunkKind: params.chunkKind,
-                endLine: baseStartLine + endExclusive - 1,
-                language: languageForPath(params.path),
-                path: params.path,
-                pathSegments: pathSegmentsForPath(params.path),
-                startLine: baseStartLine + start,
-                symbolName: params.symbolName,
-                symbolPath: params.symbolPath,
-                text,
-            });
-        }
+        pushBoundedLineChunks({
+            chunks,
+            chunkKind: params.chunkKind,
+            chunker: params.chunker,
+            lines: lines.slice(start, endExclusive),
+            maxChunkChars,
+            path: params.path,
+            startLine: baseStartLine + start,
+            symbolName: params.symbolName,
+            symbolPath: params.symbolPath,
+        });
         if (endExclusive >= lines.length) {
             break;
         }
     }
 
     return chunks;
+}
+
+function pushBoundedLineChunks(params: {
+    chunks: CodeChunk[];
+    chunkKind?: string;
+    chunker?: string;
+    lines: string[];
+    maxChunkChars: number;
+    path: string;
+    startLine: number;
+    symbolName?: string;
+    symbolPath?: string;
+}): void {
+    let buffer: string[] = [];
+    let bufferStartLine = params.startLine;
+
+    const pushChunk = (lines: string[], startLine: number, endLine: number): void => {
+        const text = lines.join("\n").trim();
+        if (text.length === 0) {
+            return;
+        }
+        params.chunks.push({
+            chunker: params.chunker,
+            chunkIndex: params.chunks.length,
+            chunkKind: params.chunkKind,
+            endLine,
+            language: languageForPath(params.path),
+            path: params.path,
+            pathSegments: pathSegmentsForPath(params.path),
+            startLine,
+            symbolName: params.symbolName,
+            symbolPath: params.symbolPath,
+            text,
+        });
+    };
+
+    const flush = (endLine: number): void => {
+        pushChunk(buffer, bufferStartLine, endLine);
+        buffer = [];
+    };
+
+    for (let index = 0; index < params.lines.length; index += 1) {
+        const line = params.lines[index] ?? "";
+        const lineNumber = params.startLine + index;
+
+        if (line.length > params.maxChunkChars) {
+            if (buffer.length > 0) {
+                flush(lineNumber - 1);
+            }
+            for (
+                let offset = 0;
+                offset < line.length;
+                offset += params.maxChunkChars
+            ) {
+                pushChunk(
+                    [line.slice(offset, offset + params.maxChunkChars)],
+                    lineNumber,
+                    lineNumber
+                );
+            }
+            bufferStartLine = lineNumber + 1;
+            continue;
+        }
+
+        const candidate = [...buffer, line].join("\n").trim();
+        if (candidate.length > params.maxChunkChars && buffer.length > 0) {
+            flush(lineNumber - 1);
+            bufferStartLine = lineNumber;
+        }
+        if (buffer.length === 0) {
+            bufferStartLine = lineNumber;
+        }
+        buffer.push(line);
+    }
+
+    if (buffer.length > 0) {
+        flush(params.startLine + params.lines.length - 1);
+    }
 }
 
 class SmartChunker implements CodeChunker {
@@ -396,7 +470,7 @@ class SmartChunker implements CodeChunker {
         const registry = this.treeSitterChunker
             ? TREE_SITTER_REGISTRY_VERSION
             : "none";
-        return `smart:v1:${this.mode}:${registry}:${chunkingOptionsFingerprint(options)}`;
+        return `smart:v2:${this.mode}:${registry}:${chunkingOptionsFingerprint(options)}`;
     }
 }
 

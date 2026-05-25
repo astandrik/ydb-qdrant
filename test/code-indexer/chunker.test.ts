@@ -100,6 +100,28 @@ describe("code-indexer chunker", () => {
         ]);
     });
 
+    it("keeps line-window chunks within the configured character limit", () => {
+        const chunker = new LineWindowChunker();
+        const chunks = chunker.chunkFile({
+            content: [
+                `first ${"a".repeat(45)}`,
+                `second ${"b".repeat(45)}`,
+                `third ${"c".repeat(120)}`,
+            ].join("\n"),
+            options: { chunkLines: 3, maxChunkChars: 64, overlapLines: 0 },
+            path: "src/long.ts",
+        });
+
+        expect(chunks.length).toBeGreaterThan(3);
+        expect(chunks.every((chunk) => chunk.text.length <= 64)).toBe(true);
+        expect(chunks.map((chunk) => [chunk.startLine, chunk.endLine])).toEqual([
+            [1, 1],
+            [2, 2],
+            [3, 3],
+            [3, 3],
+        ]);
+    });
+
     it("detects languages and binary-looking content", () => {
         expect(languageForPath("Dockerfile")).toBe("Dockerfile");
         expect(languageForPath(".github/workflows/ci.yml")).toBe("YAML");
@@ -266,39 +288,63 @@ describe("code-indexer chunker", () => {
                 .map((chunk) => chunk.chunker)
         ).toEqual(["line-window"]);
 
+        const oversizedChunks = chunker.chunkFile({
+            content: [
+                "export function large() {",
+                "  const a = 1;",
+                "  const b = 2;",
+                "  return a + b;",
+                "}",
+            ].join("\n"),
+            options: { chunkLines: 2, maxChunkChars: 20, overlapLines: 0 },
+            path: "large.ts",
+        });
+
+        expect(oversizedChunks.every((chunk) => chunk.text.length <= 20)).toBe(
+            true
+        );
         expect(
-            chunker
-                .chunkFile({
-                    content: [
-                        "export function large() {",
-                        "  const a = 1;",
-                        "  const b = 2;",
-                        "  return a + b;",
-                        "}",
-                    ].join("\n"),
-                    options: { chunkLines: 2, maxChunkChars: 20, overlapLines: 0 },
-                    path: "large.ts",
-                })
-                .map((chunk) => ({
-                    chunkKind: chunk.chunkKind,
-                    chunker: chunk.chunker,
-                    endLine: chunk.endLine,
-                    startLine: chunk.startLine,
-                    symbolName: chunk.symbolName,
-                }))
+            oversizedChunks.map((chunk) => ({
+                chunkKind: chunk.chunkKind,
+                chunker: chunk.chunker,
+                endLine: chunk.endLine,
+                startLine: chunk.startLine,
+                symbolName: chunk.symbolName,
+            }))
         ).toEqual([
             {
                 chunkKind: "function",
                 chunker: "tree-sitter",
-                endLine: 2,
+                endLine: 1,
                 startLine: 1,
                 symbolName: "large",
             },
             {
                 chunkKind: "function",
                 chunker: "tree-sitter",
-                endLine: 4,
+                endLine: 1,
+                startLine: 1,
+                symbolName: "large",
+            },
+            {
+                chunkKind: "function",
+                chunker: "tree-sitter",
+                endLine: 2,
+                startLine: 2,
+                symbolName: "large",
+            },
+            {
+                chunkKind: "function",
+                chunker: "tree-sitter",
+                endLine: 3,
                 startLine: 3,
+                symbolName: "large",
+            },
+            {
+                chunkKind: "function",
+                chunker: "tree-sitter",
+                endLine: 4,
+                startLine: 4,
                 symbolName: "large",
             },
             {
