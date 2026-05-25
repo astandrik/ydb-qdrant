@@ -273,19 +273,17 @@ That test covers GitHub OAuth session creation, installation webhook processing,
 
 ### Public beta verification
 
-Verified on 2026-05-25 against `https://ydb-qdrant.tech/code-indexer/` and `https://code-indexer.ydb-qdrant.tech`:
+Before promoting a new build, verify the hosted beta against `https://ydb-qdrant.tech/code-indexer/` and `https://code-indexer.ydb-qdrant.tech`:
 
-- GitHub App `YDB Qdrant Code Indexer` is installed on `astandrik/local-ydb-toolkit`.
-- GitHub install-time OAuth redirects through `/github/oauth/callback`, creates a dashboard session, and links installation `135399283`.
-- The dashboard API returns `astandrik/local-ydb-toolkit` as `ready` with `lastIndexedSha: "main"`, `lastIndexedAt: "2026-05-25T11:50:01.923Z"`, and `chunkCount: 909`.
-- A manual dashboard reindex returned `202` and completed back to `ready`.
-- Hosted MCP `search_code` by `owner/repo` returned indexed chunks from `astandrik/local-ydb-toolkit`.
-- Revoking the MCP token made the same bearer token fail with `401 unauthorized`.
+- The GitHub App can be installed from the public landing page.
+- GitHub install-time OAuth redirects through `/github/oauth/callback`, creates a dashboard session, and links the selected installation.
+- The dashboard lists selected repositories, default-branch status, PR indexes, job progress, and MCP token controls.
+- Manual default-branch reindex returns `202`, reports progress, and completes back to `ready`.
+- A pull request webhook creates a PR-scoped index that is visible separately from the default-branch index.
+- Hosted MCP `list_repositories`, `list_repository_indexes`, and `search_code` work with `owner`/`repo` inputs.
+- Revoking an MCP token makes the same bearer token fail with `401 unauthorized`.
 - Public health check returns `{"status":"ok"}` and the Docker healthcheck uses the code-indexer port `8090`.
-- The GitHub App was uninstalled from `astandrik`; GitHub App API then returned no active installations.
-- Production backend logs recorded delivery `b8503720-586d-11f1-8697-fea7439750bd` and four `delete-repo-index` jobs for installation `135399283`.
-- Production YDB verification for prefix `gh_installation_135399283/` returned `qdr__collections=0`, `qdrant_all_points=0`, and `qdrant_points_by_file=0`.
-- Production SaaS state marks installation `135399283` and the tested repositories as `deleted` with `chunks=0`.
+- Uninstalling the GitHub App enqueues repository delete jobs and removes indexed collections for the installation.
 
 ### MCP server
 
