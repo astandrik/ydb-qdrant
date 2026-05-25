@@ -34,7 +34,19 @@ type JsonRpcResponse =
 
 const PROTOCOL_VERSION = "2025-11-25";
 const SERVER_NAME = "ydb-qdrant-code-indexer";
-const TOOL_NAME = "search_code";
+const LIST_REPOSITORIES_TOOL_NAME = "list_repositories";
+const LIST_REPOSITORY_INDEXES_TOOL_NAME = "list_repository_indexes";
+const SEARCH_TOOL_NAME = "search_code";
+const HOSTED_AGENT_INSTRUCTIONS = [
+    "Use this server as searchable project memory for GitHub repositories indexed by YDB Qdrant Code Indexer.",
+    "If the user asks about a repository and owner/repo is unknown, call list_repositories first.",
+    "If working inside a local checkout, infer owner/repo from git remote and then call list_repository_indexes.",
+    "Use the default branch index for general repository questions.",
+    "Use a pull request index only when the user asks about a specific PR or the current task maps to a PR; pass prNumber to search_code.",
+    "Call search_code with concise natural-language or code-oriented queries before answering questions that require repository context.",
+].join(" ");
+const STANDALONE_AGENT_INSTRUCTIONS =
+    "Use search_code to search indexed GitHub repository chunks stored in ydb-qdrant.";
 
 export type CodeIndexerMcpAccessContext = {
     githubUserId: number | string;
@@ -55,7 +67,61 @@ export type CodeIndexerMcpRepositoryResolver = {
     }): Promise<CodeIndexerMcpResolvedRepository | null>;
 };
 
+export type CodeIndexerMcpRepositorySummary = {
+    chunkCount?: number;
+    defaultBranch: string;
+    installationId: number;
+    lastError?: string;
+    lastIndexedAt?: string;
+    lastIndexedSha?: string;
+    owner: string;
+    repo: string;
+    repoId: number;
+    status: string;
+};
+
+export type CodeIndexerMcpPullRequestIndexSummary = {
+    collection?: string;
+    jobId?: string;
+    phase?: string;
+    prNumber: number;
+    status: "queued" | "indexing" | "ready" | "failed" | "deleting" | "deleted";
+    updatedAt?: string;
+};
+
+export type CodeIndexerMcpRepositoryIndexSummary = {
+    defaultBranch: {
+        branch: string;
+        chunkCount?: number;
+        collection: string;
+        lastError?: string;
+        lastIndexedAt?: string;
+        lastIndexedSha?: string;
+        status: string;
+    };
+    installationId: number;
+    owner: string;
+    pullRequests: CodeIndexerMcpPullRequestIndexSummary[];
+    repo: string;
+    repoId: number;
+};
+
+export type CodeIndexerMcpRepositoryCatalog = {
+    listRepositories(params: {
+        githubUserId: number | string;
+    }): Promise<CodeIndexerMcpRepositorySummary[]>;
+    listRepositoryIndexes(params: {
+        githubUserId: number | string;
+        installationId?: number;
+        limit?: number;
+        owner?: string;
+        repo?: string;
+        repoId?: number;
+    }): Promise<CodeIndexerMcpRepositoryIndexSummary | null>;
+};
+
 export type CodeIndexerMcpDeps = CodeSearchDeps & {
+    repositoryCatalog?: CodeIndexerMcpRepositoryCatalog;
     repositoryResolver?: CodeIndexerMcpRepositoryResolver;
 };
 
@@ -139,6 +205,49 @@ function toolInputSchema() {
     };
 }
 
+function listRepositoriesInputSchema() {
+    return {
+        additionalProperties: false,
+        properties: {},
+        type: "object",
+    };
+}
+
+function listRepositoryIndexesInputSchema() {
+    return {
+        additionalProperties: false,
+        anyOf: [
+            { required: ["owner", "repo"] },
+            { required: ["installationId", "repoId"] },
+        ],
+        properties: {
+            installationId: {
+                description: "GitHub App installation id.",
+                type: "number",
+            },
+            limit: {
+                default: 25,
+                description: "Maximum number of recent index jobs to inspect.",
+                minimum: 1,
+                type: "number",
+            },
+            owner: {
+                description: "GitHub repository owner or organization.",
+                type: "string",
+            },
+            repo: {
+                description: "GitHub repository name.",
+                type: "string",
+            },
+            repoId: {
+                description: "GitHub repository id.",
+                type: "number",
+            },
+        },
+        type: "object",
+    };
+}
+
 export class CodeIndexerMcpServer {
     private readonly deps: CodeIndexerMcpDeps;
 
@@ -200,8 +309,9 @@ export class CodeIndexerMcpServer {
             capabilities: {
                 tools: {},
             },
-            instructions:
-                "Use search_code to search indexed GitHub repository chunks stored in ydb-qdrant.",
+            instructions: this.deps.repositoryCatalog
+                ? HOSTED_AGENT_INSTRUCTIONS
+                : STANDALONE_AGENT_INSTRUCTIONS,
             protocolVersion: PROTOCOL_VERSION,
             serverInfo: {
                 name: SERVER_NAME,
@@ -212,19 +322,44 @@ export class CodeIndexerMcpServer {
     }
 
     private toolsListResult(): unknown {
-        return {
-            tools: [
+        const tools = [];
+        if (this.deps.repositoryCatalog) {
+            tools.push(
                 {
                     annotations: {
                         readOnlyHint: true,
                     },
                     description:
-                        "Search indexed GitHub repository code chunks in YDB-backed Qdrant-compatible storage.",
-                    inputSchema: toolInputSchema(),
-                    name: TOOL_NAME,
-                    title: "Search indexed code",
+                        "List GitHub repositories this MCP token can search. Call this when owner/repo is unknown or a local git remote does not map cleanly to a repository.",
+                    inputSchema: listRepositoriesInputSchema(),
+                    name: LIST_REPOSITORIES_TOOL_NAME,
+                    title: "List indexed repositories",
                 },
-            ],
+                {
+                    annotations: {
+                        readOnlyHint: true,
+                    },
+                    description:
+                        "List the default branch index and recent PR-scoped indexes for a repository. Use this to decide whether search_code should target the default branch or a specific prNumber.",
+                    inputSchema: listRepositoryIndexesInputSchema(),
+                    name: LIST_REPOSITORY_INDEXES_TOOL_NAME,
+                    title: "List repository indexes",
+                }
+            );
+        }
+        tools.push({
+            annotations: {
+                readOnlyHint: true,
+            },
+            description: this.deps.repositoryCatalog
+                ? "Search indexed GitHub repository code chunks in YDB-backed Qdrant-compatible storage. In a local checkout, infer owner/repo from git remote; use default branch search for general questions and pass prNumber for PR-scoped search."
+                : "Search indexed GitHub repository code chunks in YDB-backed Qdrant-compatible storage.",
+            inputSchema: toolInputSchema(),
+            name: SEARCH_TOOL_NAME,
+            title: "Search indexed code",
+        });
+        return {
+            tools,
         };
     }
 
@@ -232,11 +367,23 @@ export class CodeIndexerMcpServer {
         params: unknown,
         context: CodeIndexerMcpAccessContext | undefined
     ): Promise<unknown> {
-        if (!isRecord(params) || params.name !== TOOL_NAME) {
+        if (!isRecord(params) || typeof params.name !== "string") {
             throw new McpProtocolError(
                 -32602,
                 `Unknown tool: ${isRecord(params) ? String(params.name) : ""}`
             );
+        }
+        if (params.name === LIST_REPOSITORIES_TOOL_NAME) {
+            return await this.listRepositoriesResult(context);
+        }
+        if (params.name === LIST_REPOSITORY_INDEXES_TOOL_NAME) {
+            return await this.listRepositoryIndexesResult(
+                params.arguments,
+                context
+            );
+        }
+        if (params.name !== SEARCH_TOOL_NAME) {
+            throw new McpProtocolError(-32602, `Unknown tool: ${params.name}`);
         }
         let request;
         try {
@@ -268,6 +415,91 @@ export class CodeIndexerMcpServer {
                 isError: true,
             };
         }
+    }
+
+    private async listRepositoriesResult(
+        context: CodeIndexerMcpAccessContext | undefined
+    ): Promise<unknown> {
+        const catalog = this.authenticatedCatalog(
+            context,
+            "list_repositories"
+        );
+        const githubUserId = context?.githubUserId;
+        if (githubUserId === undefined) {
+            throw new McpProtocolError(
+                -32602,
+                "list_repositories requires authenticated MCP access"
+            );
+        }
+        const repositories = await catalog.listRepositories({
+            githubUserId,
+        });
+        return {
+            content: [
+                {
+                    text: formatRepositoriesResponse(repositories),
+                    type: "text",
+                },
+            ],
+            structuredContent: {
+                repositories,
+            },
+        };
+    }
+
+    private async listRepositoryIndexesResult(
+        args: unknown,
+        context: CodeIndexerMcpAccessContext | undefined
+    ): Promise<unknown> {
+        const catalog = this.authenticatedCatalog(
+            context,
+            "list_repository_indexes"
+        );
+        const githubUserId = context?.githubUserId;
+        if (githubUserId === undefined) {
+            throw new McpProtocolError(
+                -32602,
+                "list_repository_indexes requires authenticated MCP access"
+            );
+        }
+        let request;
+        try {
+            request = parseRepositoryIndexArguments(args, githubUserId);
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            throw new McpProtocolError(-32602, message);
+        }
+        const repository = await catalog.listRepositoryIndexes(request);
+        if (!repository) {
+            throw new McpProtocolError(
+                -32602,
+                "repository is not accessible to the authenticated token"
+            );
+        }
+        return {
+            content: [
+                {
+                    text: formatRepositoryIndexesResponse(repository),
+                    type: "text",
+                },
+            ],
+            structuredContent: {
+                repository,
+            },
+        };
+    }
+
+    private authenticatedCatalog(
+        context: CodeIndexerMcpAccessContext | undefined,
+        toolName: string
+    ): CodeIndexerMcpRepositoryCatalog {
+        if (!context || !this.deps.repositoryCatalog) {
+            throw new McpProtocolError(
+                -32602,
+                `${toolName} requires authenticated MCP access`
+            );
+        }
+        return this.deps.repositoryCatalog;
     }
 
     private async parseSearchArguments(
@@ -326,6 +558,109 @@ export class CodeIndexerMcpServer {
         }
         return context ? { ...request, githubUserId: context.githubUserId } : request;
     }
+}
+
+function parseRepositoryIndexArguments(
+    args: unknown,
+    githubUserId: number | string
+): {
+    githubUserId: number | string;
+    installationId?: number;
+    limit?: number;
+    owner?: string;
+    repo?: string;
+    repoId?: number;
+} {
+    if (!isRecord(args)) {
+        throw new Error("arguments must be an object");
+    }
+    const limit = readNumber(args.limit);
+    if (limit !== null && limit <= 0) {
+        throw new Error("limit must be greater than 0");
+    }
+    const owner = readString(args.owner);
+    const repo = readString(args.repo);
+    if (owner || repo) {
+        if (!owner || !repo) {
+            throw new Error("owner and repo must be provided together");
+        }
+        return {
+            githubUserId,
+            ...(limit === null ? {} : { limit }),
+            owner,
+            repo,
+        };
+    }
+    const installationId = readNumber(args.installationId);
+    const repoId = readNumber(args.repoId);
+    if (installationId === null || repoId === null) {
+        throw new Error("owner/repo or installationId/repoId is required");
+    }
+    return {
+        githubUserId,
+        installationId,
+        ...(limit === null ? {} : { limit }),
+        repoId,
+    };
+}
+
+function formatRepositoriesResponse(
+    repositories: CodeIndexerMcpRepositorySummary[]
+): string {
+    if (repositories.length === 0) {
+        return "No repositories are available to this MCP token. Install the GitHub App on a repository first.";
+    }
+    const lines = ["Accessible indexed repositories:"];
+    repositories.forEach((repository, index) => {
+        const details = [
+            `repoId=${repository.repoId}`,
+            `installationId=${repository.installationId}`,
+            `defaultBranch=${repository.defaultBranch}`,
+            `status=${repository.status}`,
+            repository.chunkCount === undefined
+                ? undefined
+                : `chunks=${repository.chunkCount}`,
+            repository.lastIndexedAt
+                ? `lastIndexed=${repository.lastIndexedAt}`
+                : undefined,
+        ].filter((value): value is string => Boolean(value));
+        lines.push(
+            `${index + 1}. ${repository.owner}/${repository.repo} ${details.join(
+                " "
+            )}`
+        );
+    });
+    return lines.join("\n");
+}
+
+function formatRepositoryIndexesResponse(
+    repository: CodeIndexerMcpRepositoryIndexSummary
+): string {
+    const lines = [
+        `${repository.owner}/${repository.repo}`,
+        `Default branch ${repository.defaultBranch.branch}: status=${repository.defaultBranch.status} collection=${repository.defaultBranch.collection}${
+            repository.defaultBranch.chunkCount === undefined
+                ? ""
+                : ` chunks=${repository.defaultBranch.chunkCount}`
+        }`,
+    ];
+    if (repository.pullRequests.length === 0) {
+        lines.push("No recent pull request indexes found.");
+        return lines.join("\n");
+    }
+    lines.push("Recent pull request indexes:");
+    repository.pullRequests.forEach((pullRequest) => {
+        const details = [
+            `status=${pullRequest.status}`,
+            pullRequest.phase ? `phase=${pullRequest.phase}` : undefined,
+            pullRequest.collection
+                ? `collection=${pullRequest.collection}`
+                : undefined,
+            pullRequest.updatedAt ? `updated=${pullRequest.updatedAt}` : undefined,
+        ].filter((value): value is string => Boolean(value));
+        lines.push(`- Pull request #${pullRequest.prNumber}: ${details.join(" ")}`);
+    });
+    return lines.join("\n");
 }
 
 function readNumber(value: unknown): number | null {

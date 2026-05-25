@@ -482,6 +482,204 @@ describe("code-indexer webhook handler", () => {
         });
     });
 
+    it("does not overwrite default branch repository status for PR jobs", async () => {
+        const body = Buffer.from(
+            JSON.stringify({
+                action: "opened",
+                installation: { id: 7 },
+                pull_request: {
+                    base: { ref: "main" },
+                    head: {
+                        ref: "feature",
+                        repo: repositoryPayload(),
+                        sha: "c".repeat(40),
+                    },
+                    number: 3,
+                },
+                repository: repositoryPayload(),
+            })
+        );
+        const enqueue = vi.fn(() =>
+            Promise.resolve({
+                jobId: "job-1",
+                phase: "queued",
+                status: "pending",
+            })
+        );
+        const lifecycleStore = {
+            markRepositoryStatus: vi.fn(() => Promise.resolve()),
+            upsertInstallation: vi.fn(() => Promise.resolve()),
+            upsertRepository: vi.fn(() => Promise.resolve()),
+        };
+        const handler = createWebhookHandler({
+            deliveryStore: {
+                has: vi.fn(() => Promise.resolve(false)),
+                mark: vi.fn(() => Promise.resolve()),
+            },
+            lifecycleStore,
+            queue: { enqueue },
+            webhookSecret: "secret",
+        });
+        const req = {
+            body,
+            header(name: string): string | undefined {
+                const headers: Record<string, string> = {
+                    "X-GitHub-Delivery": "delivery-pr",
+                    "X-GitHub-Event": "pull_request",
+                    "X-Hub-Signature-256": createWebhookSignature(
+                        "secret",
+                        body
+                    ),
+                };
+                return headers[name];
+            },
+        } as unknown as Request;
+        const res = {
+            json: vi.fn(),
+            status: vi.fn(() => res),
+        } as unknown as Response;
+
+        await handler(req, res);
+
+        expect(enqueue).toHaveBeenCalledWith(
+            expect.objectContaining({
+                kind: "pr-index",
+                prNumber: 3,
+            })
+        );
+        expect(lifecycleStore.upsertRepository).not.toHaveBeenCalled();
+        expect(lifecycleStore.markRepositoryStatus).not.toHaveBeenCalled();
+    });
+
+    it("marks default branch push jobs queued without clearing repository metadata", async () => {
+        const body = Buffer.from(
+            JSON.stringify({
+                after: "b".repeat(40),
+                before: "a".repeat(40),
+                installation: { id: 7 },
+                ref: "refs/heads/main",
+                repository: repositoryPayload(),
+            })
+        );
+        const enqueue = vi.fn(() =>
+            Promise.resolve({
+                jobId: "job-1",
+                phase: "queued",
+                status: "pending",
+            })
+        );
+        const lifecycleStore = {
+            markRepositoryStatus: vi.fn(() => Promise.resolve()),
+            upsertInstallation: vi.fn(() => Promise.resolve()),
+            upsertRepository: vi.fn(() => Promise.resolve()),
+        };
+        const handler = createWebhookHandler({
+            deliveryStore: {
+                has: vi.fn(() => Promise.resolve(false)),
+                mark: vi.fn(() => Promise.resolve()),
+            },
+            lifecycleStore,
+            queue: { enqueue },
+            webhookSecret: "secret",
+        });
+        const req = {
+            body,
+            header(name: string): string | undefined {
+                const headers: Record<string, string> = {
+                    "X-GitHub-Delivery": "delivery-push",
+                    "X-GitHub-Event": "push",
+                    "X-Hub-Signature-256": createWebhookSignature(
+                        "secret",
+                        body
+                    ),
+                };
+                return headers[name];
+            },
+        } as unknown as Request;
+        const res = {
+            json: vi.fn(),
+            status: vi.fn(() => res),
+        } as unknown as Response;
+
+        await handler(req, res);
+
+        expect(lifecycleStore.markRepositoryStatus).toHaveBeenCalledWith({
+            repoId: 42,
+            status: "queued",
+        });
+        expect(lifecycleStore.upsertRepository).not.toHaveBeenCalled();
+    });
+
+    it("marks check-run full index jobs queued without clearing repository metadata", async () => {
+        const body = Buffer.from(
+            JSON.stringify({
+                action: "rerequested",
+                check_run: {
+                    head_branch: "main",
+                    head_sha: "d".repeat(40),
+                    name: CHECK_RUN_NAME,
+                    pull_requests: [],
+                    status: "completed",
+                },
+                installation: { id: 7 },
+                repository: repositoryPayload(),
+            })
+        );
+        const enqueue = vi.fn(() =>
+            Promise.resolve({
+                jobId: "job-1",
+                phase: "queued",
+                status: "pending",
+            })
+        );
+        const lifecycleStore = {
+            markRepositoryStatus: vi.fn(() => Promise.resolve()),
+            upsertInstallation: vi.fn(() => Promise.resolve()),
+            upsertRepository: vi.fn(() => Promise.resolve()),
+        };
+        const handler = createWebhookHandler({
+            deliveryStore: {
+                has: vi.fn(() => Promise.resolve(false)),
+                mark: vi.fn(() => Promise.resolve()),
+            },
+            lifecycleStore,
+            queue: { enqueue },
+            webhookSecret: "secret",
+        });
+        const req = {
+            body,
+            header(name: string): string | undefined {
+                const headers: Record<string, string> = {
+                    "X-GitHub-Delivery": "delivery-check-run",
+                    "X-GitHub-Event": "check_run",
+                    "X-Hub-Signature-256": createWebhookSignature(
+                        "secret",
+                        body
+                    ),
+                };
+                return headers[name];
+            },
+        } as unknown as Request;
+        const res = {
+            json: vi.fn(),
+            status: vi.fn(() => res),
+        } as unknown as Response;
+
+        await handler(req, res);
+
+        expect(enqueue).toHaveBeenCalledWith(
+            expect.objectContaining({
+                kind: "full-index",
+                reason: "check-run-rerequested",
+            })
+        );
+        expect(lifecycleStore.markRepositoryStatus).toHaveBeenCalledWith({
+            repoId: 42,
+            status: "queued",
+        });
+        expect(lifecycleStore.upsertRepository).not.toHaveBeenCalled();
+    });
+
     it("rejects invalid signatures before enqueueing", async () => {
         const enqueue = vi.fn(() =>
             Promise.resolve({

@@ -38,8 +38,12 @@ type TestInstallation = {
 };
 
 type TestRepository = {
+    chunkCount?: number;
     defaultBranch: string;
     installationId: string;
+    lastError?: string;
+    lastIndexedAt?: Date;
+    lastIndexedSha?: string;
     owner: string;
     repo: string;
     repoId: string;
@@ -51,6 +55,28 @@ type TestApiToken = {
     name: string;
     revoked: boolean;
     tokenId: string;
+};
+
+type TestAdminJob = {
+    createdAt: Date;
+    currentPath?: string;
+    finishedAt?: Date;
+    installationId: string;
+    jobId: string;
+    jobKind: "full-index" | "pr-index";
+    lastError?: string;
+    owner: string;
+    phase: "queued" | "embedding" | "failed" | "completed";
+    processedChunks: number;
+    processedFiles: number;
+    prNumber?: number;
+    repo: string;
+    repoId: string;
+    startedAt?: Date;
+    status: "pending" | "running" | "completed" | "failed";
+    totalChunks?: number;
+    totalFiles?: number;
+    updatedAt: Date;
 };
 
 function createBaseDeps() {
@@ -82,11 +108,56 @@ function createBaseDeps() {
     };
     const getJobProgress = vi.fn(() => Promise.resolve(null));
     const listActiveJobsForInstallation = vi.fn(() => Promise.resolve([]));
-    const progressStore: IndexingProgressStore = {
+    const listAdminJobs = vi.fn((params?: { limit?: number }) =>
+        Promise.resolve([
+            {
+                createdAt: new Date("2026-05-25T12:00:00.000Z"),
+                currentPath: "src/index.ts",
+                installationId: "777",
+                jobId: "admin:running",
+                jobKind: "full-index",
+                owner: "astandrik",
+                phase: "embedding",
+                processedChunks: 30,
+                processedFiles: 10,
+                repo: "local-ydb-toolkit",
+                repoId: "456",
+                startedAt: new Date("2026-05-25T12:00:01.000Z"),
+                status: "running",
+                totalChunks: 100,
+                totalFiles: 40,
+                updatedAt: new Date("2026-05-25T12:00:02.000Z"),
+            },
+            {
+                createdAt: new Date("2026-05-25T11:00:00.000Z"),
+                finishedAt: new Date("2026-05-25T11:05:00.000Z"),
+                installationId: "999",
+                jobId: "admin:failed",
+                jobKind: "pr-index",
+                lastError: "embedding failed",
+                owner: "other",
+                phase: "failed",
+                processedChunks: 3,
+                processedFiles: 2,
+                prNumber: 12,
+                repo: "private",
+                repoId: "999001",
+                startedAt: new Date("2026-05-25T11:00:01.000Z"),
+                status: "failed",
+                totalChunks: 8,
+                totalFiles: 4,
+                updatedAt: new Date("2026-05-25T11:05:00.000Z"),
+            },
+        ].slice(0, params?.limit ?? 100) as TestAdminJob[])
+    );
+    const progressStore = {
         createJobProgress: vi.fn(),
         getJobProgress,
+        listAdminJobs,
         listActiveJobsForInstallation,
         updateJobProgress: vi.fn(),
+    } as IndexingProgressStore & {
+        listAdminJobs(params?: { limit?: number }): Promise<TestAdminJob[]>;
     };
     const queue: IndexingQueue = {
         enqueue,
@@ -98,6 +169,7 @@ function createBaseDeps() {
         enqueue,
         getJobProgress,
         indexStore,
+        listAdminJobs,
         listActiveJobsForInstallation,
         progressStore,
         queue,
@@ -129,8 +201,11 @@ function createPublicApiStore() {
     ];
     const repositories: TestRepository[] = [
         {
+            chunkCount: 909,
             defaultBranch: "main",
             installationId: "777",
+            lastIndexedAt: new Date("2026-05-25T09:00:00.000Z"),
+            lastIndexedSha: "abc123",
             owner: "astandrik",
             repo: "local-ydb-toolkit",
             repoId: "456",
@@ -231,6 +306,12 @@ function createPublicApiStore() {
                 )
             )
         ),
+        listAdminApiTokens: vi.fn(() => Promise.resolve(tokens)),
+        listAdminGitHubUsers: vi.fn(() =>
+            Promise.resolve([{ githubUserId: "123", login: "octocat" }])
+        ),
+        listAdminInstallations: vi.fn(() => Promise.resolve(installations)),
+        listAdminRepositories: vi.fn(() => Promise.resolve(repositories)),
         listInstallationsForUser: vi.fn((githubUserId: number | string) =>
             Promise.resolve(
                 installations.filter(
@@ -268,6 +349,7 @@ function createPublicApiStore() {
 }
 
 async function startPublicApiServer(options: {
+    adminGithubUserIds?: string[];
     extraRepositories?: TestRepository[];
     quota?: ReturnType<typeof createCodeIndexerQuota>;
 } = {}): Promise<{
@@ -294,6 +376,7 @@ async function startPublicApiServer(options: {
         deliveryStore: deps.deliveryStore,
         embeddingProvider: deps.embeddingProvider,
         publicApi: {
+            adminGithubUserIds: options.adminGithubUserIds ?? [],
             createPlaintextToken: () => "ydbqci_plaintext",
             createTokenId: () => "token-id",
             indexStore: deps.indexStore,
@@ -390,6 +473,120 @@ describe("code-indexer public API", () => {
             expect(JSON.parse(response.body)).toMatchObject({
                 error: "unauthenticated",
                 status: "error",
+            });
+        } finally {
+            await closeServer(server);
+        }
+    });
+
+    it("rejects unauthenticated admin API requests", async () => {
+        const { baseUrl, server } = await startPublicApiServer({
+            adminGithubUserIds: ["123"],
+        });
+        try {
+            const response = await request({
+                baseUrl,
+                path: "/api/admin/overview",
+            });
+
+            expect(response.statusCode).toBe(401);
+            expect(JSON.parse(response.body)).toMatchObject({
+                error: "unauthenticated",
+                status: "error",
+            });
+        } finally {
+            await closeServer(server);
+        }
+    });
+
+    it("rejects non-admin dashboard users from admin API requests", async () => {
+        const { baseUrl, server } = await startPublicApiServer({
+            adminGithubUserIds: ["999"],
+        });
+        try {
+            const response = await request({
+                baseUrl,
+                cookie: sessionCookie(),
+                path: "/api/admin/overview",
+            });
+
+            expect(response.statusCode).toBe(403);
+            expect(JSON.parse(response.body)).toMatchObject({
+                error: "admin access is not allowed for this GitHub user",
+                status: "error",
+            });
+        } finally {
+            await closeServer(server);
+        }
+    });
+
+    it("returns global admin overview, repositories, and jobs for allowlisted users", async () => {
+        const { baseUrl, server } = await startPublicApiServer({
+            adminGithubUserIds: ["123"],
+        });
+        try {
+            const overview = await request({
+                baseUrl,
+                cookie: sessionCookie(),
+                path: "/api/admin/overview",
+            });
+            const repositories = await request({
+                baseUrl,
+                cookie: sessionCookie(),
+                path: "/api/admin/repositories",
+            });
+            const jobs = await request({
+                baseUrl,
+                cookie: sessionCookie(),
+                path: "/api/admin/jobs?status=failed",
+            });
+
+            expect(overview.statusCode).toBe(200);
+            expect(JSON.parse(overview.body)).toMatchObject({
+                overview: {
+                    totals: {
+                        activeJobs: 1,
+                        apiTokens: 0,
+                        failedJobs: 1,
+                        installations: 1,
+                        repositories: 2,
+                        users: 1,
+                    },
+                },
+                status: "ok",
+                user: { githubUserId: "123", login: "octocat" },
+            });
+            expect(JSON.parse(repositories.body)).toMatchObject({
+                repositories: [
+                    {
+                        accountLogin: "astandrik",
+                        chunkCount: 909,
+                        owner: "astandrik",
+                        repo: "local-ydb-toolkit",
+                        repoId: "456",
+                        status: "ready",
+                    },
+                    {
+                        accountLogin: "unknown",
+                        owner: "other",
+                        repo: "private",
+                        repoId: "999001",
+                        status: "ready",
+                    },
+                ],
+                status: "ok",
+            });
+            expect(JSON.parse(jobs.body)).toMatchObject({
+                jobs: [
+                    {
+                        jobId: "admin:failed",
+                        lastError: "embedding failed",
+                        prNumber: 12,
+                        repoId: "999001",
+                        status: "failed",
+                    },
+                ],
+                status: "ok",
             });
         } finally {
             await closeServer(server);
@@ -509,11 +706,12 @@ describe("code-indexer public API", () => {
             currentPath: "src/index.ts",
             installationId: "777",
             jobId: "manual:test-job",
-            jobKind: "full-index" as const,
+            jobKind: "pr-index" as const,
             owner: "astandrik",
             phase: "embedding" as const,
             processedChunks: 4,
             processedFiles: 2,
+            prNumber: 3,
             repo: "local-ydb-toolkit",
             repoId: "456",
             startedAt: new Date("2026-05-25T12:00:01.000Z"),
@@ -561,6 +759,7 @@ describe("code-indexer public API", () => {
                             phase: "embedding",
                             processedChunks: 4,
                             processedFiles: 2,
+                            prNumber: 3,
                             status: "running",
                             totalChunks: 6,
                             totalFiles: 3,
@@ -575,9 +774,85 @@ describe("code-indexer public API", () => {
                 job: {
                     jobId: "manual:test-job",
                     phase: "embedding",
+                    prNumber: 3,
                     repoId: "456",
                     status: "running",
                 },
+                status: "ok",
+            });
+        } finally {
+            await closeServer(server);
+        }
+    });
+
+    it("returns every active job for a repository while preserving a primary active job", async () => {
+        const { baseUrl, deps, server } = await startPublicApiServer();
+        const runningPrJob = {
+            createdAt: new Date("2026-05-25T12:00:00.000Z"),
+            installationId: "777",
+            jobId: "delivery:running-pr",
+            jobKind: "pr-index" as const,
+            owner: "astandrik",
+            phase: "embedding" as const,
+            processedChunks: 8,
+            processedFiles: 4,
+            prNumber: 3,
+            repo: "local-ydb-toolkit",
+            repoId: "456",
+            startedAt: new Date("2026-05-25T12:00:01.000Z"),
+            status: "running" as const,
+            totalChunks: 10,
+            totalFiles: 5,
+            updatedAt: new Date("2026-05-25T12:00:03.000Z"),
+        };
+        const queuedPrJob = {
+            ...runningPrJob,
+            jobId: "delivery:queued-pr",
+            phase: "queued" as const,
+            processedChunks: 0,
+            processedFiles: 0,
+            prNumber: 4,
+            startedAt: undefined,
+            status: "pending" as const,
+            totalChunks: undefined,
+            totalFiles: undefined,
+            updatedAt: new Date("2026-05-25T12:00:02.000Z"),
+        };
+        deps.listActiveJobsForInstallation.mockResolvedValue([
+            queuedPrJob,
+            runningPrJob,
+        ]);
+
+        try {
+            const response = await request({
+                baseUrl,
+                cookie: sessionCookie(),
+                path: "/api/repositories?installationId=777",
+            });
+
+            expect(JSON.parse(response.body)).toMatchObject({
+                repositories: [
+                    {
+                        activeJob: {
+                            jobId: "delivery:running-pr",
+                            prNumber: 3,
+                            status: "running",
+                        },
+                        activeJobs: [
+                            {
+                                jobId: "delivery:queued-pr",
+                                prNumber: 4,
+                                status: "pending",
+                            },
+                            {
+                                jobId: "delivery:running-pr",
+                                prNumber: 3,
+                                status: "running",
+                            },
+                        ],
+                        repoId: "456",
+                    },
+                ],
                 status: "ok",
             });
         } finally {

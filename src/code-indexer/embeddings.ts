@@ -4,6 +4,61 @@ import type { EmbeddingProvider } from "./types.js";
 
 type FetchLike = typeof fetch;
 
+const DEFAULT_EMBEDDING_REQUEST_TIMEOUT_MS = 60_000;
+
+function isAbortError(err: unknown): boolean {
+    return (
+        err instanceof DOMException && err.name === "AbortError"
+    ) || (err instanceof Error && err.name === "AbortError");
+}
+
+async function fetchWithTimeout(params: {
+    fetchImpl: FetchLike;
+    label: string;
+    timeoutMs: number;
+    url: string;
+    init: RequestInit;
+}): Promise<Response> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), params.timeoutMs);
+    try {
+        return await params.fetchImpl(params.url, {
+            ...params.init,
+            signal: controller.signal,
+        });
+    } catch (err: unknown) {
+        if (isAbortError(err)) {
+            throw new Error(
+                `${params.label} request timed out after ${params.timeoutMs}ms`
+            );
+        }
+        throw err;
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+function readTimeoutMs(value: number | undefined, providerName: string): number {
+    const timeoutMs = value ?? DEFAULT_EMBEDDING_REQUEST_TIMEOUT_MS;
+    if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
+        throw new Error(`${providerName} timeoutMs must be positive`);
+    }
+    return timeoutMs;
+}
+
+function safeFingerprintUrl(value: string): string {
+    try {
+        const url = new URL(value);
+        url.username = "";
+        url.password = "";
+        url.search = "";
+        url.hash = "";
+        return url.toString();
+    } catch {
+        return value.replace(/\/\/[^/@]+@/, "//");
+    }
+}
+
 function normalizeVector(vector: number[]): number[] {
     let magnitude = 0;
     for (const value of vector) {
@@ -29,12 +84,14 @@ function hashToken(token: string): Buffer {
 
 export class HashEmbeddingProvider implements EmbeddingProvider {
     readonly dimension: number;
+    readonly fingerprint: string;
 
     constructor(dimension = 384) {
         if (!Number.isInteger(dimension) || dimension <= 0) {
             throw new Error("HashEmbeddingProvider dimension must be positive");
         }
         this.dimension = dimension;
+        this.fingerprint = `hash:v1:dimension=${dimension}`;
     }
 
     embedDocuments(texts: string[]): Promise<number[][]> {
@@ -122,9 +179,11 @@ function validateEmbeddingBatch(params: {
 
 export class HttpJsonEmbeddingProvider implements EmbeddingProvider {
     readonly dimension: number;
+    readonly fingerprint: string;
     private readonly fetchImpl: FetchLike;
     private readonly headers: Record<string, string>;
     private readonly model: string | undefined;
+    private readonly timeoutMs: number;
     private readonly url: string;
 
     constructor(params: {
@@ -132,6 +191,7 @@ export class HttpJsonEmbeddingProvider implements EmbeddingProvider {
         fetchImpl?: FetchLike;
         headers?: Record<string, string>;
         model?: string;
+        timeoutMs?: number;
         url: string;
     }) {
         if (!Number.isInteger(params.dimension) || params.dimension <= 0) {
@@ -144,7 +204,17 @@ export class HttpJsonEmbeddingProvider implements EmbeddingProvider {
         this.fetchImpl = params.fetchImpl ?? fetch;
         this.headers = params.headers ?? {};
         this.model = params.model?.trim() || undefined;
+        this.timeoutMs = readTimeoutMs(
+            params.timeoutMs,
+            "HttpJsonEmbeddingProvider"
+        );
         this.url = params.url;
+        this.fingerprint = [
+            "http-json:v1",
+            `dimension=${this.dimension}`,
+            `model=${this.model ?? ""}`,
+            `url=${safeFingerprintUrl(this.url)}`,
+        ].join(":");
     }
 
     async embedDocuments(texts: string[]): Promise<number[][]> {
@@ -160,16 +230,22 @@ export class HttpJsonEmbeddingProvider implements EmbeddingProvider {
     }
 
     private async requestEmbeddings(texts: string[]): Promise<number[][]> {
-        const response = await this.fetchImpl(this.url, {
-            body: JSON.stringify({
-                input: texts,
-                ...(this.model ? { model: this.model } : {}),
-            }),
-            headers: {
-                "Content-Type": "application/json",
-                ...this.headers,
+        const response = await fetchWithTimeout({
+            fetchImpl: this.fetchImpl,
+            init: {
+                body: JSON.stringify({
+                    input: texts,
+                    ...(this.model ? { model: this.model } : {}),
+                }),
+                headers: {
+                    "Content-Type": "application/json",
+                    ...this.headers,
+                },
+                method: "POST",
             },
-            method: "POST",
+            label: "Embedding provider",
+            timeoutMs: this.timeoutMs,
+            url: this.url,
         });
         if (!response.ok) {
             throw new Error(
@@ -192,10 +268,12 @@ export class HttpJsonEmbeddingProvider implements EmbeddingProvider {
 
 export class OpenAiEmbeddingProvider implements EmbeddingProvider {
     readonly dimension: number;
+    readonly fingerprint: string;
     private readonly apiKey: string;
     private readonly dimensions: number | undefined;
     private readonly fetchImpl: FetchLike;
     private readonly model: string;
+    private readonly timeoutMs: number;
     private readonly url: string;
 
     constructor(params: {
@@ -204,6 +282,7 @@ export class OpenAiEmbeddingProvider implements EmbeddingProvider {
         dimensions?: number;
         fetchImpl?: FetchLike;
         model: string;
+        timeoutMs?: number;
         url?: string;
     }) {
         if (!params.apiKey.trim()) {
@@ -227,7 +306,15 @@ export class OpenAiEmbeddingProvider implements EmbeddingProvider {
         this.dimensions = params.dimensions;
         this.fetchImpl = params.fetchImpl ?? fetch;
         this.model = params.model;
+        this.timeoutMs = readTimeoutMs(params.timeoutMs, "OpenAiEmbeddingProvider");
         this.url = params.url?.trim() || "https://api.openai.com/v1/embeddings";
+        this.fingerprint = [
+            "openai:v1",
+            `model=${this.model}`,
+            `dimension=${this.dimension}`,
+            `dimensions=${this.dimensions ?? "default"}`,
+            `url=${safeFingerprintUrl(this.url)}`,
+        ].join(":");
     }
 
     async embedDocuments(texts: string[]): Promise<number[][]> {
@@ -243,19 +330,25 @@ export class OpenAiEmbeddingProvider implements EmbeddingProvider {
     }
 
     private async requestEmbeddings(texts: string[]): Promise<number[][]> {
-        const response = await this.fetchImpl(this.url, {
-            body: JSON.stringify({
-                ...(this.dimensions === undefined
-                    ? {}
-                    : { dimensions: this.dimensions }),
-                input: texts,
-                model: this.model,
-            }),
-            headers: {
-                Authorization: `Bearer ${this.apiKey}`,
-                "Content-Type": "application/json",
+        const response = await fetchWithTimeout({
+            fetchImpl: this.fetchImpl,
+            init: {
+                body: JSON.stringify({
+                    ...(this.dimensions === undefined
+                        ? {}
+                        : { dimensions: this.dimensions }),
+                    input: texts,
+                    model: this.model,
+                }),
+                headers: {
+                    Authorization: `Bearer ${this.apiKey}`,
+                    "Content-Type": "application/json",
+                },
+                method: "POST",
             },
-            method: "POST",
+            label: "OpenAI embedding",
+            timeoutMs: this.timeoutMs,
+            url: this.url,
         });
         if (!response.ok) {
             throw new Error(

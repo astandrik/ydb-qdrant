@@ -9,6 +9,10 @@ vi.mock("../../src/logging/logger.js", () => ({
 }));
 
 vi.mock("../../src/ydb/client.js", () => {
+    class FakeAlterTableDescription {
+        addColumns: unknown[] = [];
+    }
+
     class FakeTableDescription {
         withColumns(...columns: unknown[]) {
             void columns;
@@ -31,6 +35,7 @@ vi.mock("../../src/ydb/client.js", () => {
     }
 
     return {
+        AlterTableDescription: FakeAlterTableDescription,
         Column: FakeColumn,
         TableDescription: FakeTableDescription,
         Types: {
@@ -60,6 +65,7 @@ vi.mock("../../src/ydb/client.js", () => {
 });
 
 type FakeSession = {
+    alterTable: Mock;
     createTable: Mock;
     describeTable: Mock;
     executeQuery: Mock;
@@ -94,6 +100,29 @@ function makeJobForRepo(repoId: number, deliveryId: string) {
             ...job.repository,
             repo: `demo-${repoId}`,
             repoId,
+        },
+    };
+}
+
+function makePrJob() {
+    return {
+        baseRef: "main",
+        headRef: "feature",
+        headSha: "c".repeat(40),
+        installationId: 7,
+        kind: "pr-index" as const,
+        prNumber: 3,
+        repository: {
+            defaultBranch: "main",
+            owner: "octo",
+            repo: "demo",
+            repoId: 42,
+        },
+        sourceRepository: {
+            defaultBranch: "main",
+            owner: "octo",
+            repo: "demo",
+            repoId: 42,
         },
     };
 }
@@ -137,6 +166,7 @@ function createDeferred(): {
 
 function makeSession(overrides: Partial<FakeSession> = {}): FakeSession {
     return {
+        alterTable: vi.fn(() => Promise.resolve()),
         createTable: vi.fn(() => Promise.resolve()),
         describeTable: vi.fn(() => Promise.resolve({ columns: [] })),
         executeQuery: vi.fn(() => Promise.resolve({ resultSets: [] })),
@@ -194,6 +224,30 @@ describe("code-indexer durable state store", () => {
         expect(session.createTable).toHaveBeenCalledWith(
             stateStore.CODE_INDEXER_MANIFESTS_TABLE,
             expect.anything()
+        );
+    });
+
+    it("adds the PR number column to an existing job progress table", async () => {
+        const { stateStore, withSessionMock } = await importStateStore();
+        const session = makeSession({
+            describeTable: vi.fn((tableName: string) =>
+                Promise.resolve({
+                    columns:
+                        tableName === stateStore.CODE_INDEXER_JOB_PROGRESS_TABLE
+                            ? [{ name: "job_id" }]
+                            : [{ name: "existing" }],
+                })
+            ),
+        });
+        useSession(withSessionMock, session);
+
+        await stateStore.ensureCodeIndexerStateTables();
+
+        expect(session.alterTable).toHaveBeenCalledWith(
+            stateStore.CODE_INDEXER_JOB_PROGRESS_TABLE,
+            expect.objectContaining({
+                addColumns: [expect.objectContaining({ name: "pr_number" })],
+            })
         );
     });
 
@@ -423,6 +477,200 @@ describe("code-indexer durable state store", () => {
                 yql.includes("UPDATE qdrant_code_indexer_job_progress")
             )
         ).toBe(true);
+    });
+
+    it("persists and reads PR numbers in job progress", async () => {
+        const { stateStore, withSessionMock } = await importStateStore();
+        const row = {
+            items: [
+                { textValue: "delivery-pr:job" },
+                { textValue: "7" },
+                { textValue: "42" },
+                { textValue: "octo" },
+                { textValue: "demo" },
+                { textValue: "pr-index" },
+                { textValue: "running" },
+                { textValue: "embedding" },
+                { nullFlagValue: 0 },
+                { nullFlagValue: 0 },
+                { uint32Value: 0 },
+                { nullFlagValue: 0 },
+                { uint32Value: 0 },
+                { nullFlagValue: 0 },
+                { nullFlagValue: 0 },
+                { timestampValue: new Date("2026-05-25T12:00:00.000Z") },
+                { nullFlagValue: 0 },
+                { timestampValue: new Date("2026-05-25T12:00:00.000Z") },
+                { nullFlagValue: 0 },
+                { uint32Value: 3 },
+            ],
+        };
+        const session = makeSession({
+            executeQuery: vi.fn((yql: string) => {
+                if (yql.includes("SELECT") && yql.includes("WHERE job_id")) {
+                    return Promise.resolve({ resultSets: [{ rows: [row] }] });
+                }
+                return Promise.resolve({ resultSets: [] });
+            }),
+        });
+        useSession(withSessionMock, session);
+        const progressStore = new stateStore.YdbIndexingProgressStore();
+
+        await expect(
+            progressStore.createJobProgress({
+                job: makePrJob(),
+                jobId: "delivery-pr:job",
+            })
+        ).resolves.toMatchObject({
+            jobKind: "pr-index",
+            prNumber: 3,
+        });
+        await expect(
+            progressStore.getJobProgress("delivery-pr:job")
+        ).resolves.toMatchObject({
+            jobKind: "pr-index",
+            prNumber: 3,
+        });
+
+        const progressUpsertCall = session.executeQuery.mock.calls.find(
+            (call: unknown[]) =>
+                typeof call[0] === "string" &&
+                call[0].includes("UPSERT INTO qdrant_code_indexer_job_progress")
+        );
+        expect(progressUpsertCall?.[1]).toMatchObject({
+            $pr_number: { optional: true, value: { type: "Uint32", value: 3 } },
+        });
+    });
+
+    it("serializes concurrent progress updates for the same job", async () => {
+        const { stateStore, withSessionMock } = await importStateStore();
+        const firstUpdate = createDeferred();
+        let activeUpdates = 0;
+        let maxActiveUpdates = 0;
+        let updateCalls = 0;
+        const session = makeSession({
+            executeQuery: vi.fn(async (yql: string) => {
+                if (
+                    yql.includes(
+                        `UPDATE ${stateStore.CODE_INDEXER_JOB_PROGRESS_TABLE}`
+                    )
+                ) {
+                    updateCalls += 1;
+                    activeUpdates += 1;
+                    maxActiveUpdates = Math.max(maxActiveUpdates, activeUpdates);
+                    if (updateCalls === 1) {
+                        await firstUpdate.promise;
+                    }
+                    activeUpdates -= 1;
+                }
+                return { resultSets: [] };
+            }),
+        });
+        useSession(withSessionMock, session);
+        const progressStore = new stateStore.YdbIndexingProgressStore();
+
+        await progressStore.createJobProgress({
+            job: makeJob(),
+            jobId: "manual:job-1",
+        });
+        const first = progressStore.updateJobProgress({
+            jobId: "manual:job-1",
+            update: { phase: "embedding", processedFiles: 1 },
+        });
+        await vi.waitFor(() => {
+            expect(updateCalls).toBe(1);
+        });
+        const second = progressStore.updateJobProgress({
+            jobId: "manual:job-1",
+            update: { phase: "upserting", processedFiles: 2 },
+        });
+        await flushAsync();
+
+        expect(updateCalls).toBe(1);
+
+        firstUpdate.resolve();
+        await Promise.all([first, second]);
+
+        expect(updateCalls).toBe(2);
+        expect(maxActiveUpdates).toBe(1);
+    });
+
+    it("lists recent job progress records for a repository", async () => {
+        const { stateStore, withSessionMock } = await importStateStore();
+        const updatedAt = new Date("2026-05-25T14:01:00.000Z");
+        const row = {
+            items: [
+                { textValue: "delivery-pr:job" },
+                { textValue: "7" },
+                { textValue: "42" },
+                { textValue: "octo" },
+                { textValue: "demo" },
+                { textValue: "pr-index" },
+                { textValue: "completed" },
+                { textValue: "completed" },
+                { nullFlagValue: 0 },
+                { uint32Value: 3 },
+                { uint32Value: 3 },
+                { uint32Value: 12 },
+                { uint32Value: 12 },
+                { nullFlagValue: 0 },
+                { nullFlagValue: 0 },
+                { timestampValue: new Date("2026-05-25T14:00:00.000Z") },
+                { timestampValue: new Date("2026-05-25T14:00:01.000Z") },
+                { timestampValue: updatedAt },
+                { timestampValue: updatedAt },
+                { uint32Value: 71 },
+            ],
+        };
+        const session = makeSession({
+            executeQuery: vi.fn((yql: string) => {
+                if (
+                    yql.includes("WHERE installation_id = $installation_id") &&
+                    yql.includes("repo_id = $repo_id")
+                ) {
+                    return Promise.resolve({ resultSets: [{ rows: [row] }] });
+                }
+                return Promise.resolve({ resultSets: [] });
+            }),
+        });
+        useSession(withSessionMock, session);
+        const progressStore = new stateStore.YdbIndexingProgressStore();
+
+        await expect(
+            (
+                progressStore as {
+                    listJobsForRepository(params: {
+                        installationId: string;
+                        limit: number;
+                        repoId: string;
+                    }): Promise<unknown>;
+                }
+            ).listJobsForRepository({
+                installationId: "7",
+                limit: 5,
+                repoId: "42",
+            })
+        ).resolves.toMatchObject([
+            {
+                jobId: "delivery-pr:job",
+                jobKind: "pr-index",
+                prNumber: 71,
+                repoId: "42",
+                status: "completed",
+                updatedAt,
+            },
+        ]);
+
+        const queryCall = session.executeQuery.mock.calls.find(
+            ([yql]: [string]) =>
+                yql.includes("WHERE installation_id = $installation_id") &&
+                yql.includes("repo_id = $repo_id")
+        );
+        expect(queryCall?.[0]).toContain("LIMIT 5");
+        expect(queryCall?.[1]).toMatchObject({
+            $installation_id: { type: "Utf8", value: "7" },
+            $repo_id: { type: "Utf8", value: "42" },
+        });
     });
 
     it("persists enqueued jobs and drains no-op pending state", async () => {

@@ -3,6 +3,7 @@ import stableStringify from "fast-json-stable-stringify";
 import type { Ydb } from "ydb-sdk";
 
 import {
+    AlterTableDescription,
     Column,
     createExecuteQuerySettings,
     TableDescription,
@@ -218,6 +219,17 @@ function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function normalizeAdminLimit(
+    value: number | undefined,
+    defaultValue: number,
+    maxValue: number
+): number {
+    if (value === undefined) {
+        return defaultValue;
+    }
+    return Math.max(1, Math.min(maxValue, Math.floor(value)));
+}
+
 function sanitizeError(err: unknown): string {
     const message = err instanceof Error ? err.message : String(err);
     return message.slice(0, 4000);
@@ -368,6 +380,7 @@ function parseJobProgressRow(row: QueryRow): IndexingJobProgressRecord {
     const updatedAt = readTimestamp(row, 17);
     const processedFiles = readUint(row, 10);
     const processedChunks = readUint(row, 12);
+    const prNumber = readUint(row, 19);
 
     if (
         !jobId ||
@@ -395,6 +408,7 @@ function parseJobProgressRow(row: QueryRow): IndexingJobProgressRecord {
         phase,
         processedChunks,
         processedFiles,
+        ...(prNumber === undefined ? {} : { prNumber }),
         repo,
         repoId,
         status,
@@ -432,7 +446,8 @@ function selectJobProgressColumns(): string {
                 created_at,
                 started_at,
                 updated_at,
-                finished_at`;
+                finished_at,
+                pr_number`;
 }
 
 function addUtf8Update(params: {
@@ -612,13 +627,39 @@ async function ensureJobsTable(): Promise<void> {
 
 async function ensureJobProgressTable(): Promise<void> {
     await withSession(async (session) => {
+        let tableDescription: Awaited<
+            ReturnType<typeof session.describeTable>
+        > | null = null;
         try {
-            await session.describeTable(CODE_INDEXER_JOB_PROGRESS_TABLE);
-            return;
+            tableDescription = await session.describeTable(
+                CODE_INDEXER_JOB_PROGRESS_TABLE
+            );
         } catch (err: unknown) {
             if (!isTableNotFoundError(err)) {
                 throw err;
             }
+        }
+        if (tableDescription) {
+            const hasPrNumber = tableDescription.columns?.some(
+                (column) => column.name === "pr_number"
+            );
+            if (!hasPrNumber) {
+                const alter = new AlterTableDescription();
+                alter.addColumns = [
+                    new Column("pr_number", Types.optional(Types.UINT32)),
+                ];
+                try {
+                    await session.alterTable(CODE_INDEXER_JOB_PROGRESS_TABLE, alter);
+                    logger.info(
+                        `added pr_number column to code-indexer job progress table ${CODE_INDEXER_JOB_PROGRESS_TABLE}`
+                    );
+                } catch (err: unknown) {
+                    if (!isAlreadyExistsError(err)) {
+                        throw err;
+                    }
+                }
+            }
+            return;
         }
 
         const desc = new TableDescription()
@@ -641,7 +682,8 @@ async function ensureJobProgressTable(): Promise<void> {
                 new Column("created_at", Types.TIMESTAMP),
                 new Column("started_at", Types.optional(Types.TIMESTAMP)),
                 new Column("updated_at", Types.TIMESTAMP),
-                new Column("finished_at", Types.optional(Types.TIMESTAMP))
+                new Column("finished_at", Types.optional(Types.TIMESTAMP)),
+                new Column("pr_number", Types.optional(Types.UINT32))
             )
             .withPrimaryKeys("job_id");
         try {
@@ -722,7 +764,15 @@ export function jobIdForJob(job: IndexingJob): string {
     return `${job.deliveryId}:${digest}`;
 }
 
+function prNumberForJob(job: IndexingJob): number | null {
+    return job.kind === "pr-index" || job.kind === "delete-pr-index"
+        ? job.prNumber
+        : null;
+}
+
 export class YdbIndexingProgressStore implements IndexingProgressStore {
+    private readonly updateChains = new Map<string, Promise<void>>();
+
     async createJobProgress(params: {
         job: IndexingJob;
         jobId: string;
@@ -735,6 +785,7 @@ export class YdbIndexingProgressStore implements IndexingProgressStore {
             DECLARE $owner AS Utf8;
             DECLARE $repo AS Utf8;
             DECLARE $job_kind AS Utf8;
+            DECLARE $pr_number AS Uint32?;
 
             UPSERT INTO ${CODE_INDEXER_JOB_PROGRESS_TABLE}
                 (
@@ -756,7 +807,8 @@ export class YdbIndexingProgressStore implements IndexingProgressStore {
                     created_at,
                     started_at,
                     updated_at,
-                    finished_at
+                    finished_at,
+                    pr_number
                 )
             VALUES (
                 $job_id,
@@ -777,7 +829,8 @@ export class YdbIndexingProgressStore implements IndexingProgressStore {
                 CurrentUtcTimestamp(),
                 CAST(NULL AS Timestamp?),
                 CurrentUtcTimestamp(),
-                CAST(NULL AS Timestamp?)
+                CAST(NULL AS Timestamp?),
+                $pr_number
             );
         `;
         await withSession(async (session) => {
@@ -790,6 +843,7 @@ export class YdbIndexingProgressStore implements IndexingProgressStore {
                     $job_id: TypedValues.utf8(params.jobId),
                     $job_kind: TypedValues.utf8(params.job.kind),
                     $owner: TypedValues.utf8(params.job.repository.owner),
+                    $pr_number: optionalUint32(prNumberForJob(params.job)),
                     $repo: TypedValues.utf8(params.job.repository.repo),
                     $repo_id: TypedValues.utf8(
                         String(params.job.repository.repoId)
@@ -809,6 +863,9 @@ export class YdbIndexingProgressStore implements IndexingProgressStore {
             phase: "queued",
             processedChunks: 0,
             processedFiles: 0,
+            ...(prNumberForJob(params.job) === null
+                ? {}
+                : { prNumber: prNumberForJob(params.job) ?? undefined }),
             repo: params.job.repository.repo,
             repoId: String(params.job.repository.repoId),
             status: "pending",
@@ -864,7 +921,75 @@ export class YdbIndexingProgressStore implements IndexingProgressStore {
         return (result.resultSets?.[0]?.rows ?? []).map(parseJobProgressRow);
     }
 
+    async listJobsForRepository(params: {
+        installationId: number | string;
+        limit?: number;
+        repoId: number | string;
+    }): Promise<IndexingJobProgressRecord[]> {
+        await ensureCodeIndexerStateTables();
+        const limit = Math.max(
+            1,
+            Math.min(100, Math.floor(params.limit ?? 25))
+        );
+        const yql = `
+            DECLARE $installation_id AS Utf8;
+            DECLARE $repo_id AS Utf8;
+
+            ${selectJobProgressColumns()}
+            FROM ${CODE_INDEXER_JOB_PROGRESS_TABLE}
+            WHERE installation_id = $installation_id
+              AND repo_id = $repo_id
+            ORDER BY updated_at DESC
+            LIMIT ${limit};
+        `;
+        const result = await withSession(async (session) => {
+            return (await session.executeQuery(
+                yql,
+                {
+                    $installation_id: TypedValues.utf8(
+                        String(params.installationId)
+                    ),
+                    $repo_id: TypedValues.utf8(String(params.repoId)),
+                },
+                undefined,
+                createExecuteQuerySettings()
+            )) as ExecuteQueryResultLike;
+        });
+        return (result.resultSets?.[0]?.rows ?? []).map(parseJobProgressRow);
+    }
+
+    async listAdminJobs(params?: {
+        limit?: number;
+    }): Promise<IndexingJobProgressRecord[]> {
+        await ensureCodeIndexerStateTables();
+        const limit = normalizeAdminLimit(params?.limit, 100, 500);
+        const yql = `
+            ${selectJobProgressColumns()}
+            FROM ${CODE_INDEXER_JOB_PROGRESS_TABLE}
+            ORDER BY updated_at DESC
+            LIMIT ${limit};
+        `;
+        const result = await withSession(async (session) => {
+            return (await session.executeQuery(
+                yql,
+                {},
+                undefined,
+                createExecuteQuerySettings()
+            )) as ExecuteQueryResultLike;
+        });
+        return (result.resultSets?.[0]?.rows ?? []).map(parseJobProgressRow);
+    }
+
     async updateJobProgress(params: {
+        jobId: string;
+        update: IndexingJobProgressUpdate;
+    }): Promise<void> {
+        await this.withJobUpdateLock(params.jobId, async () => {
+            await this.updateJobProgressUnlocked(params);
+        });
+    }
+
+    private async updateJobProgressUnlocked(params: {
         jobId: string;
         update: IndexingJobProgressUpdate;
     }): Promise<void> {
@@ -982,6 +1107,29 @@ export class YdbIndexingProgressStore implements IndexingProgressStore {
                 createExecuteQuerySettings()
             );
         });
+    }
+
+    private async withJobUpdateLock<T>(
+        jobId: string,
+        fn: () => Promise<T>
+    ): Promise<T> {
+        const previous = this.updateChains.get(jobId) ?? Promise.resolve();
+        let release!: () => void;
+        const current = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const chain = previous.catch(() => undefined).then(() => current);
+        this.updateChains.set(jobId, chain);
+
+        await previous.catch(() => undefined);
+        try {
+            return await fn();
+        } finally {
+            release();
+            if (this.updateChains.get(jobId) === chain) {
+                this.updateChains.delete(jobId);
+            }
+        }
     }
 }
 

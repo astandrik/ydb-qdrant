@@ -7,6 +7,7 @@ import type { CodeIndexerChunkerMode } from "./chunker.js";
 export type CodeIndexerEmbeddingProvider = "hash" | "http" | "openai";
 
 export type CodeIndexerConfig = {
+    adminGithubUserIds: string[];
     allowedMcpOrigins: string[];
     checksEnabled: boolean;
     chunkerMode: CodeIndexerChunkerMode;
@@ -15,6 +16,9 @@ export type CodeIndexerConfig = {
     embeddingApiKey?: string;
     embeddingAuthHeader: string;
     embeddingAuthScheme?: string;
+    embeddingBatchMaxChars: number;
+    embeddingBatchSize: number;
+    embeddingConcurrency: number;
     embeddingDimension: number;
     embeddingDimensionExplicit: boolean;
     embeddingModel?: string;
@@ -26,6 +30,7 @@ export type CodeIndexerConfig = {
     githubClientId: string;
     githubClientSecret: string;
     githubPrivateKey: string;
+    fileConcurrency: number;
     jobConcurrency: number;
     jobMaxAttempts: number;
     jobRetryBackoffMs: number;
@@ -173,6 +178,10 @@ export function loadCodeIndexerConfig(): CodeIndexerConfig {
 
     return {
         ...searchConfig,
+        adminGithubUserIds: readCommaSeparatedList(
+            process.env.CODE_INDEXER_ADMIN_GITHUB_USER_IDS,
+            ""
+        ),
         allowedMcpOrigins: readCommaSeparatedList(
             process.env.CODE_INDEXER_ALLOWED_MCP_ORIGINS,
             "https://ydb-qdrant.tech"
@@ -193,6 +202,26 @@ export function loadCodeIndexerConfig(): CodeIndexerConfig {
         githubClientId: readRequiredEnv("GITHUB_CLIENT_ID"),
         githubClientSecret: readRequiredEnv("GITHUB_CLIENT_SECRET"),
         githubPrivateKey: readPrivateKey(),
+        fileConcurrency: parseIntegerEnv(
+            process.env.CODE_INDEXER_FILE_CONCURRENCY,
+            4,
+            { min: 1 }
+        ),
+        embeddingBatchSize: parseIntegerEnv(
+            process.env.CODE_INDEXER_EMBEDDING_BATCH_SIZE,
+            64,
+            { min: 1 }
+        ),
+        embeddingBatchMaxChars: parseIntegerEnv(
+            process.env.CODE_INDEXER_EMBEDDING_BATCH_MAX_CHARS,
+            200_000,
+            { min: 1 }
+        ),
+        embeddingConcurrency: parseIntegerEnv(
+            process.env.CODE_INDEXER_EMBEDDING_CONCURRENCY,
+            2,
+            { min: 1 }
+        ),
         jobConcurrency: parseIntegerEnv(
             process.env.CODE_INDEXER_JOB_CONCURRENCY,
             2,

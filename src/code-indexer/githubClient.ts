@@ -1,4 +1,13 @@
-import { createSign } from "node:crypto";
+import { createHash, createSign } from "node:crypto";
+import { createWriteStream } from "node:fs";
+import { lstat, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, relative, sep } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import type { ReadableStream as NodeReadableStream } from "node:stream/web";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 import type {
     GitHubChangedFile,
@@ -7,9 +16,15 @@ import type {
     GitHubContentClient,
     GitHubContentClientFactory,
     GitHubFileEntry,
+    GitHubRepositorySnapshot,
+    GitHubRepositorySnapshotContent,
+    GitHubRepositorySnapshotFile,
 } from "./types.js";
 
 type FetchLike = typeof fetch;
+
+const GITHUB_RATE_LIMIT_RETRY_SAFETY_MS = 1_000;
+const execFileAsync = promisify(execFile);
 
 type GitHubAppAuthOptions = {
     apiBaseUrl?: string;
@@ -121,6 +136,130 @@ async function readJson(response: Response): Promise<unknown> {
         return null;
     }
     return JSON.parse(text) as unknown;
+}
+
+function readNonNegativeNumberHeader(
+    response: Response,
+    name: string
+): number | null {
+    const value = response.headers.get(name);
+    if (value === null) {
+        return null;
+    }
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function readGitHubRateLimitRetryDelayMs(response: Response): number | null {
+    if (response.status !== 403 && response.status !== 429) {
+        return null;
+    }
+
+    const retryAfterSeconds = readNonNegativeNumberHeader(response, "retry-after");
+    if (retryAfterSeconds !== null) {
+        return retryAfterSeconds * 1000 + GITHUB_RATE_LIMIT_RETRY_SAFETY_MS;
+    }
+
+    if (response.headers.get("x-ratelimit-remaining") !== "0") {
+        return null;
+    }
+
+    const resetSeconds = readNonNegativeNumberHeader(
+        response,
+        "x-ratelimit-reset"
+    );
+    if (resetSeconds === null) {
+        return 0;
+    }
+    return Math.max(
+        0,
+        resetSeconds * 1000 - Date.now() + GITHUB_RATE_LIMIT_RETRY_SAFETY_MS
+    );
+}
+
+async function sleep(ms: number): Promise<void> {
+    if (ms <= 0) {
+        return;
+    }
+    await new Promise<void>((resolve) => {
+        setTimeout(resolve, ms);
+    });
+}
+
+function gitBlobSha(content: Uint8Array): string {
+    return createHash("sha1")
+        .update(`blob ${content.byteLength}\0`)
+        .update(content)
+        .digest("hex");
+}
+
+function toRepoPath(root: string, filePath: string): string {
+    return relative(root, filePath).split(sep).join("/");
+}
+
+async function listLocalSnapshotFiles(
+    root: string,
+    current: string = root
+): Promise<GitHubRepositorySnapshotFile[]> {
+    const entries = await readdir(current, { withFileTypes: true });
+    const files: GitHubRepositorySnapshotFile[] = [];
+    for (const entry of entries) {
+        const entryPath = join(current, entry.name);
+        if (entry.isDirectory()) {
+            files.push(...(await listLocalSnapshotFiles(root, entryPath)));
+            continue;
+        }
+        if (!entry.isFile()) {
+            continue;
+        }
+        const fileStat = await lstat(entryPath);
+        files.push({
+            path: toRepoPath(root, entryPath),
+            size: fileStat.size,
+        });
+    }
+    return files.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+async function findExtractedArchiveRoot(tempDir: string): Promise<string> {
+    const entries = await readdir(tempDir, { withFileTypes: true });
+    const directories = entries.filter((entry) => entry.isDirectory());
+    if (directories.length !== 1) {
+        throw new Error("GitHub archive extraction did not produce one root directory");
+    }
+    return join(tempDir, directories[0].name);
+}
+
+class LocalGitHubRepositorySnapshot implements GitHubRepositorySnapshot {
+    private closed = false;
+
+    constructor(
+        private readonly tempDir: string,
+        private readonly rootDir: string,
+        readonly files: GitHubRepositorySnapshotFile[]
+    ) {}
+
+    async close(): Promise<void> {
+        if (this.closed) {
+            return;
+        }
+        this.closed = true;
+        await rm(this.tempDir, { force: true, recursive: true });
+    }
+
+    async getFileContent(
+        path: string
+    ): Promise<GitHubRepositorySnapshotContent | null> {
+        const file = this.files.find((entry) => entry.path === path);
+        if (!file) {
+            return null;
+        }
+        const content = await readFile(join(this.rootDir, path));
+        return {
+            blobSha: gitBlobSha(content),
+            content: content.toString("utf8"),
+        };
+    }
 }
 
 export class GitHubAppClientFactory
@@ -281,6 +420,30 @@ class GitHubInstallationClient
         return await response.text();
     }
 
+    async getRepositorySnapshot(params: {
+        owner: string;
+        ref: string;
+        repo: string;
+    }): Promise<GitHubRepositorySnapshot> {
+        const tempDir = await mkdtemp(join(tmpdir(), "ydb-qdrant-gh-archive-"));
+        try {
+            const archivePath = join(tempDir, "archive.tar.gz");
+            await this.downloadTarball({
+                archivePath,
+                owner: params.owner,
+                ref: params.ref,
+                repo: params.repo,
+            });
+            await execFileAsync("tar", ["-xzf", archivePath, "-C", tempDir]);
+            const rootDir = await findExtractedArchiveRoot(tempDir);
+            const files = await listLocalSnapshotFiles(rootDir);
+            return new LocalGitHubRepositorySnapshot(tempDir, rootDir, files);
+        } catch (err: unknown) {
+            await rm(tempDir, { force: true, recursive: true });
+            throw err;
+        }
+    }
+
     async listRepositoryFiles(params: {
         owner: string;
         ref: string;
@@ -341,6 +504,33 @@ class GitHubInstallationClient
         }
 
         return files;
+    }
+
+    private async downloadTarball(params: {
+        archivePath: string;
+        owner: string;
+        ref: string;
+        repo: string;
+    }): Promise<void> {
+        const response = await this.githubFetch(
+            `/repos/${encodeURIComponent(params.owner)}/${encodeURIComponent(
+                params.repo
+            )}/tarball/${encodeURIComponent(params.ref)}`
+        );
+        if (!response.ok) {
+            throw new Error(
+                `GitHub archive request failed: ${response.status} ${response.statusText}`
+            );
+        }
+        if (!response.body) {
+            throw new Error("GitHub archive response is missing a body");
+        }
+        await pipeline(
+            Readable.fromWeb(
+                response.body as unknown as NodeReadableStream<Uint8Array>
+            ),
+            createWriteStream(params.archivePath)
+        );
     }
 
     async createCheckRun(params: {
@@ -441,6 +631,16 @@ class GitHubInstallationClient
         path: string,
         init?: RequestInit
     ): Promise<Response> {
+        const response = await this.fetchOnce(path, init);
+        const retryDelayMs = readGitHubRateLimitRetryDelayMs(response);
+        if (retryDelayMs === null) {
+            return response;
+        }
+        await sleep(retryDelayMs);
+        return await this.fetchOnce(path, init);
+    }
+
+    private async fetchOnce(path: string, init?: RequestInit): Promise<Response> {
         return await this.fetchImpl(joinApiUrl(this.apiBaseUrl, path), {
             ...init,
             headers: {

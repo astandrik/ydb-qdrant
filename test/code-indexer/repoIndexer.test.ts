@@ -17,6 +17,9 @@ import type {
     GitHubContentClient,
     GitHubContentClientFactory,
     GitHubFileEntry,
+    GitHubRepositorySnapshot,
+    GitHubRepositorySnapshotContent,
+    GitHubRepositorySnapshotFile,
     IndexedCodeChunk,
     IndexingJob,
     IndexingProgressStore,
@@ -67,6 +70,42 @@ class FakeGitHubClient implements GitHubContentClient {
     }): Promise<GitHubFileEntry[]> {
         this.listRequests.push({ owner: params.owner, repo: params.repo });
         return Promise.resolve(this.files);
+    }
+}
+
+class FakeRepositorySnapshot implements GitHubRepositorySnapshot {
+    closed = false;
+
+    constructor(
+        readonly files: GitHubRepositorySnapshotFile[],
+        private readonly contents: Map<string, GitHubRepositorySnapshotContent | null>
+    ) {}
+
+    close(): Promise<void> {
+        this.closed = true;
+        return Promise.resolve();
+    }
+
+    getFileContent(path: string): Promise<GitHubRepositorySnapshotContent | null> {
+        return Promise.resolve(this.contents.get(path) ?? null);
+    }
+}
+
+class FakeSnapshotGitHubClient extends FakeGitHubClient {
+    readonly snapshotRequests: Array<{ owner: string; ref: string; repo: string }> =
+        [];
+    snapshot: FakeRepositorySnapshot | null = null;
+
+    getRepositorySnapshot(params: {
+        owner: string;
+        ref: string;
+        repo: string;
+    }): Promise<GitHubRepositorySnapshot> {
+        this.snapshotRequests.push(params);
+        if (!this.snapshot) {
+            throw new Error("missing fake repository snapshot");
+        }
+        return Promise.resolve(this.snapshot);
     }
 }
 
@@ -212,6 +251,7 @@ class FakeProgressStore implements IndexingProgressStore {
 
 const embeddingProvider: EmbeddingProvider = {
     dimension: 3,
+    fingerprint: "test-embedding:v1:dimension=3",
     embedDocuments: vi.fn((texts: string[]) =>
         Promise.resolve(texts.map(() => [1, 0, 0]))
     ),
@@ -220,10 +260,11 @@ const embeddingProvider: EmbeddingProvider = {
 
 const defaultTestChunker = new LineWindowChunker();
 const defaultTestChunkingOptions = { chunkLines: 2, overlapLines: 0 };
-const defaultIndexingFingerprint = indexingFingerprintForChunker(
+const defaultChunkerFingerprint = indexingFingerprintForChunker(
     defaultTestChunker,
     defaultTestChunkingOptions
 );
+const defaultIndexingFingerprint = `chunker:${defaultChunkerFingerprint}|embedding:${embeddingProvider.fingerprint}`;
 
 function makeDefaultManifest(
     files: RepoIndexManifest["files"] = [],
@@ -247,7 +288,9 @@ function buildIndexer(
     chunker: CodeChunker = defaultTestChunker,
     statusStore?: FakeStatusStore,
     quota?: CodeIndexerQuota,
-    progressStore?: IndexingProgressStore
+    progressStore?: IndexingProgressStore,
+    provider: EmbeddingProvider = embeddingProvider,
+    extraOptions: Record<string, unknown> = {}
 ): RepoIndexer {
     const clientFactory: GitHubContentClientFactory = {
         forInstallation: vi.fn(() => Promise.resolve(client)),
@@ -255,9 +298,9 @@ function buildIndexer(
     return new RepoIndexer({
         clientFactory,
         chunker,
-        embeddingProvider,
+        embeddingProvider: provider,
         manifestStore,
-        options: defaultTestChunkingOptions,
+        options: { ...defaultTestChunkingOptions, ...extraOptions } as never,
         progressStore,
         quota,
         statusStore,
@@ -321,6 +364,67 @@ describe("code-indexer repo indexer", () => {
                 sha: "commit-1",
                 userUid: "gh_installation_7",
             },
+        ]);
+    });
+
+    it("full-index reads repository files from a snapshot when the GitHub client provides one", async () => {
+        const client = new FakeSnapshotGitHubClient();
+        client.snapshot = new FakeRepositorySnapshot(
+            [
+                { path: "src/server.ts", size: 50 },
+                { path: "node_modules/pkg/index.js", size: 50 },
+            ],
+            new Map([
+                [
+                    "src/server.ts",
+                    {
+                        blobSha: "archive-blob-1",
+                        content: "line1\nline2\nline3",
+                    },
+                ],
+                [
+                    "node_modules/pkg/index.js",
+                    {
+                        blobSha: "archive-blob-2",
+                        content: "ignored",
+                    },
+                ],
+            ])
+        );
+        const store = new FakeStore();
+        const manifestStore = new FakeManifestStore();
+        const indexer = buildIndexer(client, store, manifestStore);
+
+        await indexer.processJob({
+            deliveryId: "delivery-1",
+            installationId: 7,
+            kind: "full-index",
+            reason: "test",
+            ref: "main",
+            repository: repository(),
+            sha: "commit-1",
+        });
+
+        expect(client.snapshotRequests).toEqual([
+            { owner: "octo", ref: "commit-1", repo: "demo" },
+        ]);
+        expect(client.listRequests).toEqual([]);
+        expect(client.contentRequests).toEqual([
+            { owner: "octo", path: REPO_CONFIG_PATH, repo: "demo" },
+        ]);
+        expect(client.snapshot.closed).toBe(true);
+        expect(store.upserts[0].chunks).toMatchObject([
+            {
+                blobSha: "archive-blob-1",
+                path: "src/server.ts",
+            },
+            {
+                blobSha: "archive-blob-1",
+                path: "src/server.ts",
+            },
+        ]);
+        expect(manifestStore.saved[0].files).toEqual([
+            { blobSha: "archive-blob-1", path: "src/server.ts" },
         ]);
     });
 
@@ -414,23 +518,25 @@ describe("code-indexer repo indexer", () => {
                 totalFiles: 1,
             },
         });
-        expect(progressStore.updates).toContainEqual({
-            jobId: "job-1",
-            update: {
-                currentPath: "src/server.ts",
-                phase: "embedding",
-                totalChunks: 2,
-            },
-        });
-        expect(progressStore.updates).toContainEqual({
-            jobId: "job-1",
-            update: {
-                currentPath: "src/server.ts",
-                phase: "processing_files",
-                processedChunks: 2,
-                processedFiles: 1,
-            },
-        });
+        expect(
+            progressStore.updates.some(
+                (entry) =>
+                    entry.jobId === "job-1" &&
+                    entry.update.currentPath === "src/server.ts" &&
+                    entry.update.phase === "embedding" &&
+                    entry.update.totalChunks === 2
+            )
+        ).toBe(true);
+        expect(
+            progressStore.updates.some(
+                (entry) =>
+                    entry.jobId === "job-1" &&
+                    entry.update.currentPath === "src/server.ts" &&
+                    entry.update.phase === "processing_files" &&
+                    entry.update.processedChunks === 2 &&
+                    entry.update.processedFiles === 1
+            )
+        ).toBe(true);
     });
 
     it("rejects full indexing before content reads when the file quota is exceeded", async () => {
@@ -527,6 +633,93 @@ describe("code-indexer repo indexer", () => {
                 startLine: 4,
                 text: "custom semantic chunk",
             },
+        ]);
+    });
+
+    it("batches embeddings across files during full indexing", async () => {
+        const client = new FakeGitHubClient();
+        client.files = [
+            { path: "src/a.ts", sha: "blob-a", size: 50 },
+            { path: "src/b.ts", sha: "blob-b", size: 50 },
+            { path: "src/c.ts", sha: "blob-c", size: 50 },
+        ];
+        client.contents.set("src/a.ts", "a");
+        client.contents.set("src/b.ts", "b");
+        client.contents.set("src/c.ts", "c");
+        const chunker: CodeChunker = {
+            chunkFile: vi.fn(({ path }: { path: string }) => [
+                {
+                    chunkIndex: 0,
+                    endLine: 1,
+                    language: "TypeScript",
+                    path,
+                    pathSegments: path.split("/"),
+                    startLine: 1,
+                    text: `${path}:one`,
+                },
+                {
+                    chunkIndex: 1,
+                    endLine: 2,
+                    language: "TypeScript",
+                    path,
+                    pathSegments: path.split("/"),
+                    startLine: 2,
+                    text: `${path}:two`,
+                },
+            ]),
+        };
+        const embedDocuments = vi.fn((texts: string[]) =>
+            Promise.resolve(texts.map(() => [1, 0, 0]))
+        );
+        const provider: EmbeddingProvider = {
+            dimension: 3,
+            fingerprint: "test-embedding:v1:dimension=3",
+            embedDocuments,
+            embedQuery: vi.fn(() => Promise.resolve([1, 0, 0])),
+        };
+        const store = new FakeStore();
+        const indexer = buildIndexer(
+            client,
+            store,
+            new FakeManifestStore(),
+            chunker,
+            undefined,
+            undefined,
+            undefined,
+            provider,
+            {
+                embeddingBatchSize: 3,
+                fileConcurrency: 2,
+            }
+        );
+
+        await indexer.processJob({
+            deliveryId: "delivery-1",
+            installationId: 7,
+            kind: "full-index",
+            reason: "test",
+            ref: "main",
+            repository: repository(),
+            sha: "commit-1",
+        });
+
+        expect(embedDocuments).toHaveBeenCalledTimes(2);
+        expect(embedDocuments.mock.calls.map(([texts]) => texts)).toEqual([
+            ["src/a.ts:one", "src/a.ts:two", "src/b.ts:one"],
+            ["src/b.ts:two", "src/c.ts:one", "src/c.ts:two"],
+        ]);
+        expect(store.upserts).toHaveLength(2);
+        expect(store.upserts.map((upsert) => upsert.chunks)).toEqual([
+            expect.arrayContaining([
+                expect.objectContaining({ path: "src/a.ts", text: "src/a.ts:one" }),
+                expect.objectContaining({ path: "src/a.ts", text: "src/a.ts:two" }),
+                expect.objectContaining({ path: "src/b.ts", text: "src/b.ts:one" }),
+            ]),
+            expect.arrayContaining([
+                expect.objectContaining({ path: "src/b.ts", text: "src/b.ts:two" }),
+                expect.objectContaining({ path: "src/c.ts", text: "src/c.ts:one" }),
+                expect.objectContaining({ path: "src/c.ts", text: "src/c.ts:two" }),
+            ]),
         ]);
     });
 
@@ -658,9 +851,17 @@ describe("code-indexer repo indexer", () => {
     it("falls back to full reindex when the manifest fingerprint is legacy or stale", async () => {
         const legacyManifest = makeDefaultManifest();
         delete legacyManifest.indexingFingerprint;
+        const chunkerOnlyManifest = makeDefaultManifest(
+            [{ blobSha: "old-blob", path: "src/server.ts" }],
+            defaultChunkerFingerprint
+        );
         const staleManifest = makeDefaultManifest([], "old-fingerprint");
 
-        for (const manifest of [legacyManifest, staleManifest]) {
+        for (const manifest of [
+            legacyManifest,
+            chunkerOnlyManifest,
+            staleManifest,
+        ]) {
             const client = new FakeGitHubClient();
             client.files = [{ path: "src/server.ts", sha: "blob-1", size: 50 }];
             client.contents.set("src/server.ts", "export const value = 1;");
@@ -690,6 +891,65 @@ describe("code-indexer repo indexer", () => {
                 sha: "b".repeat(40),
             });
         }
+    });
+
+    it("falls back to full reindex when the embedding fingerprint changes", async () => {
+        const client = new FakeGitHubClient();
+        client.files = [{ path: "src/server.ts", sha: "blob-1", size: 50 }];
+        client.contents.set("src/server.ts", "export const value = 1;");
+        const store = new FakeStore();
+        const manifestStore = new FakeManifestStore();
+        manifestStore.seed(
+            makeDefaultManifest(
+                [{ blobSha: "old-blob", path: "src/server.ts" }],
+                `chunker:${defaultChunkerFingerprint}|embedding:test-embedding:v1:dimension=1536`
+            )
+        );
+        const provider512: EmbeddingProvider = {
+            dimension: 512,
+            fingerprint: "test-embedding:v1:dimension=512",
+            embedDocuments: vi.fn((texts: string[]) =>
+                Promise.resolve(texts.map(() => [1, 0, 0]))
+            ),
+            embedQuery: vi.fn(() => Promise.resolve([1, 0, 0])),
+        };
+        const indexer = buildIndexer(
+            client,
+            store,
+            manifestStore,
+            defaultTestChunker,
+            undefined,
+            undefined,
+            undefined,
+            provider512
+        );
+
+        await indexer.processJob({
+            after: "b".repeat(40),
+            before: "a".repeat(40),
+            created: false,
+            deleted: false,
+            forced: false,
+            installationId: 7,
+            kind: "incremental-push",
+            ref: "refs/heads/main",
+            repository: repository(),
+        });
+
+        expect(client.compareCalls).toBe(0);
+        expect(store.resetCollections).toEqual([
+            {
+                collection: "gh_repo_42_default",
+                dimension: 512,
+                userUid: "gh_installation_7",
+            },
+        ]);
+        expect(store.ensuredCollections).toEqual([]);
+        expect(manifestStore.saved.at(-1)).toMatchObject({
+            files: [{ blobSha: "blob-1", path: "src/server.ts" }],
+            indexingFingerprint: `chunker:${defaultChunkerFingerprint}|embedding:test-embedding:v1:dimension=512`,
+            sha: "b".repeat(40),
+        });
     });
 
     it("falls back to full-index for forced pushes", async () => {
@@ -765,6 +1025,34 @@ describe("code-indexer repo indexer", () => {
             sha: "c".repeat(40),
             userUid: "gh_installation_7",
         });
+    });
+
+    it("does not update default-branch repository status for PR index jobs", async () => {
+        const client = new FakeGitHubClient();
+        client.files = [{ path: "src/pr.ts", sha: "blob-pr", size: 20 }];
+        client.contents.set("src/pr.ts", "export const pr = true;");
+        const store = new FakeStore();
+        const statusStore = new FakeStatusStore();
+        const indexer = buildIndexer(
+            client,
+            store,
+            new FakeManifestStore(),
+            defaultTestChunker,
+            statusStore
+        );
+
+        await indexer.processJob({
+            baseRef: "main",
+            headRef: "feature",
+            headSha: "c".repeat(40),
+            installationId: 7,
+            kind: "pr-index",
+            prNumber: 3,
+            repository: repository(),
+            sourceRepository: repository(),
+        });
+
+        expect(statusStore.statusUpdates).toEqual([]);
     });
 
     it("deletes repo collections and manifests together", async () => {
@@ -874,12 +1162,14 @@ describe("code-indexer repo indexer", () => {
             "src/keep.ts",
             "package-lock.json",
         ]);
-        expect(store.upserts).toHaveLength(2);
-        expect(store.upserts[0].chunks).toMatchObject([
-            { path: "src/keep.ts", text: "line1" },
-            { path: "src/keep.ts", text: "line2" },
-        ]);
-        expect(store.upserts[1].chunks[0]).toMatchObject({
+        const upsertedChunks = store.upserts.flatMap((upsert) => upsert.chunks);
+        expect(upsertedChunks).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ path: "src/keep.ts", text: "line1" }),
+                expect.objectContaining({ path: "src/keep.ts", text: "line2" }),
+            ])
+        );
+        expect(upsertedChunks.at(-1)).toMatchObject({
             path: "package-lock.json",
         });
         expect(manifestStore.saved.at(-1)?.files).toEqual([

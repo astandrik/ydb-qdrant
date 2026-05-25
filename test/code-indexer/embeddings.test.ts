@@ -16,6 +16,8 @@ describe("code-indexer embeddings", () => {
     it("creates deterministic normalized hash embeddings", async () => {
         const provider = new HashEmbeddingProvider(8);
 
+        expect(provider.fingerprint).toBe("hash:v1:dimension=8");
+
         const first = await provider.embedQuery("hello world");
         const second = await provider.embedQuery("hello world");
 
@@ -55,6 +57,8 @@ describe("code-indexer embeddings", () => {
             [1, 0],
             [0, 1],
         ]);
+        expect(provider.fingerprint).toContain("http-json:v1");
+        expect(provider.fingerprint).toContain("dimension=2");
         expect(fetchCalls[0]?.[1]).toMatchObject({
             headers: {
                 Authorization: "Bearer test-key",
@@ -109,6 +113,11 @@ describe("code-indexer embeddings", () => {
             model: "text-embedding-3-small",
         });
 
+        expect(provider.fingerprint).toBe(
+            "openai:v1:model=text-embedding-3-small:dimension=2:dimensions=default:url=https://api.openai.com/v1/embeddings"
+        );
+        expect(provider.fingerprint).not.toContain("openai-key");
+
         await expect(provider.embedDocuments(["alpha", "beta"])).resolves.toEqual([
             [1, 0],
             [0, 1],
@@ -144,7 +153,15 @@ describe("code-indexer embeddings", () => {
                 );
             }) as typeof fetch,
             model: "text-embedding-3-small",
+            url: "https://user:pass@proxy.test/__openai/v1/embeddings?token=secret",
         });
+
+        expect(provider.fingerprint).toBe(
+            "openai:v1:model=text-embedding-3-small:dimension=2:dimensions=2:url=https://proxy.test/__openai/v1/embeddings"
+        );
+        expect(provider.fingerprint).not.toContain("openai-key");
+        expect(provider.fingerprint).not.toContain("secret");
+        expect(provider.fingerprint).not.toContain("user:pass");
 
         await expect(provider.embedQuery("alpha")).resolves.toEqual([1, 0]);
         expect(readJsonRequestBody(fetchCalls[0])).toEqual({
@@ -152,6 +169,31 @@ describe("code-indexer embeddings", () => {
             input: ["alpha"],
             model: "text-embedding-3-small",
         });
+    });
+
+    it("aborts OpenAI embedding requests after the configured timeout", async () => {
+        let signal: AbortSignal | undefined;
+        const provider = new OpenAiEmbeddingProvider({
+            apiKey: "openai-key",
+            dimension: 2,
+            fetchImpl: ((_url: unknown, init: RequestInit | undefined) => {
+                signal = init?.signal as AbortSignal | undefined;
+                return new Promise<Response>((_resolve, reject) => {
+                    signal?.addEventListener("abort", () => {
+                        reject(new DOMException("aborted", "AbortError"));
+                    });
+                });
+            }) as typeof fetch,
+            model: "text-embedding-3-small",
+            timeoutMs: 10,
+        });
+
+        const request = provider.embedQuery("alpha");
+
+        expect(signal).toBeInstanceOf(AbortSignal);
+        await expect(request).rejects.toThrow(
+            "OpenAI embedding request timed out after 10ms"
+        );
     });
 
     it("rejects OpenAI HTTP failures and dimension mismatches", async () => {

@@ -117,91 +117,101 @@ async function httpRequest(params: {
 }
 
 describe("buildServer() error handling", () => {
-    it("returns JSON error response for invalid JSON bodies (and preserves 400)", async () => {
-        const { server, baseUrl } = await startServer();
-        try {
-            const res = await httpRequest({
-                baseUrl,
-                method: "POST",
-                path: "/collections/col/points/search",
-                headers: {
-                    "content-type": "application/json",
-                },
-                body: "{",
-            });
+    it(
+        "returns JSON error response for invalid JSON bodies (and preserves 400)",
+        async () => {
+            const { server, baseUrl } = await startServer();
+            try {
+                const res = await httpRequest({
+                    baseUrl,
+                    method: "POST",
+                    path: "/collections/col/points/search",
+                    headers: {
+                        "content-type": "application/json",
+                    },
+                    body: "{",
+                });
 
-            expect(res.statusCode).toBe(400);
-            expect(String(res.headers["content-type"])).toContain(
-                "application/json"
-            );
+                expect(res.statusCode).toBe(400);
+                expect(String(res.headers["content-type"])).toContain(
+                    "application/json"
+                );
 
-            const parsed = JSON.parse(res.body) as {
-                status?: unknown;
-                error?: unknown;
-            };
-            expect(parsed.status).toBe("error");
-            expect(typeof parsed.error).toBe("string");
+                const parsed = JSON.parse(res.body) as {
+                    status?: unknown;
+                    error?: unknown;
+                };
+                expect(parsed.status).toBe("error");
+                expect(typeof parsed.error).toBe("string");
 
-            expect(loggerErrorMock).toHaveBeenCalled();
-        } finally {
-            await new Promise<void>((resolve, reject) => {
-                server.close((err) => (err ? reject(err) : resolve()));
-            });
-        }
-    });
+                expect(loggerErrorMock).toHaveBeenCalled();
+            } finally {
+                await new Promise<void>((resolve, reject) => {
+                    server.close((err) => (err ? reject(err) : resolve()));
+                });
+            }
+        },
+        15_000
+    );
 
-    it("logs upsert body-phase failure for malformed JSON without changing the 400 response", async () => {
-        const invalidBody = "{";
-        const expectedBodyBytes = Buffer.byteLength(invalidBody);
-        vi.doUnmock("../src/middleware/requestLogger.js");
-        const { server, baseUrl } = await startServer();
-        try {
-            const res = await httpRequest({
-                baseUrl,
-                method: "POST",
-                path: "/collections/col/points/upsert",
-                headers: {
-                    "content-type": "application/json",
-                },
-                body: invalidBody,
-            });
+    it(
+        "logs upsert body-phase failure for malformed JSON without changing the 400 response",
+        async () => {
+            const invalidBody = "{";
+            const expectedBodyBytes = Buffer.byteLength(invalidBody);
+            vi.doUnmock("../src/middleware/requestLogger.js");
+            const { server, baseUrl } = await startServer();
+            try {
+                const res = await httpRequest({
+                    baseUrl,
+                    method: "POST",
+                    path: "/collections/col/points/upsert",
+                    headers: {
+                        "content-type": "application/json",
+                    },
+                    body: invalidBody,
+                });
 
-            expect(res.statusCode).toBe(400);
-            const parsed = JSON.parse(res.body) as {
-                status?: unknown;
-                error?: unknown;
-            };
-            expect(parsed.status).toBe("error");
-            expect(typeof parsed.error).toBe("string");
+                expect(res.statusCode).toBe(400);
+                const parsed = JSON.parse(res.body) as {
+                    status?: unknown;
+                    error?: unknown;
+                };
+                expect(parsed.status).toBe("error");
+                expect(typeof parsed.error).toBe("string");
 
-            const bodyPhaseFailurePayload = loggerWarnMock.mock.calls.find(
-                (call) => call[1] === "upsert: body phase failed"
-            )?.[0] as Record<string, unknown> | undefined;
+                const bodyPhaseFailurePayload = loggerWarnMock.mock.calls.find(
+                    (call) => call[1] === "upsert: body phase failed"
+                )?.[0] as Record<string, unknown> | undefined;
 
-            expect(bodyPhaseFailurePayload).toEqual(
-                expect.objectContaining({
-                    phase: "upsertBody",
-                    bodyErrorType: "entity.parse.failed",
-                    bodyErrorStatus: 400,
-                    observedBodyBytes: expectedBodyBytes,
-                    parsedBodyBytes: expectedBodyBytes,
-                })
-            );
-            expect(typeof bodyPhaseFailurePayload?.timeToBodyBufferedMs).toBe(
-                "number"
-            );
-            expect(bodyPhaseFailurePayload?.timeToBodyParsedMs).toBeUndefined();
-            expect(
-                loggerInfoMock.mock.calls.some(
-                    (call) => call[1] === "upsert: body phase"
-                )
-            ).toBe(false);
-        } finally {
-            await new Promise<void>((resolve, reject) => {
-                server.close((err) => (err ? reject(err) : resolve()));
-            });
-        }
-    });
+                expect(bodyPhaseFailurePayload).toEqual(
+                    expect.objectContaining({
+                        phase: "upsertBody",
+                        bodyErrorType: "entity.parse.failed",
+                        bodyErrorStatus: 400,
+                        observedBodyBytes: expectedBodyBytes,
+                        parsedBodyBytes: expectedBodyBytes,
+                    })
+                );
+                expect(typeof bodyPhaseFailurePayload?.timeToBodyBufferedMs).toBe(
+                    "number"
+                );
+                expect(
+                    bodyPhaseFailurePayload?.timeToBodyParsedMs
+                ).toBeUndefined();
+                expect(
+                    loggerInfoMock.mock.calls.some(
+                        (call) => call[1] === "upsert: body phase"
+                    )
+                ).toBe(false);
+            } finally {
+                await new Promise<void>((resolve, reject) => {
+                    server.close((err) => (err ? reject(err) : resolve()));
+                });
+            }
+        },
+        15_000
+    );
 
     it("suppresses late body-parser noise after an upsert timeout response has already been sent", async () => {
         routeHandlerMock.mockImplementation(

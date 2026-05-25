@@ -42,6 +42,11 @@ export type StoredGitHubUser = {
     refreshToken?: string;
 };
 
+export type StoredGitHubUserSummary = {
+    githubUserId: string;
+    login: string;
+};
+
 export type CodeIndexerSession = {
     githubUserId: string;
     sessionId: string;
@@ -107,6 +112,17 @@ let saasTablesReadyInFlight: Promise<void> | null = null;
 
 function normalizeId(value: number | string): string {
     return String(value);
+}
+
+function normalizeAdminLimit(
+    value: number | undefined,
+    defaultValue: number,
+    maxValue: number
+): number {
+    if (value === undefined) {
+        return defaultValue;
+    }
+    return Math.max(1, Math.min(maxValue, Math.floor(value)));
 }
 
 function isTableNotFoundError(err: unknown): boolean {
@@ -562,6 +578,37 @@ export class YdbCodeIndexerSaasStore {
         };
     }
 
+    async listAdminGitHubUsers(params?: {
+        limit?: number;
+    }): Promise<StoredGitHubUserSummary[]> {
+        await ensureCodeIndexerSaasTables();
+        const limit = normalizeAdminLimit(params?.limit, 1_000, 10_000);
+        const yql = `
+            SELECT
+                github_user_id,
+                login
+            FROM ${CODE_INDEXER_USERS_TABLE}
+            ORDER BY login
+            LIMIT ${limit};
+        `;
+        const result = await withSession(async (session) => {
+            return (await session.executeQuery(
+                yql,
+                {},
+                undefined,
+                createExecuteQuerySettings()
+            )) as ExecuteQueryResultLike;
+        });
+        return (result.resultSets?.[0]?.rows ?? []).map((row) => {
+            const githubUserId = readText(row, 0);
+            const login = readText(row, 1);
+            if (!githubUserId || !login) {
+                throw new Error("stored code-indexer user row is invalid");
+            }
+            return { githubUserId, login };
+        });
+    }
+
     async createSession(params: {
         expiresAt: Date;
         githubUserId: number | string;
@@ -794,6 +841,33 @@ export class YdbCodeIndexerSaasStore {
         return (result.resultSets?.[0]?.rows ?? []).map(parseInstallationRow);
     }
 
+    async listAdminInstallations(params?: {
+        limit?: number;
+    }): Promise<CodeIndexerInstallationRecord[]> {
+        await ensureCodeIndexerSaasTables();
+        const limit = normalizeAdminLimit(params?.limit, 1_000, 10_000);
+        const yql = `
+            SELECT
+                installation_id,
+                account_login,
+                account_type,
+                created_by_github_user_id,
+                status
+            FROM ${CODE_INDEXER_INSTALLATIONS_TABLE}
+            ORDER BY account_login
+            LIMIT ${limit};
+        `;
+        const result = await withSession(async (session) => {
+            return (await session.executeQuery(
+                yql,
+                {},
+                undefined,
+                createExecuteQuerySettings()
+            )) as ExecuteQueryResultLike;
+        });
+        return (result.resultSets?.[0]?.rows ?? []).map(parseInstallationRow);
+    }
+
     async deleteInstallation(installationId: number | string): Promise<void> {
         await ensureCodeIndexerSaasTables();
         const yql = `
@@ -1004,6 +1078,38 @@ export class YdbCodeIndexerSaasStore {
         return (result.resultSets?.[0]?.rows ?? []).map(parseRepositoryRow);
     }
 
+    async listAdminRepositories(params?: {
+        limit?: number;
+    }): Promise<CodeIndexerRepositoryRecord[]> {
+        await ensureCodeIndexerSaasTables();
+        const limit = normalizeAdminLimit(params?.limit, 1_000, 10_000);
+        const yql = `
+            SELECT
+                repo_id,
+                installation_id,
+                owner,
+                repo,
+                default_branch,
+                status,
+                last_indexed_sha,
+                last_indexed_at,
+                chunk_count,
+                last_error
+            FROM ${CODE_INDEXER_REPOSITORIES_TABLE}
+            ORDER BY owner, repo
+            LIMIT ${limit};
+        `;
+        const result = await withSession(async (session) => {
+            return (await session.executeQuery(
+                yql,
+                {},
+                undefined,
+                createExecuteQuerySettings()
+            )) as ExecuteQueryResultLike;
+        });
+        return (result.resultSets?.[0]?.rows ?? []).map(parseRepositoryRow);
+    }
+
     async deleteRepositoriesForInstallation(
         installationId: number | string
     ): Promise<void> {
@@ -1129,6 +1235,45 @@ export class YdbCodeIndexerSaasStore {
             }
             return {
                 githubUserId: rowGithubUserId,
+                name,
+                revoked: readBool(row, 3) ?? false,
+                tokenId,
+            };
+        });
+    }
+
+    async listAdminApiTokens(params?: {
+        limit?: number;
+    }): Promise<CodeIndexerApiTokenRecord[]> {
+        await ensureCodeIndexerSaasTables();
+        const limit = normalizeAdminLimit(params?.limit, 1_000, 10_000);
+        const yql = `
+            SELECT
+                token_id,
+                github_user_id,
+                name,
+                revoked_at IS NOT NULL AS revoked
+            FROM ${CODE_INDEXER_API_TOKENS_TABLE}
+            ORDER BY created_at DESC
+            LIMIT ${limit};
+        `;
+        const result = await withSession(async (session) => {
+            return (await session.executeQuery(
+                yql,
+                {},
+                undefined,
+                createExecuteQuerySettings()
+            )) as ExecuteQueryResultLike;
+        });
+        return (result.resultSets?.[0]?.rows ?? []).map((row) => {
+            const tokenId = readText(row, 0);
+            const githubUserId = readText(row, 1);
+            const name = readText(row, 2);
+            if (!tokenId || !githubUserId || !name) {
+                throw new Error("stored code-indexer API token row is invalid");
+            }
+            return {
+                githubUserId,
                 name,
                 revoked: readBool(row, 3) ?? false,
                 tokenId,

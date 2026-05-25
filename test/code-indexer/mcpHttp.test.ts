@@ -11,8 +11,11 @@ import type {
 } from "../../src/code-indexer/types.js";
 
 type TestRepository = {
+    chunkCount?: number;
     defaultBranch: string;
     installationId: string;
+    lastIndexedAt?: Date;
+    lastIndexedSha?: string;
     owner: string;
     repo: string;
     repoId: string;
@@ -29,9 +32,12 @@ function createMcpStore() {
     const repository: TestRepository = {
         defaultBranch: "main",
         installationId: "777",
+        lastIndexedAt: new Date("2026-05-25T13:58:00.000Z"),
+        lastIndexedSha: "abc123",
         owner: "astandrik",
         repo: "local-ydb-toolkit",
         repoId: "456",
+        chunkCount: 909,
         status: "ready",
     };
     return {
@@ -113,7 +119,35 @@ function createBaseDeps() {
             })
         ),
     };
-    return { deliveryStore, embeddingProvider, indexStore, queue, search };
+    const progressStore = {
+        listJobsForRepository: vi.fn(() =>
+            Promise.resolve([
+                {
+                    createdAt: new Date("2026-05-25T14:00:00.000Z"),
+                    installationId: "777",
+                    jobId: "delivery-pr:job",
+                    jobKind: "pr-index",
+                    owner: "astandrik",
+                    phase: "completed",
+                    prNumber: 71,
+                    processedChunks: 12,
+                    processedFiles: 3,
+                    repo: "local-ydb-toolkit",
+                    repoId: "456",
+                    status: "completed",
+                    updatedAt: new Date("2026-05-25T14:01:00.000Z"),
+                },
+            ])
+        ),
+    };
+    return {
+        deliveryStore,
+        embeddingProvider,
+        indexStore,
+        progressStore,
+        queue,
+        search,
+    };
 }
 
 async function startMcpServer(): Promise<{
@@ -131,8 +165,9 @@ async function startMcpServer(): Promise<{
             accessStore: store,
             allowedOrigins: ["https://ydb-qdrant.tech"],
             embeddingProvider: deps.embeddingProvider,
+            progressStore: deps.progressStore,
             store: deps.indexStore,
-        },
+        } as never,
         queue: deps.queue,
         store: deps.indexStore,
         webhookSecret: "webhook-secret",
@@ -289,10 +324,113 @@ describe("code-indexer hosted MCP HTTP endpoint", () => {
                     serverInfo: { name: "ydb-qdrant-code-indexer" },
                 },
             });
-            expect(JSON.parse(tools.body)).toMatchObject({
+            const toolsBody = JSON.parse(tools.body) as {
+                id: number;
+                result: { tools: Array<{ name: string }> };
+            };
+            expect(toolsBody).toMatchObject({
                 id: 2,
+            });
+            expect(toolsBody.result.tools.map((tool) => tool.name)).toEqual([
+                "list_repositories",
+                "list_repository_indexes",
+                "search_code",
+            ]);
+        } finally {
+            await closeServer(server);
+        }
+    });
+
+    it("lists accessible repositories over hosted MCP", async () => {
+        const { baseUrl, server, store } = await startMcpServer();
+        try {
+            const response = await request({
+                baseUrl,
+                body: {
+                    id: "repos",
+                    jsonrpc: "2.0",
+                    method: "tools/call",
+                    params: {
+                        arguments: {},
+                        name: "list_repositories",
+                    },
+                },
+                token: "valid-token",
+            });
+
+            expect(response.statusCode).toBe(200);
+            expect(store.listInstallationsForUser).toHaveBeenCalledWith("123");
+            expect(store.listRepositoriesForInstallation).toHaveBeenCalledWith(
+                "777"
+            );
+            expect(JSON.parse(response.body)).toMatchObject({
+                id: "repos",
                 result: {
-                    tools: [{ name: "search_code" }],
+                    structuredContent: {
+                        repositories: [
+                            {
+                                chunkCount: 909,
+                                defaultBranch: "main",
+                                installationId: 777,
+                                owner: "astandrik",
+                                repo: "local-ydb-toolkit",
+                                repoId: 456,
+                                status: "ready",
+                            },
+                        ],
+                    },
+                },
+            });
+        } finally {
+            await closeServer(server);
+        }
+    });
+
+    it("lists branch and pull request indexes over hosted MCP", async () => {
+        const { baseUrl, deps, server } = await startMcpServer();
+        try {
+            const response = await request({
+                baseUrl,
+                body: {
+                    id: "indexes",
+                    jsonrpc: "2.0",
+                    method: "tools/call",
+                    params: {
+                        arguments: {
+                            owner: "astandrik",
+                            repo: "local-ydb-toolkit",
+                        },
+                        name: "list_repository_indexes",
+                    },
+                },
+                token: "valid-token",
+            });
+
+            expect(response.statusCode).toBe(200);
+            expect(deps.progressStore.listJobsForRepository).toHaveBeenCalledWith({
+                installationId: "777",
+                limit: 25,
+                repoId: "456",
+            });
+            expect(JSON.parse(response.body)).toMatchObject({
+                id: "indexes",
+                result: {
+                    structuredContent: {
+                        repository: {
+                            defaultBranch: {
+                                branch: "main",
+                                collection: "gh_repo_456_default",
+                                status: "ready",
+                            },
+                            pullRequests: [
+                                {
+                                    collection: "gh_repo_456_pr_71",
+                                    prNumber: 71,
+                                    status: "ready",
+                                },
+                            ],
+                        },
+                    },
                 },
             });
         } finally {

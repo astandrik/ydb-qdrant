@@ -75,14 +75,178 @@ describe("code-indexer MCP server", () => {
         expect(tools).toMatchObject({
             id: 2,
             jsonrpc: "2.0",
-            result: {
-                tools: [
+        });
+        const toolNames = (
+            tools.result as { tools: Array<{ name: string }> }
+        ).tools.map((tool) => tool.name);
+        expect(toolNames).toEqual(["search_code"]);
+    });
+
+    it("lists repositories available to the authenticated MCP token", async () => {
+        const { embeddingProvider, store } = makeServer();
+        const repositoryCatalog = {
+            listRepositories: vi.fn(() =>
+                Promise.resolve([
                     {
-                        name: "search_code",
+                        chunkCount: 909,
+                        defaultBranch: "main",
+                        installationId: 777,
+                        lastIndexedAt: "2026-05-25T13:58:00.000Z",
+                        lastIndexedSha: "abc123",
+                        owner: "astandrik",
+                        repo: "local-ydb-toolkit",
+                        repoId: 456,
+                        status: "ready",
+                    },
+                ])
+            ),
+            listRepositoryIndexes: vi.fn(),
+        };
+        const server = new CodeIndexerMcpServer({
+            embeddingProvider,
+            repositoryCatalog,
+            store,
+        } as never);
+
+        const init = await server.handleJsonRpcMessage(
+            JSON.stringify({
+                id: "init",
+                jsonrpc: "2.0",
+                method: "initialize",
+            }),
+            { githubUserId: "123" }
+        );
+        const instructions = (
+            init?.result as { instructions?: string } | undefined
+        )?.instructions;
+        expect(instructions).toContain("git remote");
+        expect(instructions).toContain("default branch");
+        expect(instructions).toContain("prNumber");
+
+        const result = await server.handleJsonRpcMessage(
+            JSON.stringify({
+                id: "repos",
+                jsonrpc: "2.0",
+                method: "tools/call",
+                params: {
+                    arguments: {},
+                    name: "list_repositories",
+                },
+            }),
+            { githubUserId: "123" }
+        );
+
+        expect(repositoryCatalog.listRepositories).toHaveBeenCalledWith({
+            githubUserId: "123",
+        });
+        expect(result).toMatchObject({
+            id: "repos",
+            jsonrpc: "2.0",
+            result: {
+                content: [
+                    {
+                        type: "text",
                     },
                 ],
+                structuredContent: {
+                    repositories: [
+                        {
+                            defaultBranch: "main",
+                            owner: "astandrik",
+                            repo: "local-ydb-toolkit",
+                            status: "ready",
+                        },
+                    ],
+                },
             },
         });
+        expect(JSON.stringify(result)).toContain("astandrik/local-ydb-toolkit");
+    });
+
+    it("lists branch and pull request indexes for an accessible repository", async () => {
+        const { embeddingProvider, store } = makeServer();
+        const repositoryCatalog = {
+            listRepositories: vi.fn(),
+            listRepositoryIndexes: vi.fn(() =>
+                Promise.resolve({
+                    defaultBranch: {
+                        branch: "main",
+                        chunkCount: 909,
+                        collection: "gh_repo_456_default",
+                        lastIndexedAt: "2026-05-25T13:58:00.000Z",
+                        lastIndexedSha: "abc123",
+                        status: "ready",
+                    },
+                    installationId: 777,
+                    owner: "astandrik",
+                    pullRequests: [
+                        {
+                            collection: "gh_repo_456_pr_71",
+                            jobId: "delivery:job",
+                            phase: "completed",
+                            prNumber: 71,
+                            status: "ready",
+                            updatedAt: "2026-05-25T14:01:00.000Z",
+                        },
+                    ],
+                    repo: "local-ydb-toolkit",
+                    repoId: 456,
+                })
+            ),
+        };
+        const server = new CodeIndexerMcpServer({
+            embeddingProvider,
+            repositoryCatalog,
+            store,
+        } as never);
+
+        const result = await server.handleJsonRpcMessage(
+            JSON.stringify({
+                id: "indexes",
+                jsonrpc: "2.0",
+                method: "tools/call",
+                params: {
+                    arguments: {
+                        owner: "astandrik",
+                        repo: "local-ydb-toolkit",
+                    },
+                    name: "list_repository_indexes",
+                },
+            }),
+            { githubUserId: "123" }
+        );
+
+        expect(repositoryCatalog.listRepositoryIndexes).toHaveBeenCalledWith({
+            githubUserId: "123",
+            owner: "astandrik",
+            repo: "local-ydb-toolkit",
+        });
+        expect(result).toMatchObject({
+            id: "indexes",
+            jsonrpc: "2.0",
+            result: {
+                content: [
+                    {
+                        type: "text",
+                    },
+                ],
+                structuredContent: {
+                    repository: {
+                        defaultBranch: {
+                            collection: "gh_repo_456_default",
+                        },
+                        pullRequests: [
+                            {
+                                collection: "gh_repo_456_pr_71",
+                                prNumber: 71,
+                                status: "ready",
+                            },
+                        ],
+                    },
+                },
+            },
+        });
+        expect(JSON.stringify(result)).toContain("Pull request #71");
     });
 
     it("calls the search_code tool and returns MCP content plus structuredContent", async () => {
@@ -130,6 +294,40 @@ describe("code-indexer MCP server", () => {
                 },
             },
         });
+    });
+
+    it("describes the hosted MCP agent workflow in tools/list", async () => {
+        const { embeddingProvider, store } = makeServer();
+        const server = new CodeIndexerMcpServer({
+            embeddingProvider,
+            repositoryCatalog: {
+                listRepositories: vi.fn(),
+                listRepositoryIndexes: vi.fn(),
+            },
+            store,
+        } as never);
+
+        const tools = await server.handleJsonRpcMessage(
+            JSON.stringify({
+                id: "tools",
+                jsonrpc: "2.0",
+                method: "tools/list",
+            }),
+            { githubUserId: "123" }
+        );
+
+        const descriptions = (
+            tools?.result as {
+                tools: Array<{ description: string; name: string }>;
+            }
+        ).tools.reduce<Record<string, string>>((acc, tool) => {
+            acc[tool.name] = tool.description;
+            return acc;
+        }, {});
+        expect(descriptions.list_repositories).toContain("token can search");
+        expect(descriptions.list_repository_indexes).toContain("PR-scoped");
+        expect(descriptions.search_code).toContain("git remote");
+        expect(descriptions.search_code).toContain("prNumber");
     });
 
     it("resolves owner and repo tool input through the access context", async () => {

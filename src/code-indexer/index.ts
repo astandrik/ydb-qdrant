@@ -64,6 +64,10 @@ function start(): void {
         manifestStore,
         options: {
             chunkLines: config.chunkLines,
+            embeddingBatchMaxChars: config.embeddingBatchMaxChars,
+            embeddingBatchSize: config.embeddingBatchSize,
+            embeddingConcurrency: config.embeddingConcurrency,
+            fileConcurrency: config.fileConcurrency,
             maxChunkChars: config.maxChunkChars,
             maxChangedFilesForIncremental: config.maxChangedFilesForIncremental,
             maxFileBytes: config.maxFileBytes,
@@ -129,10 +133,12 @@ function start(): void {
             accessStore: saasStore,
             allowedOrigins: config.allowedMcpOrigins,
             embeddingProvider,
+            progressStore,
             quota,
             store,
         },
         publicApi: {
+            adminGithubUserIds: config.adminGithubUserIds,
             indexStore: store,
             progressStore,
             quota,

@@ -67,6 +67,10 @@ describe("code-indexer config", () => {
 
         expect(loadCodeIndexerConfig()).toMatchObject({
             allowedMcpOrigins: ["https://ydb-qdrant.tech"],
+            embeddingBatchMaxChars: 200_000,
+            embeddingBatchSize: 64,
+            embeddingConcurrency: 2,
+            fileConcurrency: 4,
             jobConcurrency: 2,
             oauthStateTtlSeconds: 600,
             publicBaseUrl: "https://code-indexer.example.test",
@@ -89,6 +93,10 @@ describe("code-indexer config", () => {
         process.env.CODE_INDEXER_QUOTA_FILES_PER_REPO = "100";
         process.env.CODE_INDEXER_QUOTA_REPOS_PER_INSTALLATION = "3";
         process.env.CODE_INDEXER_QUOTA_SEARCHES_PER_USER_PER_DAY = "40";
+        process.env.CODE_INDEXER_FILE_CONCURRENCY = "8";
+        process.env.CODE_INDEXER_EMBEDDING_BATCH_SIZE = "32";
+        process.env.CODE_INDEXER_EMBEDDING_BATCH_MAX_CHARS = "100000";
+        process.env.CODE_INDEXER_EMBEDDING_CONCURRENCY = "3";
         process.env.CODE_INDEXER_JOB_CONCURRENCY = "4";
         process.env.CODE_INDEXER_SESSION_TTL_SECONDS = "3600";
         const { loadCodeIndexerConfig } = await loadConfigModule();
@@ -98,6 +106,10 @@ describe("code-indexer config", () => {
                 "https://app.example.test",
                 "https://ide.example.test",
             ],
+            embeddingBatchMaxChars: 100_000,
+            embeddingBatchSize: 32,
+            embeddingConcurrency: 3,
+            fileConcurrency: 8,
             jobConcurrency: 4,
             oauthStateTtlSeconds: 120,
             quotaChunksPerRepo: 250,

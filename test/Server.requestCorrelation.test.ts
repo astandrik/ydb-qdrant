@@ -149,18 +149,46 @@ async function stopServer(server: http.Server): Promise<void> {
 }
 
 describe("request log correlation", () => {
-    it("propagates request fields to route-level business logs", async () => {
-        const { server, baseUrl } = await startServer();
-        const requestId = "req-delete-123";
-        const path = "/collections/ws-f1f23ce743708ee1/points/delete";
+    it(
+        "propagates request fields to route-level business logs",
+        async () => {
+            const { server, baseUrl } = await startServer();
+            const requestId = "req-delete-123";
+            const path = "/collections/ws-f1f23ce743708ee1/points/delete";
 
-        mocks.routeHandler.mockImplementation(
-            async (_req: Request, res: Response) => {
-            const { logger } = await import("../src/logging/logger.js");
-            logger.info(
-                {
-                    collection: "ws-f1f23ce743708ee1",
-                    deleteRequestBody: {
+            mocks.routeHandler.mockImplementation(
+                async (_req: Request, res: Response) => {
+                    const { logger } = await import("../src/logging/logger.js");
+                    logger.info(
+                        {
+                            collection: "ws-f1f23ce743708ee1",
+                            deleteRequestBody: {
+                                filter: {
+                                    must: [
+                                        {
+                                            key: "pathSegments.0",
+                                            match: { value: "contrib" },
+                                        },
+                                    ],
+                                },
+                            },
+                        },
+                        "delete points request body"
+                    );
+                    res.json({ ok: true });
+                }
+            );
+
+            try {
+                const res = await httpRequest({
+                    baseUrl,
+                    method: "POST",
+                    path,
+                    headers: {
+                        "content-type": "application/json",
+                        "x-request-id": requestId,
+                    },
+                    body: JSON.stringify({
                         filter: {
                             must: [
                                 {
@@ -169,110 +197,97 @@ describe("request log correlation", () => {
                                 },
                             ],
                         },
+                    }),
+                });
+
+                expect(res.statusCode).toBe(200);
+                expect(res.headers["x-request-id"]).toBe(requestId);
+
+                await vi.waitFor(() => {
+                    expect(
+                        mocks.logs.find(
+                            (log) => log.message === "delete points request body"
+                        )
+                    ).toBeDefined();
+                });
+
+                const businessLog = mocks.logs.find(
+                    (log) => log.message === "delete points request body"
+                );
+                if (!businessLog) {
+                    throw new Error("expected route-level business log");
+                }
+
+                expect(businessLog.fields.requestId).toBe(requestId);
+                expect(businessLog.fields.method).toBe("POST");
+                expect(businessLog.fields.url).toBe(path);
+                expect(businessLog.fields.collection).toBe(
+                    "ws-f1f23ce743708ee1"
+                );
+            } finally {
+                await stopServer(server);
+            }
+        },
+        15_000
+    );
+
+    it(
+        "replaces unsafe X-Request-Id values before echoing or logging",
+        async () => {
+            const { server, baseUrl } = await startServer();
+            const unsafeRequestId = "bad request id";
+            const path = "/collections/ws-f1f23ce743708ee1/points/delete";
+
+            mocks.routeHandler.mockImplementation(
+                async (_req: Request, res: Response) => {
+                    const { logger } = await import("../src/logging/logger.js");
+                    logger.info("delete points request body");
+                    res.json({ ok: true });
+                }
+            );
+
+            try {
+                const res = await httpRequest({
+                    baseUrl,
+                    method: "POST",
+                    path,
+                    headers: {
+                        "content-type": "application/json",
+                        "x-request-id": unsafeRequestId,
                     },
-                },
-                "delete points request body"
-            );
-            res.json({ ok: true });
+                    body: JSON.stringify({ filter: { must: [] } }),
+                });
+
+                expect(res.statusCode).toBe(200);
+                expect(res.headers["x-request-id"]).not.toBe(unsafeRequestId);
+                expect(res.headers["x-request-id"]).toMatch(
+                    /^[0-9a-f-]{36}$/i
+                );
+
+                await vi.waitFor(() => {
+                    expect(
+                        mocks.logs.find(
+                            (log) => log.message === "delete points request body"
+                        )
+                    ).toBeDefined();
+                });
+
+                const businessLog = mocks.logs.find(
+                    (log) => log.message === "delete points request body"
+                );
+                if (!businessLog) {
+                    throw new Error("expected route-level business log");
+                }
+
+                expect(businessLog.fields.requestId).toBe(
+                    res.headers["x-request-id"]
+                );
+            } finally {
+                await stopServer(server);
             }
-        );
-
-        try {
-            const res = await httpRequest({
-                baseUrl,
-                method: "POST",
-                path,
-                headers: {
-                    "content-type": "application/json",
-                    "x-request-id": requestId,
-                },
-                body: JSON.stringify({
-                    filter: {
-                        must: [{ key: "pathSegments.0", match: { value: "contrib" } }],
-                    },
-                }),
-            });
-
-            expect(res.statusCode).toBe(200);
-            expect(res.headers["x-request-id"]).toBe(requestId);
-
-            await vi.waitFor(() => {
-                expect(
-                    mocks.logs.find(
-                        (log) => log.message === "delete points request body"
-                    )
-                ).toBeDefined();
-            });
-
-            const businessLog = mocks.logs.find(
-                (log) => log.message === "delete points request body"
-            );
-            if (!businessLog) {
-                throw new Error("expected route-level business log");
-            }
-
-            expect(businessLog.fields.requestId).toBe(requestId);
-            expect(businessLog.fields.method).toBe("POST");
-            expect(businessLog.fields.url).toBe(path);
-            expect(businessLog.fields.collection).toBe("ws-f1f23ce743708ee1");
-        } finally {
-            await stopServer(server);
-        }
-    });
-
-    it("replaces unsafe X-Request-Id values before echoing or logging", async () => {
-        const { server, baseUrl } = await startServer();
-        const unsafeRequestId = "bad request id";
-        const path = "/collections/ws-f1f23ce743708ee1/points/delete";
-
-        mocks.routeHandler.mockImplementation(
-            async (_req: Request, res: Response) => {
-                const { logger } = await import("../src/logging/logger.js");
-                logger.info("delete points request body");
-                res.json({ ok: true });
-            }
-        );
-
-        try {
-            const res = await httpRequest({
-                baseUrl,
-                method: "POST",
-                path,
-                headers: {
-                    "content-type": "application/json",
-                    "x-request-id": unsafeRequestId,
-                },
-                body: JSON.stringify({ filter: { must: [] } }),
-            });
-
-            expect(res.statusCode).toBe(200);
-            expect(res.headers["x-request-id"]).not.toBe(unsafeRequestId);
-            expect(res.headers["x-request-id"]).toMatch(
-                /^[0-9a-f-]{36}$/i
-            );
-
-            await vi.waitFor(() => {
-                expect(
-                    mocks.logs.find(
-                        (log) => log.message === "delete points request body"
-                    )
-                ).toBeDefined();
-            });
-
-            const businessLog = mocks.logs.find(
-                (log) => log.message === "delete points request body"
-            );
-            if (!businessLog) {
-                throw new Error("expected route-level business log");
-            }
-
-            expect(businessLog.fields.requestId).toBe(
-                res.headers["x-request-id"]
-            );
-        } finally {
-            await stopServer(server);
-        }
-    });
+        },
+        15_000
+    );
 
     it("propagates request fields to the Express catch-all error log", async () => {
         const { server, baseUrl } = await startServer();

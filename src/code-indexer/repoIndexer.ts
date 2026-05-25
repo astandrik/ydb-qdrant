@@ -27,6 +27,7 @@ import type {
     GitHubContentClient,
     GitHubContentClientFactory,
     GitHubRepositoryRef,
+    GitHubRepositorySnapshot,
     IndexedCodeChunk,
     IndexingJob,
     IndexingJobExecutionContext,
@@ -38,6 +39,10 @@ import type {
 } from "./types.js";
 
 export type RepoIndexerOptions = ChunkingOptions & {
+    embeddingBatchMaxChars?: number;
+    embeddingBatchSize?: number;
+    embeddingConcurrency?: number;
+    fileConcurrency?: number;
     maxChangedFilesForIncremental?: number;
 };
 
@@ -59,6 +64,16 @@ export type RepoIndexerQuotaStore = {
 };
 
 const DEFAULT_MAX_CHANGED_FILES = 300;
+const DEFAULT_FILE_CONCURRENCY = 4;
+const DEFAULT_EMBEDDING_BATCH_SIZE = 64;
+const DEFAULT_EMBEDDING_BATCH_MAX_CHARS = 200_000;
+const DEFAULT_EMBEDDING_CONCURRENCY = 2;
+
+type RepositoryIndexFile = {
+    blobSha?: string;
+    path: string;
+    size?: number;
+};
 
 function mergeChunkingOptions(
     base: ChunkingOptions,
@@ -68,6 +83,13 @@ function mergeChunkingOptions(
         ...base,
         ...repoConfig,
     };
+}
+
+function positiveIntegerOption(
+    value: number | undefined,
+    defaultValue: number
+): number {
+    return Math.max(1, Math.floor(value ?? defaultValue));
 }
 
 function changesRepoConfig(changedFile: GitHubChangedFile): boolean {
@@ -81,7 +103,11 @@ export class RepoIndexer {
     private readonly chunkingOptions: ChunkingOptions;
     private readonly chunker: CodeChunker;
     private readonly clientFactory: GitHubContentClientFactory;
+    private readonly embeddingBatchMaxChars: number;
+    private readonly embeddingBatchSize: number;
+    private readonly embeddingConcurrency: number;
     private readonly embeddingProvider: EmbeddingProvider;
+    private readonly fileConcurrency: number;
     private readonly manifestStore: RepoManifestStore;
     private readonly maxChangedFilesForIncremental: number;
     private readonly progressStore?: IndexingProgressStore;
@@ -114,6 +140,22 @@ export class RepoIndexer {
         this.maxChangedFilesForIncremental =
             params.options?.maxChangedFilesForIncremental ??
             DEFAULT_MAX_CHANGED_FILES;
+        this.fileConcurrency = positiveIntegerOption(
+            params.options?.fileConcurrency,
+            DEFAULT_FILE_CONCURRENCY
+        );
+        this.embeddingBatchSize = positiveIntegerOption(
+            params.options?.embeddingBatchSize,
+            DEFAULT_EMBEDDING_BATCH_SIZE
+        );
+        this.embeddingBatchMaxChars = positiveIntegerOption(
+            params.options?.embeddingBatchMaxChars,
+            DEFAULT_EMBEDDING_BATCH_MAX_CHARS
+        );
+        this.embeddingConcurrency = positiveIntegerOption(
+            params.options?.embeddingConcurrency,
+            DEFAULT_EMBEDDING_CONCURRENCY
+        );
         this.chunkingOptions = {
             chunkLines: params.options?.chunkLines,
             maxChunkChars: params.options?.maxChunkChars,
@@ -194,7 +236,7 @@ export class RepoIndexer {
     }
 
     async reportFinalFailure(job: IndexingJob, err: unknown): Promise<void> {
-        if (!this.statusStore || job.kind === "delete-pr-index") {
+        if (!this.statusStore || !updatesDefaultBranchStatus(job)) {
             return;
         }
         await this.statusStore.markRepositoryStatus({
@@ -489,63 +531,234 @@ export class RepoIndexer {
         sha: string;
         userUid: string;
     }): Promise<IndexRepositoryRefResult> {
-        const manifestFiles: RepoManifestFile[] = [];
-        let chunkCount = 0;
-        let processedFiles = 0;
-        await this.reportProgress(params.context, { phase: "fetching_tree" });
-        const files = await params.client.listRepositoryFiles({
-            owner: params.contentRepository.owner,
-            ref: params.ref,
-            repo: params.contentRepository.repo,
-        });
-        const indexableFiles = files.filter((file) =>
-            shouldIndexFile(file, params.chunkingOptions)
-        );
-        this.quota?.assertFilesPerRepo({
-            fileCount: indexableFiles.length,
-            installationId: params.installationId,
-            repoId: params.repository.repoId,
-        });
-        await this.reportProgress(params.context, {
-            phase: "processing_files",
-            processedChunks: 0,
-            processedFiles: 0,
-            totalChunks: 0,
-            totalFiles: indexableFiles.length,
-        });
-        await this.reportProgress(params.context, { phase: "resetting_collection" });
-        await params.prepareCollection();
-        for (const file of indexableFiles) {
-            const manifestFile = await this.indexSingleFile({
-                blobSha: file.sha,
-                chunkingOptions: params.chunkingOptions,
-                client: params.client,
-                collection: params.collection,
-                contentRepository: params.contentRepository,
-                context: params.context,
-                currentChunkCount: chunkCount,
+        let snapshot: GitHubRepositorySnapshot | null = null;
+        try {
+            const manifestFiles: RepoManifestFile[] = [];
+            let chunkCount = 0;
+            let processedFiles = 0;
+            await this.reportProgress(params.context, { phase: "fetching_tree" });
+            const repositoryFiles = await this.readRepositoryIndexFiles(params);
+            snapshot = repositoryFiles.snapshot;
+            const indexableFiles = repositoryFiles.files.filter((file) =>
+                shouldIndexFile(file, params.chunkingOptions)
+            );
+            this.quota?.assertFilesPerRepo({
+                fileCount: indexableFiles.length,
                 installationId: params.installationId,
-                path: file.path,
-                ref: params.ref,
-                repository: params.repository,
-                sha: params.sha,
+                repoId: params.repository.repoId,
+            });
+            await this.reportProgress(params.context, {
+                phase: "processing_files",
+                processedChunks: 0,
+                processedFiles: 0,
+                totalChunks: 0,
+                totalFiles: indexableFiles.length,
+            });
+            await this.reportProgress(params.context, {
+                phase: "resetting_collection",
+            });
+            await params.prepareCollection();
+            const batcher = this.createEmbeddingBatcher({
+                collection: params.collection,
+                context: params.context,
+                getProcessedFiles: () => processedFiles,
+                getTotalChunks: () => chunkCount,
+                totalFiles: indexableFiles.length,
                 userUid: params.userUid,
             });
-            if (manifestFile) {
-                manifestFiles.push(manifestFile.file);
-                chunkCount += manifestFile.chunkCount;
-            }
-            processedFiles += 1;
+            await forEachWithConcurrency(
+                indexableFiles,
+                this.fileConcurrency,
+                async (file) => {
+                    const manifestFile = await this.readAndChunkSingleFile({
+                        blobSha: file.blobSha ?? params.sha,
+                        chunkingOptions: params.chunkingOptions,
+                        client: params.client,
+                        contentRepository: params.contentRepository,
+                        context: params.context,
+                        path: file.path,
+                        ref: params.ref,
+                        repository: params.repository,
+                        sha: params.sha,
+                        snapshot,
+                    });
+                    if (manifestFile) {
+                        this.quota?.assertChunksPerRepo({
+                            chunkCount: chunkCount + manifestFile.chunkCount,
+                            installationId: params.installationId,
+                            repoId: params.repository.repoId,
+                        });
+                        manifestFiles.push(manifestFile.file);
+                        chunkCount += manifestFile.chunkCount;
+                        await batcher.add(manifestFile.chunks);
+                    }
+                    processedFiles += 1;
+                    await this.reportProgress(params.context, {
+                        currentPath: file.path,
+                        phase: "processing_files",
+                        processedChunks: batcher.processedChunks(),
+                        processedFiles,
+                        totalChunks: chunkCount,
+                    });
+                }
+            );
+            await batcher.flush();
             await this.reportProgress(params.context, {
-                currentPath: file.path,
                 phase: "processing_files",
-                processedChunks: chunkCount,
+                processedChunks: batcher.processedChunks(),
                 processedFiles,
+                totalChunks: chunkCount,
+                totalFiles: indexableFiles.length,
             });
+            return {
+                chunkCount,
+                files: sortManifestFiles(manifestFiles),
+            };
+        } finally {
+            await snapshot?.close();
+        }
+    }
+
+    private createEmbeddingBatcher(params: {
+        collection: string;
+        context?: IndexingJobExecutionContext;
+        getProcessedFiles: () => number;
+        getTotalChunks: () => number;
+        totalFiles: number;
+        userUid: string;
+    }): {
+        add(chunks: IndexedCodeChunk[]): Promise<void>;
+        flush(): Promise<void>;
+        processedChunks(): number;
+    } {
+        let currentBatch: IndexedCodeChunk[] = [];
+        let currentBatchChars = 0;
+        let processedChunks = 0;
+        const active = new Set<Promise<void>>();
+
+        const scheduleBatch = async (chunks: IndexedCodeChunk[]): Promise<void> => {
+            const task = (async () => {
+                const currentPath = describeChunkBatch(chunks);
+                await this.reportProgress(params.context, {
+                    currentPath,
+                    phase: "embedding",
+                    processedChunks,
+                    processedFiles: params.getProcessedFiles(),
+                    totalChunks: params.getTotalChunks(),
+                    totalFiles: params.totalFiles,
+                });
+                const vectors = await this.embeddingProvider.embedDocuments(
+                    chunks.map((chunk) => chunk.text)
+                );
+                await this.reportProgress(params.context, {
+                    currentPath,
+                    phase: "upserting",
+                    processedChunks,
+                    processedFiles: params.getProcessedFiles(),
+                    totalChunks: params.getTotalChunks(),
+                    totalFiles: params.totalFiles,
+                });
+                await this.store.upsertChunks({
+                    chunks,
+                    collection: params.collection,
+                    userUid: params.userUid,
+                    vectors,
+                });
+                processedChunks += chunks.length;
+                await this.reportProgress(params.context, {
+                    currentPath,
+                    phase: "processing_files",
+                    processedChunks,
+                    processedFiles: params.getProcessedFiles(),
+                    totalChunks: params.getTotalChunks(),
+                    totalFiles: params.totalFiles,
+                });
+            })();
+            active.add(task);
+            task.then(
+                () => active.delete(task),
+                () => active.delete(task)
+            );
+            if (active.size >= this.embeddingConcurrency) {
+                await Promise.race(active);
+            }
+        };
+
+        const flushCurrentBatch = async (): Promise<void> => {
+            if (currentBatch.length === 0) {
+                return;
+            }
+            const batch = currentBatch;
+            currentBatch = [];
+            currentBatchChars = 0;
+            await scheduleBatch(batch);
+        };
+
+        return {
+            add: async (chunks: IndexedCodeChunk[]): Promise<void> => {
+                for (const chunk of chunks) {
+                    const chunkChars = chunk.text.length;
+                    if (
+                        currentBatch.length > 0 &&
+                        (currentBatch.length >= this.embeddingBatchSize ||
+                            currentBatchChars + chunkChars >
+                                this.embeddingBatchMaxChars)
+                    ) {
+                        await flushCurrentBatch();
+                    }
+                    currentBatch.push(chunk);
+                    currentBatchChars += chunkChars;
+                    if (
+                        currentBatch.length >= this.embeddingBatchSize ||
+                        currentBatchChars >= this.embeddingBatchMaxChars
+                    ) {
+                        await flushCurrentBatch();
+                    }
+                }
+            },
+            flush: async (): Promise<void> => {
+                await flushCurrentBatch();
+                await Promise.all(active);
+            },
+            processedChunks: () => processedChunks,
+        };
+    }
+
+    private async readRepositoryIndexFiles(params: {
+        client: GitHubContentClient;
+        contentRepository: GitHubRepositoryRef;
+        ref: string;
+    }): Promise<{
+        files: RepositoryIndexFile[];
+        snapshot: GitHubRepositorySnapshot | null;
+    }> {
+        if (params.client.getRepositorySnapshot) {
+            const snapshot = await params.client.getRepositorySnapshot({
+                owner: params.contentRepository.owner,
+                ref: params.ref,
+                repo: params.contentRepository.repo,
+            });
+            return {
+                files: snapshot.files.map((file) => ({
+                    path: file.path,
+                    size: file.size,
+                })),
+                snapshot,
+            };
         }
         return {
-            chunkCount,
-            files: sortManifestFiles(manifestFiles),
+            files: (
+                await params.client.listRepositoryFiles({
+                    owner: params.contentRepository.owner,
+                    ref: params.ref,
+                    repo: params.contentRepository.repo,
+                })
+            ).map((file) => ({
+                blobSha: file.sha,
+                path: file.path,
+                size: file.size,
+            })),
+            snapshot: null,
         };
     }
 
@@ -617,8 +830,55 @@ export class RepoIndexer {
         ref: string;
         repository: GitHubRepositoryRef;
         sha: string;
+        snapshot?: GitHubRepositorySnapshot | null;
         userUid: string;
     }): Promise<IndexedManifestFile | null> {
+        const manifestFile = await this.readAndChunkSingleFile({
+            blobSha: params.blobSha,
+            chunkingOptions: params.chunkingOptions,
+            client: params.client,
+            contentRepository: params.contentRepository,
+            context: params.context,
+            path: params.path,
+            ref: params.ref,
+            repository: params.repository,
+            sha: params.sha,
+            snapshot: params.snapshot,
+        });
+        if (!manifestFile) {
+            return null;
+        }
+        this.quota?.assertChunksPerRepo({
+            chunkCount: params.currentChunkCount + manifestFile.chunkCount,
+            installationId: params.installationId,
+            repoId: params.repository.repoId,
+        });
+        await this.embedAndUpsertChunks({
+            chunks: manifestFile.chunks,
+            collection: params.collection,
+            context: params.context,
+            currentPath: params.path,
+            totalChunks: params.currentChunkCount + manifestFile.chunkCount,
+            userUid: params.userUid,
+        });
+        return {
+            chunkCount: manifestFile.chunkCount,
+            file: manifestFile.file,
+        };
+    }
+
+    private async readAndChunkSingleFile(params: {
+        blobSha: string;
+        chunkingOptions: ChunkingOptions;
+        client: GitHubContentClient;
+        contentRepository: GitHubRepositoryRef;
+        context?: IndexingJobExecutionContext;
+        path: string;
+        ref: string;
+        repository: GitHubRepositoryRef;
+        sha: string;
+        snapshot?: GitHubRepositorySnapshot | null;
+    }): Promise<PreparedIndexedFile | null> {
         if (!shouldIndexFile({ path: params.path }, params.chunkingOptions)) {
             return null;
         }
@@ -626,15 +886,21 @@ export class RepoIndexer {
             currentPath: params.path,
             phase: "fetching_file",
         });
-        const content = await params.client.getFileContent({
-            owner: params.contentRepository.owner,
-            path: params.path,
-            ref: params.ref,
-            repo: params.contentRepository.repo,
-        });
+        const snapshotContent = params.snapshot
+            ? await params.snapshot.getFileContent(params.path)
+            : null;
+        const content =
+            snapshotContent?.content ??
+            (await params.client.getFileContent({
+                owner: params.contentRepository.owner,
+                path: params.path,
+                ref: params.ref,
+                repo: params.contentRepository.repo,
+            }));
         if (content === null) {
             return null;
         }
+        const blobSha = snapshotContent?.blobSha ?? params.blobSha;
         await this.reportProgress(params.context, {
             currentPath: params.path,
             phase: "chunking",
@@ -647,49 +913,62 @@ export class RepoIndexer {
         if (chunks.length === 0) {
             return null;
         }
-        this.quota?.assertChunksPerRepo({
-            chunkCount: params.currentChunkCount + chunks.length,
-            installationId: params.installationId,
-            repoId: params.repository.repoId,
-        });
         const indexedChunks: IndexedCodeChunk[] = chunks.map((chunk) => ({
             ...chunk,
-            blobSha: params.blobSha,
+            blobSha,
             owner: params.repository.owner,
             ref: params.ref,
             repo: params.repository.repo,
             repoId: params.repository.repoId,
             sha: params.sha,
         }));
-        await this.reportProgress(params.context, {
-            currentPath: params.path,
-            phase: "embedding",
-            totalChunks: params.currentChunkCount + chunks.length,
-        });
-        const vectors = await this.embeddingProvider.embedDocuments(
-            indexedChunks.map((chunk) => chunk.text)
-        );
-        await this.reportProgress(params.context, {
-            currentPath: params.path,
-            phase: "upserting",
-        });
-        await this.store.upsertChunks({
-            chunks: indexedChunks,
-            collection: params.collection,
-            userUid: params.userUid,
-            vectors,
-        });
         return {
             chunkCount: chunks.length,
+            chunks: indexedChunks,
             file: {
-                blobSha: params.blobSha,
+                blobSha,
                 path: params.path,
             },
         };
     }
 
+    private async embedAndUpsertChunks(params: {
+        chunks: IndexedCodeChunk[];
+        collection: string;
+        context?: IndexingJobExecutionContext;
+        currentPath: string;
+        totalChunks: number;
+        userUid: string;
+    }): Promise<void> {
+        await this.reportProgress(params.context, {
+            currentPath: params.currentPath,
+            phase: "embedding",
+            totalChunks: params.totalChunks,
+        });
+        const vectors = await this.embeddingProvider.embedDocuments(
+            params.chunks.map((chunk) => chunk.text)
+        );
+        await this.reportProgress(params.context, {
+            currentPath: params.currentPath,
+            phase: "upserting",
+        });
+        await this.store.upsertChunks({
+            chunks: params.chunks,
+            collection: params.collection,
+            userUid: params.userUid,
+            vectors,
+        });
+    }
+
     private indexingFingerprint(options: ChunkingOptions): string {
-        return indexingFingerprintForChunker(this.chunker, options);
+        const chunkerFingerprint = indexingFingerprintForChunker(
+            this.chunker,
+            options
+        );
+        const embeddingFingerprint =
+            this.embeddingProvider.fingerprint ??
+            `custom:v1:dimension=${this.embeddingProvider.dimension}`;
+        return `chunker:${chunkerFingerprint}|embedding:${embeddingFingerprint}`;
     }
 
     private async assertRepositoryQuota(job: IndexingJob): Promise<void> {
@@ -730,7 +1009,7 @@ export class RepoIndexer {
     }
 
     private async markIndexing(job: IndexingJob): Promise<void> {
-        if (job.kind === "delete-pr-index" || job.kind === "delete-repo-index") {
+        if (!updatesDefaultBranchStatus(job)) {
             return;
         }
         await this.statusStore?.markRepositoryStatus({
@@ -743,7 +1022,7 @@ export class RepoIndexer {
         job: IndexingJob,
         result: IndexingStatusResult
     ): Promise<void> {
-        if (job.kind === "delete-pr-index" || job.kind === "delete-repo-index") {
+        if (!updatesDefaultBranchStatus(job)) {
             return;
         }
         await this.statusStore?.markRepositoryStatus({
@@ -761,6 +1040,10 @@ export class RepoIndexer {
 type IndexedManifestFile = {
     chunkCount: number;
     file: RepoManifestFile;
+};
+
+type PreparedIndexedFile = IndexedManifestFile & {
+    chunks: IndexedCodeChunk[];
 };
 
 type IndexRepositoryRefResult = {
@@ -782,6 +1065,37 @@ function sortManifestFiles(files: RepoManifestFile[]): RepoManifestFile[] {
     return [...files].sort((left, right) => left.path.localeCompare(right.path));
 }
 
+async function forEachWithConcurrency<T>(
+    items: T[],
+    concurrency: number,
+    worker: (item: T) => Promise<void>
+): Promise<void> {
+    let nextIndex = 0;
+    const workerCount = Math.min(Math.max(1, concurrency), items.length);
+    await Promise.all(
+        Array.from({ length: workerCount }, async () => {
+            while (nextIndex < items.length) {
+                const item = items[nextIndex];
+                nextIndex += 1;
+                if (item !== undefined) {
+                    await worker(item);
+                }
+            }
+        })
+    );
+}
+
+function describeChunkBatch(chunks: IndexedCodeChunk[]): string {
+    const firstPath = chunks[0]?.path;
+    if (!firstPath) {
+        return "embedding batch";
+    }
+    const distinctPaths = new Set(chunks.map((chunk) => chunk.path));
+    return distinctPaths.size <= 1
+        ? firstPath
+        : `${firstPath} + ${distinctPaths.size - 1} files`;
+}
+
 function shouldFallbackToFullIndex(
     job: Extract<IndexingJob, { kind: "incremental-push" }>
 ): boolean {
@@ -793,4 +1107,8 @@ function shouldFallbackToFullIndex(
     }
     const branch = branchNameFromRef(job.ref);
     return branch !== job.repository.defaultBranch;
+}
+
+function updatesDefaultBranchStatus(job: IndexingJob): boolean {
+    return job.kind === "full-index" || job.kind === "incremental-push";
 }

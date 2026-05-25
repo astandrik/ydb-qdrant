@@ -541,15 +541,22 @@ async function recordJobQueuedOrDeleted(
         return;
     }
     if (
-        job.kind === "full-index" ||
-        job.kind === "incremental-push" ||
-        job.kind === "pr-index"
+        job.kind === "full-index" &&
+        (job.reason === "installation" ||
+            job.reason === "installation-repositories-added")
     ) {
         await store.upsertRepository({
             defaultBranch: job.repository.defaultBranch,
             installationId: job.installationId,
             owner: job.repository.owner,
             repo: job.repository.repo,
+            repoId: job.repository.repoId,
+            status: "queued",
+        });
+        return;
+    }
+    if (job.kind === "full-index" || job.kind === "incremental-push") {
+        await store.markRepositoryStatus({
             repoId: job.repository.repoId,
             status: "queued",
         });

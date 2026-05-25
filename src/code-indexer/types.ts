@@ -13,6 +13,22 @@ export type GitHubFileEntry = {
     size?: number;
 };
 
+export type GitHubRepositorySnapshotFile = {
+    path: string;
+    size?: number;
+};
+
+export type GitHubRepositorySnapshotContent = {
+    blobSha: string;
+    content: string;
+};
+
+export interface GitHubRepositorySnapshot {
+    close(): Promise<void>;
+    files: GitHubRepositorySnapshotFile[];
+    getFileContent(path: string): Promise<GitHubRepositorySnapshotContent | null>;
+}
+
 export type GitHubChangedFile = {
     filename: string;
     previousFilename?: string;
@@ -155,6 +171,7 @@ export type IndexingJobProgressRecord = {
     phase: IndexingJobPhase;
     processedChunks: number;
     processedFiles: number;
+    prNumber?: number;
     repo: string;
     repoId: string;
     startedAt?: Date;
@@ -187,6 +204,11 @@ export interface IndexingProgressStore {
     listActiveJobsForInstallation(
         installationId: number | string
     ): Promise<IndexingJobProgressRecord[]>;
+    listJobsForRepository(params: {
+        installationId: number | string;
+        limit?: number;
+        repoId: number | string;
+    }): Promise<IndexingJobProgressRecord[]>;
     updateJobProgress(params: {
         jobId: string;
         update: IndexingJobProgressUpdate;
@@ -195,6 +217,7 @@ export interface IndexingProgressStore {
 
 export interface EmbeddingProvider {
     readonly dimension: number;
+    readonly fingerprint?: string;
     embedDocuments(texts: string[]): Promise<number[][]>;
     embedQuery(text: string): Promise<number[]>;
 }
@@ -212,6 +235,11 @@ export interface GitHubContentClient {
         ref: string;
         repo: string;
     }): Promise<string | null>;
+    getRepositorySnapshot?(params: {
+        owner: string;
+        ref: string;
+        repo: string;
+    }): Promise<GitHubRepositorySnapshot>;
     listRepositoryFiles(params: {
         owner: string;
         ref: string;

@@ -21,7 +21,9 @@ import {
 } from "./quota.js";
 import type {
     CodeIndexerApiTokenRecord,
+    CodeIndexerInstallationRecord,
     CodeIndexerRepositoryRecord,
+    StoredGitHubUserSummary,
 } from "./saasStore.js";
 import type {
     CodeIndexStore,
@@ -30,6 +32,12 @@ import type {
     IndexingProgressStore,
     IndexingQueue,
 } from "./types.js";
+
+type CodeIndexerAdminProgressStore = IndexingProgressStore & {
+    listAdminJobs(params?: {
+        limit?: number;
+    }): Promise<IndexingJobProgressRecord[]>;
+};
 
 export type CodeIndexerPublicApiStore = CodeIndexerAccessStore & {
     createApiToken(params: {
@@ -48,6 +56,18 @@ export type CodeIndexerPublicApiStore = CodeIndexerAccessStore & {
     listApiTokens(
         githubUserId: number | string
     ): Promise<CodeIndexerApiTokenRecord[]>;
+    listAdminApiTokens(params?: {
+        limit?: number;
+    }): Promise<CodeIndexerApiTokenRecord[]>;
+    listAdminGitHubUsers(params?: {
+        limit?: number;
+    }): Promise<StoredGitHubUserSummary[]>;
+    listAdminInstallations(params?: {
+        limit?: number;
+    }): Promise<CodeIndexerInstallationRecord[]>;
+    listAdminRepositories(params?: {
+        limit?: number;
+    }): Promise<CodeIndexerRepositoryRecord[]>;
     listRepositoriesForInstallation(
         installationId: number | string
     ): Promise<CodeIndexerRepositoryRecord[]>;
@@ -58,10 +78,11 @@ export type CodeIndexerPublicApiStore = CodeIndexerAccessStore & {
 };
 
 export type CodeIndexerPublicApiDeps = {
+    adminGithubUserIds?: string[];
     createPlaintextToken?: () => string;
     createTokenId?: () => string;
     indexStore: CodeIndexStore;
-    progressStore: IndexingProgressStore;
+    progressStore: CodeIndexerAdminProgressStore;
     quota?: CodeIndexerQuota;
     queue: IndexingQueue;
     store: CodeIndexerPublicApiStore;
@@ -111,6 +132,18 @@ function readTokenName(value: unknown): string {
     return trimmed.length > 0 ? trimmed.slice(0, 120) : "API token";
 }
 
+function readLimit(value: unknown, defaultValue: number, maxValue: number): number {
+    const raw = readQueryString(value);
+    if (!raw) {
+        return defaultValue;
+    }
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) {
+        return defaultValue;
+    }
+    return Math.max(1, Math.min(maxValue, Math.floor(parsed)));
+}
+
 function readPathParam(req: Request, name: string): string {
     const value = req.params[name];
     if (!value) {
@@ -158,6 +191,7 @@ function serializeProgress(progress: IndexingJobProgressRecord) {
         phase: progress.phase,
         processedChunks: progress.processedChunks,
         processedFiles: progress.processedFiles,
+        ...(progress.prNumber === undefined ? {} : { prNumber: progress.prNumber }),
         repo: progress.repo,
         repoId: progress.repoId,
         ...(progress.startedAt === undefined
@@ -203,9 +237,188 @@ async function requireContext(
     });
 }
 
+async function requireAdminContext(
+    deps: CodeIndexerPublicApiDeps,
+    req: Request
+): Promise<CodeIndexerAccessContext> {
+    const context = await requireContext(deps, req);
+    const adminIds = new Set((deps.adminGithubUserIds ?? []).map(String));
+    if (!adminIds.has(context.user.githubUserId)) {
+        throw apiError(
+            "admin_forbidden",
+            "admin access is not allowed for this GitHub user",
+            403
+        );
+    }
+    return context;
+}
+
+function countByStatus<T extends { status: string }>(
+    items: T[]
+): Record<string, number> {
+    const counts: Record<string, number> = {};
+    for (const item of items) {
+        counts[item.status] = (counts[item.status] ?? 0) + 1;
+    }
+    return counts;
+}
+
+function activeJobCount(jobs: IndexingJobProgressRecord[]): number {
+    return jobs.filter(
+        (job) => job.status === "pending" || job.status === "running"
+    ).length;
+}
+
+function serializeAdminRepository(params: {
+    installations: Map<string, CodeIndexerInstallationRecord>;
+    jobs: IndexingJobProgressRecord[];
+    repository: CodeIndexerRepositoryRecord;
+}) {
+    const installation = params.installations.get(params.repository.installationId);
+    const activeJobs = params.jobs
+        .filter(
+            (job) =>
+                job.repoId === params.repository.repoId &&
+                (job.status === "pending" || job.status === "running")
+        )
+        .map(serializeProgress);
+    const primaryJob =
+        activeJobs.find((job) => job.status === "running") ?? activeJobs[0];
+
+    return {
+        ...params.repository,
+        accountLogin: installation?.accountLogin ?? "unknown",
+        accountType: installation?.accountType ?? "unknown",
+        installationStatus: installation?.status ?? "unknown",
+        ...(primaryJob ? { activeJob: primaryJob } : {}),
+        ...(activeJobs.length > 0 ? { activeJobs } : {}),
+    };
+}
+
 export function createPublicApiRouter(deps: CodeIndexerPublicApiDeps) {
     const router = express.Router();
     router.use(express.json({ limit: "64kb" }));
+
+    router.get(
+        "/admin/overview",
+        async (req: Request, res: Response): Promise<void> => {
+            try {
+                const context = await requireAdminContext(deps, req);
+                const [users, installations, repositories, tokens, jobs] =
+                    await Promise.all([
+                        deps.store.listAdminGitHubUsers({ limit: 10_000 }),
+                        deps.store.listAdminInstallations({ limit: 10_000 }),
+                        deps.store.listAdminRepositories({ limit: 10_000 }),
+                        deps.store.listAdminApiTokens({ limit: 10_000 }),
+                        deps.progressStore.listAdminJobs({ limit: 500 }),
+                    ]);
+                res.json({
+                    overview: {
+                        generatedAt: new Date().toISOString(),
+                        recentJobs: jobs.slice(0, 25).map(serializeProgress),
+                        totals: {
+                            activeJobs: activeJobCount(jobs),
+                            apiTokens: tokens.length,
+                            failedJobs: jobs.filter(
+                                (job) => job.status === "failed"
+                            ).length,
+                            indexedChunks: repositories.reduce(
+                                (sum, repository) =>
+                                    sum + (repository.chunkCount ?? 0),
+                                0
+                            ),
+                            installations: installations.length,
+                            repositories: repositories.length,
+                            repositoriesByStatus: countByStatus(repositories),
+                            revokedApiTokens: tokens.filter(
+                                (token) => token.revoked
+                            ).length,
+                            users: users.length,
+                        },
+                    },
+                    status: "ok",
+                    user: context.user,
+                });
+            } catch (err: unknown) {
+                sendApiError(res, err);
+            }
+        }
+    );
+
+    router.get(
+        "/admin/repositories",
+        async (req: Request, res: Response): Promise<void> => {
+            try {
+                await requireAdminContext(deps, req);
+                const limit = readLimit(req.query.limit, 500, 2_000);
+                const status = readQueryString(req.query.status);
+                const query = readQueryString(req.query.q)?.toLowerCase();
+                const [installations, repositories, jobs] = await Promise.all([
+                    deps.store.listAdminInstallations({ limit: 10_000 }),
+                    deps.store.listAdminRepositories({ limit: 10_000 }),
+                    deps.progressStore.listAdminJobs({ limit: 500 }),
+                ]);
+                const installationsById = new Map(
+                    installations.map((installation) => [
+                        installation.installationId,
+                        installation,
+                    ])
+                );
+                const filteredRepositories = repositories
+                    .filter((repository) =>
+                        status ? repository.status === status : true
+                    )
+                    .filter((repository) =>
+                        query
+                            ? `${repository.owner}/${repository.repo}`
+                                  .toLowerCase()
+                                  .includes(query)
+                            : true
+                    )
+                    .slice(0, limit)
+                    .map((repository) =>
+                        serializeAdminRepository({
+                            installations: installationsById,
+                            jobs,
+                            repository,
+                        })
+                    );
+                res.json({
+                    limit,
+                    repositories: filteredRepositories,
+                    status: "ok",
+                });
+            } catch (err: unknown) {
+                sendApiError(res, err);
+            }
+        }
+    );
+
+    router.get(
+        "/admin/jobs",
+        async (req: Request, res: Response): Promise<void> => {
+            try {
+                await requireAdminContext(deps, req);
+                const limit = readLimit(req.query.limit, 100, 500);
+                const status = readQueryString(req.query.status);
+                const query = readQueryString(req.query.q)?.toLowerCase();
+                const jobs = (await deps.progressStore.listAdminJobs({ limit: 500 }))
+                    .filter((job) => (status ? job.status === status : true))
+                    .filter((job) =>
+                        query
+                            ? `${job.owner}/${job.repo} ${job.jobId}`
+                                  .toLowerCase()
+                                  .includes(query)
+                            : true
+                    )
+                    .slice(0, limit)
+                    .map(serializeProgress);
+                res.json({ jobs, limit, status: "ok" });
+            } catch (err: unknown) {
+                sendApiError(res, err);
+            }
+        }
+    );
 
     router.get("/me", async (req: Request, res: Response): Promise<void> => {
         try {
@@ -259,18 +472,14 @@ export function createPublicApiRouter(deps: CodeIndexerPublicApiDeps) {
                     );
                 const activeJobsByRepoId = new Map<
                     string,
-                    ReturnType<typeof serializeProgress>
+                    ReturnType<typeof serializeProgress>[]
                 >();
                 for (const job of activeJobs) {
                     const serializedJob = serializeProgress(job);
-                    const existing = activeJobsByRepoId.get(job.repoId);
-                    if (
-                        !existing ||
-                        (existing.status !== "running" &&
-                            serializedJob.status === "running")
-                    ) {
-                        activeJobsByRepoId.set(job.repoId, serializedJob);
-                    }
+                    activeJobsByRepoId.set(job.repoId, [
+                        ...(activeJobsByRepoId.get(job.repoId) ?? []),
+                        serializedJob,
+                    ]);
                 }
                 deps.quota?.assertRepositoriesPerInstallation({
                     githubUserId: context.user.githubUserId,
@@ -280,16 +489,20 @@ export function createPublicApiRouter(deps: CodeIndexerPublicApiDeps) {
                     ).length,
                 });
                 res.json({
-                    repositories: repositories.map((repository) => ({
-                        ...repository,
-                        ...(activeJobsByRepoId.has(repository.repoId)
-                            ? {
-                                  activeJob: activeJobsByRepoId.get(
-                                      repository.repoId
-                                  ),
-                              }
-                            : {}),
-                    })),
+                    repositories: repositories.map((repository) => {
+                        const repoJobs =
+                            activeJobsByRepoId.get(repository.repoId) ?? [];
+                        const primaryJob =
+                            repoJobs.find((job) => job.status === "running") ??
+                            repoJobs[0];
+                        return {
+                            ...repository,
+                            ...(primaryJob ? { activeJob: primaryJob } : {}),
+                            ...(repoJobs.length > 0
+                                ? { activeJobs: repoJobs }
+                                : {}),
+                        };
+                    }),
                     status: "ok",
                 });
             } catch (err: unknown) {
