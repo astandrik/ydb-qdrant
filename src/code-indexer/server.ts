@@ -72,6 +72,34 @@ function sendAuthError(res: Response, err: unknown): void {
     res.status(statusCode).json({ error: message, status: "error" });
 }
 
+function registerUiCors(
+    app: ReturnType<typeof express>,
+    uiOrigin: string
+): void {
+    app.use((req: Request, res: Response, next): void => {
+        const origin = req.header("origin");
+        if (origin === uiOrigin) {
+            res.setHeader("Access-Control-Allow-Origin", uiOrigin);
+            res.setHeader("Access-Control-Allow-Credentials", "true");
+            res.setHeader(
+                "Access-Control-Allow-Methods",
+                "GET,POST,DELETE,OPTIONS"
+            );
+            res.setHeader(
+                "Access-Control-Allow-Headers",
+                req.header("access-control-request-headers") ??
+                    "Content-Type, Authorization"
+            );
+            res.vary("Origin");
+        }
+        if (req.method === "OPTIONS" && origin === uiOrigin) {
+            res.status(204).send();
+            return;
+        }
+        next();
+    });
+}
+
 function registerAuthRoutes(
     app: ReturnType<typeof express>,
     auth: CodeIndexerAuthDeps
@@ -200,6 +228,7 @@ export function buildCodeIndexerServer(deps: CodeIndexerServerDeps) {
     });
 
     if (deps.auth) {
+        registerUiCors(app, deps.auth.uiOrigin);
         registerAuthRoutes(app, deps.auth);
     }
     if (deps.publicApi) {

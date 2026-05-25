@@ -148,7 +148,7 @@ async function closeServer(server: http.Server): Promise<void> {
 async function request(params: {
     baseUrl: string;
     headers?: Record<string, string>;
-    method?: "GET" | "POST";
+    method?: "GET" | "OPTIONS" | "POST";
     path: string;
 }): Promise<TestResponse> {
     const url = new URL(params.path, params.baseUrl);
@@ -204,6 +204,47 @@ function firstSetCookie(headers: http.IncomingHttpHeaders): string {
 }
 
 describe("code-indexer auth routes", () => {
+    it("sets credentialed CORS headers for the configured UI origin", async () => {
+        const { baseUrl, server } = await startAuthServer();
+        try {
+            const preflight = await request({
+                baseUrl,
+                headers: {
+                    "Access-Control-Request-Headers": "content-type",
+                    "Access-Control-Request-Method": "POST",
+                    Origin: "https://ydb-qdrant.tech",
+                },
+                method: "OPTIONS",
+                path: "/api/tokens",
+            });
+            const rejectedOrigin = await request({
+                baseUrl,
+                headers: { Origin: "https://evil.example.test" },
+                path: "/github/oauth/start",
+            });
+
+            expect(preflight.statusCode).toBe(204);
+            expect(preflight.headers["access-control-allow-origin"]).toBe(
+                "https://ydb-qdrant.tech"
+            );
+            expect(preflight.headers["access-control-allow-credentials"]).toBe(
+                "true"
+            );
+            expect(preflight.headers["access-control-allow-methods"]).toContain(
+                "DELETE"
+            );
+            expect(preflight.headers["access-control-allow-headers"]).toBe(
+                "content-type"
+            );
+            expect(preflight.headers.vary).toContain("Origin");
+            expect(
+                rejectedOrigin.headers["access-control-allow-origin"]
+            ).toBeUndefined();
+        } finally {
+            await closeServer(server);
+        }
+    });
+
     it("redirects OAuth starts to GitHub with a signed state", async () => {
         const { baseUrl, server } = await startAuthServer();
         try {
