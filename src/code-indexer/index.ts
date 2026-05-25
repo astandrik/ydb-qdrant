@@ -1,4 +1,5 @@
 import { loadCodeIndexerConfig } from "./config.js";
+import { GitHubOAuthClient } from "./auth.js";
 import { createCodeChunker } from "./chunker.js";
 import {
     GitHubCheckRunReporter,
@@ -14,6 +15,7 @@ import {
 } from "./queue.js";
 import { RepoIndexer } from "./repoIndexer.js";
 import { createEmbeddingProviderFromConfig } from "./runtime.js";
+import { YdbCodeIndexerSaasStore } from "./saasStore.js";
 import { buildCodeIndexerServer } from "./server.js";
 import {
     YdbDeliveryStore,
@@ -56,6 +58,20 @@ function start(): void {
     const checkRunReporter = config.checksEnabled
         ? new GitHubCheckRunReporter(clientFactory)
         : new NoopCheckRunReporter();
+    const saasStore = new YdbCodeIndexerSaasStore({
+        encryptionSecret: config.sessionSecret,
+        tokenPepper: config.tokenPepper,
+    });
+    const oauthClient = new GitHubOAuthClient({
+        apiBaseUrl: config.githubApiBaseUrl,
+        apiVersion: config.githubApiVersion,
+        clientId: config.githubClientId,
+        clientSecret: config.githubClientSecret,
+        redirectUri: new URL(
+            "/github/oauth/callback",
+            config.publicBaseUrl
+        ).toString(),
+    });
     const processJob = withCheckRunReporting({
         processJob: (job) => indexer.processJob(job),
         reporter: checkRunReporter,
@@ -76,6 +92,14 @@ function start(): void {
         queue.start();
     }
     const app = buildCodeIndexerServer({
+        auth: {
+            client: oauthClient,
+            oauthStateTtlSeconds: config.oauthStateTtlSeconds,
+            sessionSecret: config.sessionSecret,
+            sessionTtlSeconds: config.sessionTtlSeconds,
+            store: saasStore,
+            uiOrigin: config.uiOrigin,
+        },
         deliveryStore,
         embeddingProvider,
         queue,
