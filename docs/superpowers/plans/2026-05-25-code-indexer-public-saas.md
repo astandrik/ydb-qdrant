@@ -665,9 +665,13 @@ Evidence recorded on 2026-05-25:
   - Production `https://ydb-qdrant.tech/code-indexer/`, `/dashboard/`, and `/admin/` returned `200`.
   - Anonymous `GET https://github.com/apps/ydb-qdrant-code-indexer` returned a public GitHub App page; anonymous `GET https://github.com/apps/ydb-qdrant-code-indexer/installations/new` redirected to GitHub login with `integration=ydb-qdrant-code-indexer`.
   - GitHub App API currently reports installation `135559688` on account `astandrik`, `repository_selection=selected`, events `check_run`, `pull_request`, and `push`, with permissions `checks:write`, `contents:read`, `metadata:read`, and `pull_requests:read`.
+- Fresh GitHub visibility audit on 2026-05-25 22:43 MSK:
+  - GitHub GraphQL `App` type exposes `clientId`, `createdAt`, `databaseId`, `description`, `id`, `ipAllowListEntries`, `logoBackgroundColor`, `logoUrl`, `name`, `slug`, `updatedAt`, and `url`; it does not expose a visibility/public/private field for direct machine verification.
+  - Anonymous `GET -L https://github.com/apps/ydb-qdrant-code-indexer/installations/new` ended on `https://github.com/login?integration=ydb-qdrant-code-indexer&return_to=%2Fapps%2Fydb-qdrant-code-indexer%2Finstallations%2Fnew` with a GitHub sign-in page that says "to continue to YDB Qdrant Code Indexer" and includes a signup link preserving the install return path.
+  - Operator GitHub UI confirmation shows the Danger Zone action as `Make this application private` with the note `Private applications cannot be installed on other accounts`; this means the app is currently public and installable by other accounts.
 - Remaining external/manual gates:
   - GitHub installation lifecycle behavior has been verified by the real uninstall webhook and delete jobs.
-  - Confirm the GitHub App can be installed by any account, not only `@astandrik`. GitHub's public docs state that public GitHub Apps can be installed by other accounts, but the REST `/app` response used for audits does not expose the App visibility setting directly; the strongest remaining proof is either a UI confirmation of `Any account` or a real install from a non-owner account/organization.
+  - GitHub App public/`Any account` visibility has been confirmed through the GitHub settings UI and anonymous install-page redirect.
   - Destructive real E2E uninstall step has been completed.
 
 Manual GitHub App settings update checklist:
