@@ -620,8 +620,8 @@ export class YdbIndexingQueue implements IndexingQueue {
                 (job_id, status, attempts, payload, created_at, updated_at, last_error)
             VALUES (
                 $job_id,
-                "pending",
-                CAST(0 AS Uint32),
+                Utf8("pending"),
+                0u,
                 $payload,
                 CurrentUtcTimestamp(),
                 CurrentUtcTimestamp(),
@@ -645,7 +645,7 @@ export class YdbIndexingQueue implements IndexingQueue {
         const selectYql = `
             SELECT job_id, payload, attempts
             FROM ${CODE_INDEXER_JOBS_TABLE}
-            WHERE status = "pending"
+            WHERE status = Utf8("pending")
             ORDER BY created_at
             LIMIT 1;
         `;
@@ -653,10 +653,10 @@ export class YdbIndexingQueue implements IndexingQueue {
             DECLARE $job_id AS Utf8;
 
             UPDATE ${CODE_INDEXER_JOBS_TABLE}
-            SET status = "running",
-                attempts = attempts + CAST(1 AS Uint32),
+            SET status = Utf8("running"),
+                attempts = attempts + 1u,
                 updated_at = CurrentUtcTimestamp()
-            WHERE job_id = $job_id AND status = "pending";
+            WHERE job_id = $job_id AND status = Utf8("pending");
         `;
 
         return await withSession(async (session) => {
@@ -686,7 +686,7 @@ export class YdbIndexingQueue implements IndexingQueue {
             DECLARE $job_id AS Utf8;
 
             UPDATE ${CODE_INDEXER_JOBS_TABLE}
-            SET status = "completed",
+            SET status = Utf8("completed"),
                 updated_at = CurrentUtcTimestamp(),
                 last_error = CAST(NULL AS Utf8?)
             WHERE job_id = $job_id;
@@ -707,7 +707,7 @@ export class YdbIndexingQueue implements IndexingQueue {
             DECLARE $last_error AS Utf8;
 
             UPDATE ${CODE_INDEXER_JOBS_TABLE}
-            SET status = "failed",
+            SET status = Utf8("failed"),
                 updated_at = CurrentUtcTimestamp(),
                 last_error = $last_error
             WHERE job_id = $job_id;
@@ -735,7 +735,7 @@ export class YdbIndexingQueue implements IndexingQueue {
             DECLARE $last_error AS Utf8;
 
             UPDATE ${CODE_INDEXER_JOBS_TABLE}
-            SET status = "pending",
+            SET status = Utf8("pending"),
                 updated_at = CurrentUtcTimestamp(),
                 last_error = $last_error
             WHERE job_id = $job_id;
@@ -757,9 +757,9 @@ export class YdbIndexingQueue implements IndexingQueue {
     private async resetRunningJobs(): Promise<void> {
         const yql = `
             UPDATE ${CODE_INDEXER_JOBS_TABLE}
-            SET status = "pending",
+            SET status = Utf8("pending"),
                 updated_at = CurrentUtcTimestamp()
-            WHERE status = "running";
+            WHERE status = Utf8("running");
         `;
         await withSession(async (session) => {
             await session.executeQuery(
@@ -778,7 +778,7 @@ export class YdbIndexingQueue implements IndexingQueue {
 
             DELETE FROM ${CODE_INDEXER_JOBS_TABLE}
             WHERE updated_at < $cutoff
-                AND (status = "completed" OR status = "failed");
+                AND (status = Utf8("completed") OR status = Utf8("failed"));
         `;
         const deleteDeliveriesYql = `
             DECLARE $cutoff AS Timestamp;

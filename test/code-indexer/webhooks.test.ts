@@ -23,6 +23,40 @@ function repositoryPayload() {
 }
 
 describe("code-indexer webhook mapping", () => {
+    it("maps installation repository summaries to full index jobs", () => {
+        const jobs = mapWebhookToJobs({
+            deliveryId: "delivery-install",
+            event: "installation",
+            payload: {
+                action: "created",
+                installation: { id: 7 },
+                repositories: [
+                    {
+                        full_name: "octo/demo",
+                        id: 42,
+                        name: "demo",
+                    },
+                ],
+            },
+        });
+
+        expect(jobs).toEqual([
+            {
+                deliveryId: "delivery-install",
+                installationId: 7,
+                kind: "full-index",
+                reason: "installation",
+                ref: "HEAD",
+                repository: {
+                    defaultBranch: "HEAD",
+                    owner: "octo",
+                    repo: "demo",
+                    repoId: 42,
+                },
+            },
+        ]);
+    });
+
     it("maps default-branch push events to incremental jobs", () => {
         const jobs = mapWebhookToJobs({
             deliveryId: "delivery-1",

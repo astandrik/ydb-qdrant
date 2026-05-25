@@ -306,6 +306,8 @@ describe("code-indexer durable state store", () => {
             yql.includes("UPSERT INTO qdrant_code_indexer_jobs")
         );
         expect(upsertCall).toBeDefined();
+        expect(upsertCall?.[0]).toContain('Utf8("pending")');
+        expect(upsertCall?.[0]).toContain("0u");
         const params = upsertCall?.[1] as
             | {
                   $job_id?: { type?: unknown; value?: unknown };
@@ -362,17 +364,17 @@ describe("code-indexer durable state store", () => {
         expect(processJob).toHaveBeenCalledWith(job);
         expect(
             session.executeQuery.mock.calls.some(([yql]: [string]) =>
-                yql.includes('SET status = "pending"')
+                yql.includes('SET status = Utf8("pending")')
             )
         ).toBe(true);
         expect(
             session.executeQuery.mock.calls.some(([yql]: [string]) =>
-                yql.includes('SET status = "running"')
+                yql.includes('SET status = Utf8("running")')
             )
         ).toBe(true);
         expect(
             session.executeQuery.mock.calls.some(([yql]: [string]) =>
-                yql.includes('SET status = "completed"')
+                yql.includes('SET status = Utf8("completed")')
             )
         ).toBe(true);
     });
@@ -426,13 +428,13 @@ describe("code-indexer durable state store", () => {
         });
         expect(
             session.executeQuery.mock.calls.some(([yql]: [string]) =>
-                yql.includes('SET status = "pending"') &&
+                yql.includes('SET status = Utf8("pending")') &&
                 yql.includes("last_error = $last_error")
             )
         ).toBe(true);
         expect(
             session.executeQuery.mock.calls.some(([yql]: [string]) =>
-                yql.includes('SET status = "completed"')
+                yql.includes('SET status = Utf8("completed")')
             )
         ).toBe(true);
     });
@@ -481,14 +483,14 @@ describe("code-indexer durable state store", () => {
         await vi.waitFor(() => {
             expect(
                 session.executeQuery.mock.calls.some(([yql]: [string]) =>
-                    yql.includes('SET status = "failed"')
+                    yql.includes('SET status = Utf8("failed")')
                 )
             ).toBe(true);
         });
         expect(processJob).toHaveBeenCalledTimes(1);
         expect(
             session.executeQuery.mock.calls.some(([yql]: [string]) =>
-                yql.includes('SET status = "pending"') &&
+                yql.includes('SET status = Utf8("pending")') &&
                 yql.includes("last_error = $last_error")
             )
         ).toBe(false);

@@ -17,6 +17,7 @@ type WebhookDependencies = {
 
 type GitHubRepositoryPayload = {
     default_branch?: unknown;
+    full_name?: unknown;
     id?: unknown;
     name?: unknown;
     owner?: unknown;
@@ -33,19 +34,23 @@ function readRepository(value: unknown): GitHubRepositoryRef | null {
         return null;
     }
     const repo = value as GitHubRepositoryPayload;
-    const owner = isRecord(repo.owner) ? repo.owner.login : undefined;
+    const fullName =
+        typeof repo.full_name === "string" ? repo.full_name.split("/") : [];
+    const owner = isRecord(repo.owner) ? repo.owner.login : fullName[0];
+    const name = typeof repo.name === "string" ? repo.name : fullName[1];
+    const defaultBranch =
+        typeof repo.default_branch === "string" ? repo.default_branch : "HEAD";
     if (
         typeof repo.id !== "number" ||
-        typeof repo.name !== "string" ||
-        typeof repo.default_branch !== "string" ||
+        typeof name !== "string" ||
         typeof owner !== "string"
     ) {
         return null;
     }
     return {
-        defaultBranch: repo.default_branch,
+        defaultBranch,
         owner,
-        repo: repo.name,
+        repo: name,
         repoId: repo.id,
     };
 }
