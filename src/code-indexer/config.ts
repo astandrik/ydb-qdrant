@@ -26,6 +26,7 @@ export type CodeIndexerConfig = {
     githubClientId: string;
     githubClientSecret: string;
     githubPrivateKey: string;
+    jobConcurrency: number;
     jobMaxAttempts: number;
     jobRetryBackoffMs: number;
     maxChangedFilesForIncremental: number;
@@ -192,6 +193,11 @@ export function loadCodeIndexerConfig(): CodeIndexerConfig {
         githubClientId: readRequiredEnv("GITHUB_CLIENT_ID"),
         githubClientSecret: readRequiredEnv("GITHUB_CLIENT_SECRET"),
         githubPrivateKey: readPrivateKey(),
+        jobConcurrency: parseIntegerEnv(
+            process.env.CODE_INDEXER_JOB_CONCURRENCY,
+            2,
+            { min: 1 }
+        ),
         jobMaxAttempts: parseIntegerEnv(
             process.env.CODE_INDEXER_JOB_MAX_ATTEMPTS,
             3,

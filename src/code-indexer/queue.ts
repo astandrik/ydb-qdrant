@@ -49,20 +49,24 @@ export class InMemoryRepoManifestStore implements RepoManifestStore {
 }
 
 export class InMemoryIndexingQueue implements IndexingQueue {
-    private active = false;
+    private activeCount = 0;
+    private readonly concurrency: number;
     private readonly jobs: QueuedMemoryJob[] = [];
     private readonly processJob: (
         job: IndexingJob,
         context: IndexingJobExecutionContext
     ) => Promise<void>;
+    private readonly runningRepoKeys = new Set<string>();
 
     constructor(
         processJob: (
             job: IndexingJob,
             context: IndexingJobExecutionContext
-        ) => Promise<void>
+        ) => Promise<void>,
+        options: InMemoryIndexingQueueOptions = {}
     ) {
         this.processJob = processJob;
+        this.concurrency = Math.max(1, Math.floor(options.concurrency ?? 1));
     }
 
     enqueue(job: IndexingJob): Promise<{
@@ -79,67 +83,78 @@ export class InMemoryIndexingQueue implements IndexingQueue {
     }
 
     private drain(): void {
-        if (this.active) {
-            return;
+        while (this.activeCount < this.concurrency) {
+            const nextIndex = this.jobs.findIndex(
+                (item) => !this.runningRepoKeys.has(repoKeyForJob(item.job))
+            );
+            if (nextIndex < 0) {
+                return;
+            }
+            const [item] = this.jobs.splice(nextIndex, 1);
+            if (!item) {
+                return;
+            }
+            this.activeCount += 1;
+            this.runningRepoKeys.add(repoKeyForJob(item.job));
+            void this.processQueuedJob(item);
         }
-        this.active = true;
-        void this.drainLoop();
     }
 
-    private async drainLoop(): Promise<void> {
+    private async processQueuedJob(item: QueuedMemoryJob): Promise<void> {
+        const { context, job } = item;
         try {
-            while (this.jobs.length > 0) {
-                const item = this.jobs.shift();
-                if (!item) {
-                    continue;
-                }
-                const { context, job } = item;
-                try {
-                    logger.info(
-                        {
-                            deliveryId: job.deliveryId,
-                            installationId: job.installationId,
-                            jobId: context.jobId,
-                            jobKind: job.kind,
-                            repoId: job.repository.repoId,
-                        },
-                        "code-indexer: processing job"
-                    );
-                    await this.processJob(job, context);
-                    logger.info(
-                        {
-                            deliveryId: job.deliveryId,
-                            installationId: job.installationId,
-                            jobId: context.jobId,
-                            jobKind: job.kind,
-                            repoId: job.repository.repoId,
-                        },
-                        "code-indexer: job completed"
-                    );
-                } catch (err: unknown) {
-                    logger.error(
-                        {
-                            deliveryId: job.deliveryId,
-                            err,
-                            installationId: job.installationId,
-                            jobId: context.jobId,
-                            jobKind: job.kind,
-                            repoId: job.repository.repoId,
-                        },
-                        "code-indexer: job failed"
-                    );
-                }
+            try {
+                logger.info(
+                    {
+                        deliveryId: job.deliveryId,
+                        installationId: job.installationId,
+                        jobId: context.jobId,
+                        jobKind: job.kind,
+                        repoId: job.repository.repoId,
+                    },
+                    "code-indexer: processing job"
+                );
+                await this.processJob(job, context);
+                logger.info(
+                    {
+                        deliveryId: job.deliveryId,
+                        installationId: job.installationId,
+                        jobId: context.jobId,
+                        jobKind: job.kind,
+                        repoId: job.repository.repoId,
+                    },
+                    "code-indexer: job completed"
+                );
+            } catch (err: unknown) {
+                logger.error(
+                    {
+                        deliveryId: job.deliveryId,
+                        err,
+                        installationId: job.installationId,
+                        jobId: context.jobId,
+                        jobKind: job.kind,
+                        repoId: job.repository.repoId,
+                    },
+                    "code-indexer: job failed"
+                );
             }
         } finally {
-            this.active = false;
-            if (this.jobs.length > 0) {
-                this.drain();
-            }
+            this.runningRepoKeys.delete(repoKeyForJob(job));
+            this.activeCount -= 1;
+            this.drain();
         }
     }
 }
+
+type InMemoryIndexingQueueOptions = {
+    concurrency?: number;
+};
 
 type QueuedMemoryJob = {
     context: IndexingJobExecutionContext;
     job: IndexingJob;
 };
+
+function repoKeyForJob(job: IndexingJob): string {
+    return `${job.installationId}/${job.repository.repoId}`;
+}

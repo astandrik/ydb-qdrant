@@ -108,6 +108,7 @@ Optional:
 export CODE_INDEXER_PORT=8090
 export CODE_INDEXER_STATE_STORE=ydb
 export CODE_INDEXER_STATE_RETENTION_DAYS=14
+export CODE_INDEXER_JOB_CONCURRENCY=2
 export CODE_INDEXER_JOB_MAX_ATTEMPTS=3
 export CODE_INDEXER_JOB_RETRY_BACKOFF_MS=30000
 export CODE_INDEXER_CHECKS_ENABLED=false
@@ -135,7 +136,7 @@ export CODE_INDEXER_EMBED_SNIPPET_TEXT=true
 
 Set `CODE_INDEXER_STATE_STORE=memory` only for local experiments where losing queued jobs and delivery dedupe state on process restart is acceptable.
 
-With the YDB state store, interrupted `running` jobs are reset to `pending` on startup. Failed durable jobs are retried up to `CODE_INDEXER_JOB_MAX_ATTEMPTS`; completed and permanently failed jobs plus old delivery ids are removed after `CODE_INDEXER_STATE_RETENTION_DAYS`.
+With the YDB state store, interrupted `running` jobs are reset to `pending` on startup. Failed durable jobs are retried up to `CODE_INDEXER_JOB_MAX_ATTEMPTS`; completed and permanently failed jobs plus old delivery ids are removed after `CODE_INDEXER_STATE_RETENTION_DAYS`. `CODE_INDEXER_JOB_CONCURRENCY` controls how many repositories one backend process may index at once. Jobs for different repositories can run in parallel; jobs for the same installation/repository stay serialized to avoid collection reset, incremental update, and manifest conflicts.
 
 Repository manifests are saved after successful full, incremental, and PR indexing jobs. A default-branch incremental push without an existing manifest falls back to a full reindex before writing a fresh manifest. Repository and PR delete jobs remove the matching manifest together with the indexed collection.
 

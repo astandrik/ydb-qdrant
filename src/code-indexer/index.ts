@@ -99,6 +99,7 @@ function start(): void {
     const queue =
         config.stateStore === "ydb"
             ? new YdbIndexingQueue(processJob, {
+                  concurrency: config.jobConcurrency,
                   maxAttempts: config.jobMaxAttempts,
                   onFinalFailure: (job, err) =>
                       indexer.reportFinalFailure(job, err),
@@ -106,7 +107,9 @@ function start(): void {
                   retentionDays: config.stateRetentionDays,
                   retryBackoffMs: config.jobRetryBackoffMs,
               })
-            : new InMemoryIndexingQueue(processJob);
+            : new InMemoryIndexingQueue(processJob, {
+                  concurrency: config.jobConcurrency,
+              });
     if (queue instanceof YdbIndexingQueue) {
         queue.start();
     }

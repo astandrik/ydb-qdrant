@@ -85,6 +85,19 @@ function makeJob() {
     };
 }
 
+function makeJobForRepo(repoId: number, deliveryId: string) {
+    const job = makeJob();
+    return {
+        ...job,
+        deliveryId,
+        repository: {
+            ...job.repository,
+            repo: `demo-${repoId}`,
+            repoId,
+        },
+    };
+}
+
 function makeManifest() {
     return {
         collection: "gh_repo_42_default",
@@ -99,6 +112,27 @@ function makeManifest() {
         sha: "b".repeat(40),
         userUid: "gh_installation_7",
     };
+}
+
+function makeStoredJobRow(jobId: string, job: ReturnType<typeof makeJob>) {
+    return {
+        items: [
+            { textValue: jobId },
+            { textValue: JSON.stringify(job) },
+            { uint32Value: 0 },
+        ],
+    };
+}
+
+function createDeferred(): {
+    promise: Promise<void>;
+    resolve: () => void;
+} {
+    let resolve!: () => void;
+    const promise = new Promise<void>((resolvePromise) => {
+        resolve = resolvePromise;
+    });
+    return { promise, resolve };
 }
 
 function makeSession(overrides: Partial<FakeSession> = {}): FakeSession {
@@ -511,6 +545,140 @@ describe("code-indexer durable state store", () => {
                     params.$phase?.value === "completed"
             )
         ).toBe(true);
+    });
+
+    it("processes durable jobs for different repositories concurrently", async () => {
+        const { stateStore, withSessionMock } = await importStateStore();
+        const jobA = makeJobForRepo(42, "delivery-a");
+        const jobB = makeJobForRepo(43, "delivery-b");
+        const pending = [
+            { job: jobA, jobId: "delivery-a:job" },
+            { job: jobB, jobId: "delivery-b:job" },
+        ];
+        const blockers = new Map([
+            ["delivery-a:job", createDeferred()],
+            ["delivery-b:job", createDeferred()],
+        ]);
+        const processJob = vi.fn(
+            (_job, context: { jobId: string }) =>
+                blockers.get(context.jobId)?.promise ?? Promise.resolve()
+        );
+        const session = makeSession({
+            executeQuery: vi.fn(
+                (
+                    yql: string,
+                    params?: { $job_id?: { value?: unknown } }
+                ) => {
+                    if (yql.includes("SELECT job_id, payload, attempts")) {
+                        return Promise.resolve({
+                            resultSets: [
+                                {
+                                    rows: pending.map(({ job, jobId }) =>
+                                        makeStoredJobRow(jobId, job)
+                                    ),
+                                },
+                            ],
+                        });
+                    }
+                    if (yql.includes('SET status = Utf8("running")')) {
+                        const jobId = params?.$job_id?.value;
+                        const index = pending.findIndex(
+                            (item) => item.jobId === jobId
+                        );
+                        if (index >= 0) {
+                            pending.splice(index, 1);
+                        }
+                    }
+                    return Promise.resolve({ resultSets: [] });
+                }
+            ),
+        });
+        useSession(withSessionMock, session);
+        const queue = new stateStore.YdbIndexingQueue(processJob, {
+            concurrency: 2,
+            retryBackoffMs: 0,
+        });
+
+        queue.start();
+
+        await vi.waitFor(() => {
+            expect(processJob).toHaveBeenCalledTimes(2);
+        });
+        blockers.get("delivery-a:job")?.resolve();
+        blockers.get("delivery-b:job")?.resolve();
+        await vi.waitFor(() => {
+            expect(
+                session.executeQuery.mock.calls.filter(([yql]: [string]) =>
+                    yql.includes('SET status = Utf8("completed")')
+                )
+            ).toHaveLength(2);
+        });
+    });
+
+    it("does not process two durable jobs for the same repository concurrently", async () => {
+        const { stateStore, withSessionMock } = await importStateStore();
+        const jobA = makeJobForRepo(42, "delivery-a");
+        const jobB = makeJobForRepo(42, "delivery-b");
+        const pending = [
+            { job: jobA, jobId: "delivery-a:job" },
+            { job: jobB, jobId: "delivery-b:job" },
+        ];
+        const firstJob = createDeferred();
+        const processJob = vi.fn((_job, context: { jobId: string }) =>
+            context.jobId === "delivery-a:job"
+                ? firstJob.promise
+                : Promise.resolve()
+        );
+        const session = makeSession({
+            executeQuery: vi.fn(
+                (
+                    yql: string,
+                    params?: { $job_id?: { value?: unknown } }
+                ) => {
+                    if (yql.includes("SELECT job_id, payload, attempts")) {
+                        return Promise.resolve({
+                            resultSets: [
+                                {
+                                    rows: pending.map(({ job, jobId }) =>
+                                        makeStoredJobRow(jobId, job)
+                                    ),
+                                },
+                            ],
+                        });
+                    }
+                    if (yql.includes('SET status = Utf8("running")')) {
+                        const jobId = params?.$job_id?.value;
+                        const index = pending.findIndex(
+                            (item) => item.jobId === jobId
+                        );
+                        if (index >= 0) {
+                            pending.splice(index, 1);
+                        }
+                    }
+                    return Promise.resolve({ resultSets: [] });
+                }
+            ),
+        });
+        useSession(withSessionMock, session);
+        const queue = new stateStore.YdbIndexingQueue(processJob, {
+            concurrency: 2,
+            retryBackoffMs: 0,
+        });
+
+        queue.start();
+
+        await vi.waitFor(() => {
+            expect(processJob).toHaveBeenCalledTimes(1);
+        });
+        await flushAsync();
+        await flushAsync();
+        expect(processJob).toHaveBeenCalledTimes(1);
+
+        firstJob.resolve();
+
+        await vi.waitFor(() => {
+            expect(processJob).toHaveBeenCalledTimes(2);
+        });
     });
 
     it("retries failed durable jobs before completing a later attempt", async () => {

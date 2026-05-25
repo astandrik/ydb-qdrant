@@ -41,6 +41,7 @@ type StoredJob = {
 };
 
 export type YdbIndexingQueueOptions = {
+    concurrency?: number;
     maxAttempts?: number;
     now?: () => Date;
     onFinalFailure?: (job: IndexingJob, err: unknown) => Promise<void>;
@@ -174,6 +175,10 @@ function readFirstRow(result: ExecuteQueryResultLike): QueryRow | null {
     return result.resultSets?.[0]?.rows?.[0] ?? null;
 }
 
+function readRows(result: ExecuteQueryResultLike): QueryRow[] {
+    return result.resultSets?.[0]?.rows ?? [];
+}
+
 function readText(row: QueryRow, index: number): string | undefined {
     const value = row.items?.[index]?.textValue;
     return typeof value === "string" && value.length > 0 ? value : undefined;
@@ -214,6 +219,10 @@ function sleep(ms: number): Promise<void> {
 function sanitizeError(err: unknown): string {
     const message = err instanceof Error ? err.message : String(err);
     return message.slice(0, 4000);
+}
+
+function repoLockKeyForJob(job: IndexingJob): string {
+    return `${job.installationId}/${job.repository.repoId}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1089,6 +1098,8 @@ export class YdbRepoManifestStore implements RepoManifestStore {
 
 export class YdbIndexingQueue implements IndexingQueue {
     private active = false;
+    private claimLock: Promise<void> = Promise.resolve();
+    private readonly concurrency: number;
     private drainRequested = false;
     private readonly maxAttempts: number;
     private readonly now: () => Date;
@@ -1101,6 +1112,7 @@ export class YdbIndexingQueue implements IndexingQueue {
     ) => Promise<void>;
     private readonly retentionMs: number;
     private readonly retryBackoffMs: number;
+    private readonly runningRepoKeys = new Set<string>();
 
     constructor(
         processJob: (
@@ -1110,6 +1122,7 @@ export class YdbIndexingQueue implements IndexingQueue {
         options: YdbIndexingQueueOptions = {}
     ) {
         this.processJob = processJob;
+        this.concurrency = Math.max(1, Math.floor(options.concurrency ?? 1));
         this.maxAttempts = Math.max(1, Math.floor(options.maxAttempts ?? 3));
         this.now = options.now ?? (() => new Date());
         this.onFinalFailure = options.onFinalFailure;
@@ -1158,102 +1171,118 @@ export class YdbIndexingQueue implements IndexingQueue {
 
     private async drainLoop(): Promise<void> {
         try {
-            while (true) {
-                const storedJob = await this.claimNextPendingJob();
-                if (!storedJob) {
-                    break;
-                }
-
-                try {
-                    await this.progressStore.updateJobProgress({
-                        jobId: storedJob.jobId,
-                        update: {
-                            phase: "claiming",
-                            startedAt: this.now(),
-                            status: "running",
-                        },
-                    });
-                    logger.info(
-                        {
-                            attempts: storedJob.attempts + 1,
-                            deliveryId: storedJob.job.deliveryId,
-                            installationId: storedJob.job.installationId,
-                            jobId: storedJob.jobId,
-                            jobKind: storedJob.job.kind,
-                            repoId: storedJob.job.repository.repoId,
-                        },
-                        "code-indexer: processing durable job"
-                    );
-                    await this.processJob(storedJob.job, {
-                        jobId: storedJob.jobId,
-                    });
-                    await this.markJobCompleted(storedJob.jobId);
-                    await this.progressStore.updateJobProgress({
-                        jobId: storedJob.jobId,
-                        update: {
-                            finishedAt: this.now(),
-                            lastError: null,
-                            message: null,
-                            phase: "completed",
-                            status: "completed",
-                        },
-                    });
-                } catch (err: unknown) {
-                    const attempt = storedJob.attempts + 1;
-                    if (attempt < this.maxAttempts) {
-                        await this.markJobPendingForRetry(storedJob.jobId, err);
-                        await this.progressStore.updateJobProgress({
-                            jobId: storedJob.jobId,
-                            update: {
-                                lastError: sanitizeError(err),
-                                message: `Retrying after attempt ${attempt} failed.`,
-                                phase: "queued",
-                                status: "pending",
-                            },
-                        });
-                        logger.warn(
-                            {
-                                attempt,
-                                err,
-                                jobId: storedJob.jobId,
-                                jobKind: storedJob.job.kind,
-                                maxAttempts: this.maxAttempts,
-                                retryBackoffMs: this.retryBackoffMs,
-                            },
-                            "code-indexer: durable job failed; retrying"
-                        );
-                        await sleep(this.retryBackoffMs);
-                    } else {
-                        await this.markJobFailed(storedJob.jobId, err);
-                        await this.progressStore.updateJobProgress({
-                            jobId: storedJob.jobId,
-                            update: {
-                                finishedAt: this.now(),
-                                lastError: sanitizeError(err),
-                                message: "Indexing failed permanently.",
-                                phase: "failed",
-                                status: "failed",
-                            },
-                        });
-                        await this.reportFinalFailure(storedJob.job, err);
-                        logger.error(
-                            {
-                                attempt,
-                                err,
-                                jobId: storedJob.jobId,
-                                jobKind: storedJob.job.kind,
-                                maxAttempts: this.maxAttempts,
-                            },
-                            "code-indexer: durable job failed permanently"
-                        );
-                    }
-                }
-            }
+            await Promise.all(
+                Array.from({ length: this.concurrency }, () =>
+                    this.drainWorker()
+                )
+            );
         } finally {
             this.active = false;
             if (this.drainRequested) {
                 this.drainRequested = false;
                 this.drain();
+            }
+        }
+    }
+
+    private async drainWorker(): Promise<void> {
+        while (true) {
+            const storedJob = await this.claimNextPendingJob();
+            if (!storedJob) {
+                return;
+            }
+            const repoKey = repoLockKeyForJob(storedJob.job);
+            try {
+                await this.processStoredJob(storedJob);
+            } finally {
+                this.runningRepoKeys.delete(repoKey);
+            }
+        }
+    }
+
+    private async processStoredJob(storedJob: StoredJob): Promise<void> {
+        try {
+            await this.progressStore.updateJobProgress({
+                jobId: storedJob.jobId,
+                update: {
+                    phase: "claiming",
+                    startedAt: this.now(),
+                    status: "running",
+                },
+            });
+            logger.info(
+                {
+                    attempts: storedJob.attempts + 1,
+                    deliveryId: storedJob.job.deliveryId,
+                    installationId: storedJob.job.installationId,
+                    jobId: storedJob.jobId,
+                    jobKind: storedJob.job.kind,
+                    repoId: storedJob.job.repository.repoId,
+                },
+                "code-indexer: processing durable job"
+            );
+            await this.processJob(storedJob.job, {
+                jobId: storedJob.jobId,
+            });
+            await this.markJobCompleted(storedJob.jobId);
+            await this.progressStore.updateJobProgress({
+                jobId: storedJob.jobId,
+                update: {
+                    finishedAt: this.now(),
+                    lastError: null,
+                    message: null,
+                    phase: "completed",
+                    status: "completed",
+                },
+            });
+        } catch (err: unknown) {
+            const attempt = storedJob.attempts + 1;
+            if (attempt < this.maxAttempts) {
+                await this.markJobPendingForRetry(storedJob.jobId, err);
+                await this.progressStore.updateJobProgress({
+                    jobId: storedJob.jobId,
+                    update: {
+                        lastError: sanitizeError(err),
+                        message: `Retrying after attempt ${attempt} failed.`,
+                        phase: "queued",
+                        status: "pending",
+                    },
+                });
+                logger.warn(
+                    {
+                        attempt,
+                        err,
+                        jobId: storedJob.jobId,
+                        jobKind: storedJob.job.kind,
+                        maxAttempts: this.maxAttempts,
+                        retryBackoffMs: this.retryBackoffMs,
+                    },
+                    "code-indexer: durable job failed; retrying"
+                );
+                await sleep(this.retryBackoffMs);
+            } else {
+                await this.markJobFailed(storedJob.jobId, err);
+                await this.progressStore.updateJobProgress({
+                    jobId: storedJob.jobId,
+                    update: {
+                        finishedAt: this.now(),
+                        lastError: sanitizeError(err),
+                        message: "Indexing failed permanently.",
+                        phase: "failed",
+                        status: "failed",
+                    },
+                });
+                await this.reportFinalFailure(storedJob.job, err);
+                logger.error(
+                    {
+                        attempt,
+                        err,
+                        jobId: storedJob.jobId,
+                        jobKind: storedJob.job.kind,
+                        maxAttempts: this.maxAttempts,
+                    },
+                    "code-indexer: durable job failed permanently"
+                );
             }
         }
     }
@@ -1309,21 +1338,24 @@ export class YdbIndexingQueue implements IndexingQueue {
     }
 
     private async claimNextPendingJob(): Promise<StoredJob | null> {
+        return await this.withClaimLock(async () => {
+            const storedJob = await this.selectNextUnlockedPendingJob();
+            if (!storedJob) {
+                return null;
+            }
+            await this.markJobRunning(storedJob.jobId);
+            this.runningRepoKeys.add(repoLockKeyForJob(storedJob.job));
+            return storedJob;
+        });
+    }
+
+    private async selectNextUnlockedPendingJob(): Promise<StoredJob | null> {
         const selectYql = `
             SELECT job_id, payload, attempts
             FROM ${CODE_INDEXER_JOBS_TABLE}
             WHERE status = Utf8("pending")
             ORDER BY created_at
-            LIMIT 1;
-        `;
-        const markRunningYql = `
-            DECLARE $job_id AS Utf8;
-
-            UPDATE ${CODE_INDEXER_JOBS_TABLE}
-            SET status = Utf8("running"),
-                attempts = attempts + 1u,
-                updated_at = CurrentUtcTimestamp()
-            WHERE job_id = $job_id AND status = Utf8("pending");
+            LIMIT 50;
         `;
 
         return await withSession(async (session) => {
@@ -1333,19 +1365,48 @@ export class YdbIndexingQueue implements IndexingQueue {
                 undefined,
                 createExecuteQuerySettings()
             )) as ExecuteQueryResultLike;
-            const row = readFirstRow(result);
-            if (!row) {
-                return null;
+            for (const row of readRows(result)) {
+                const storedJob = parseStoredJob(row);
+                if (!this.runningRepoKeys.has(repoLockKeyForJob(storedJob.job))) {
+                    return storedJob;
+                }
             }
-            const storedJob = parseStoredJob(row);
+            return null;
+        });
+    }
+
+    private async markJobRunning(jobId: string): Promise<void> {
+        const yql = `
+            DECLARE $job_id AS Utf8;
+
+            UPDATE ${CODE_INDEXER_JOBS_TABLE}
+            SET status = Utf8("running"),
+                attempts = attempts + 1u,
+                updated_at = CurrentUtcTimestamp()
+            WHERE job_id = $job_id AND status = Utf8("pending");
+        `;
+        await withSession(async (session) => {
             await session.executeQuery(
-                markRunningYql,
-                { $job_id: TypedValues.utf8(storedJob.jobId) },
+                yql,
+                { $job_id: TypedValues.utf8(jobId) },
                 undefined,
                 createExecuteQuerySettings()
             );
-            return storedJob;
         });
+    }
+
+    private async withClaimLock<T>(fn: () => Promise<T>): Promise<T> {
+        const previous = this.claimLock;
+        let release!: () => void;
+        this.claimLock = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        await previous;
+        try {
+            return await fn();
+        } finally {
+            release();
+        }
     }
 
     private async markJobCompleted(jobId: string): Promise<void> {
