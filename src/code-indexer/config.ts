@@ -7,6 +7,7 @@ import type { CodeIndexerChunkerMode } from "./chunker.js";
 export type CodeIndexerEmbeddingProvider = "hash" | "http" | "openai";
 
 export type CodeIndexerConfig = {
+    allowedMcpOrigins: string[];
     checksEnabled: boolean;
     chunkerMode: CodeIndexerChunkerMode;
     chunkLines: number;
@@ -22,17 +23,29 @@ export type CodeIndexerConfig = {
     githubApiBaseUrl: string;
     githubApiVersion: string;
     githubAppId: string;
+    githubClientId: string;
+    githubClientSecret: string;
     githubPrivateKey: string;
     jobMaxAttempts: number;
     jobRetryBackoffMs: number;
-    stateRetentionDays: number;
     maxChangedFilesForIncremental: number;
     maxChunkChars: number;
     maxFileBytes: number;
+    oauthStateTtlSeconds: number;
     overlapLines: number;
     port: number;
+    publicBaseUrl: string;
+    quotaChunksPerRepo: number;
+    quotaFilesPerRepo: number;
+    quotaReposPerInstallation: number;
+    quotaSearchesPerUserPerDay: number;
     searchApiKey?: string;
+    sessionSecret: string;
+    sessionTtlSeconds: number;
     stateStore: "memory" | "ydb";
+    stateRetentionDays: number;
+    tokenPepper: string;
+    uiOrigin: string;
     webhookSecret: string;
 };
 
@@ -108,6 +121,13 @@ function readEmbeddingAuthScheme(): string | undefined {
     return process.env.CODE_INDEXER_EMBEDDING_AUTH_SCHEME.trim() || undefined;
 }
 
+function readCommaSeparatedList(value: string | undefined, defaultValue: string): string[] {
+    return (value ?? defaultValue)
+        .split(",")
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0);
+}
+
 export function loadCodeIndexerSearchConfig(): CodeIndexerSearchConfig {
     const embeddingProvider = readEmbeddingProvider();
     const embeddingUrl = process.env.CODE_INDEXER_EMBEDDING_URL?.trim();
@@ -152,6 +172,10 @@ export function loadCodeIndexerConfig(): CodeIndexerConfig {
 
     return {
         ...searchConfig,
+        allowedMcpOrigins: readCommaSeparatedList(
+            process.env.CODE_INDEXER_ALLOWED_MCP_ORIGINS,
+            "https://ydb-qdrant.tech"
+        ),
         checksEnabled: parseBooleanEnv(
             process.env.CODE_INDEXER_CHECKS_ENABLED,
             false
@@ -165,6 +189,8 @@ export function loadCodeIndexerConfig(): CodeIndexerConfig {
         githubApiVersion:
             process.env.GITHUB_API_VERSION?.trim() ?? "2022-11-28",
         githubAppId: readRequiredEnv("GITHUB_APP_ID"),
+        githubClientId: readRequiredEnv("GITHUB_CLIENT_ID"),
+        githubClientSecret: readRequiredEnv("GITHUB_CLIENT_SECRET"),
         githubPrivateKey: readPrivateKey(),
         jobMaxAttempts: parseIntegerEnv(
             process.env.CODE_INDEXER_JOB_MAX_ATTEMPTS,
@@ -191,6 +217,11 @@ export function loadCodeIndexerConfig(): CodeIndexerConfig {
             512 * 1024,
             { min: 1 }
         ),
+        oauthStateTtlSeconds: parseIntegerEnv(
+            process.env.CODE_INDEXER_OAUTH_STATE_TTL_SECONDS,
+            600,
+            { min: 1 }
+        ),
         overlapLines: parseIntegerEnv(process.env.CODE_INDEXER_OVERLAP_LINES, 10, {
             min: 0,
         }),
@@ -198,14 +229,43 @@ export function loadCodeIndexerConfig(): CodeIndexerConfig {
             max: 65535,
             min: 1,
         }),
+        publicBaseUrl: readRequiredEnv("CODE_INDEXER_PUBLIC_BASE_URL"),
+        quotaChunksPerRepo: parseIntegerEnv(
+            process.env.CODE_INDEXER_QUOTA_CHUNKS_PER_REPO,
+            50_000,
+            { min: 1 }
+        ),
+        quotaFilesPerRepo: parseIntegerEnv(
+            process.env.CODE_INDEXER_QUOTA_FILES_PER_REPO,
+            10_000,
+            { min: 1 }
+        ),
+        quotaReposPerInstallation: parseIntegerEnv(
+            process.env.CODE_INDEXER_QUOTA_REPOS_PER_INSTALLATION,
+            10,
+            { min: 1 }
+        ),
+        quotaSearchesPerUserPerDay: parseIntegerEnv(
+            process.env.CODE_INDEXER_QUOTA_SEARCHES_PER_USER_PER_DAY,
+            1_000,
+            { min: 1 }
+        ),
         searchApiKey:
             process.env.CODE_INDEXER_SEARCH_API_KEY?.trim() || undefined,
+        sessionSecret: readRequiredEnv("CODE_INDEXER_SESSION_SECRET"),
+        sessionTtlSeconds: parseIntegerEnv(
+            process.env.CODE_INDEXER_SESSION_TTL_SECONDS,
+            2_592_000,
+            { min: 1 }
+        ),
         stateStore: readStateStore(),
         stateRetentionDays: parseIntegerEnv(
             process.env.CODE_INDEXER_STATE_RETENTION_DAYS,
             14,
             { min: 1 }
         ),
+        tokenPepper: readRequiredEnv("CODE_INDEXER_TOKEN_PEPPER"),
+        uiOrigin: readRequiredEnv("CODE_INDEXER_UI_ORIGIN"),
         webhookSecret: readRequiredEnv("GITHUB_WEBHOOK_SECRET"),
     };
 }
