@@ -257,9 +257,21 @@ export function createPublicApiRouter(deps: CodeIndexerPublicApiDeps) {
                     await deps.progressStore.listActiveJobsForInstallation(
                         installationId
                     );
-                const activeJobsByRepoId = new Map(
-                    activeJobs.map((job) => [job.repoId, serializeProgress(job)])
-                );
+                const activeJobsByRepoId = new Map<
+                    string,
+                    ReturnType<typeof serializeProgress>
+                >();
+                for (const job of activeJobs) {
+                    const serializedJob = serializeProgress(job);
+                    const existing = activeJobsByRepoId.get(job.repoId);
+                    if (
+                        !existing ||
+                        (existing.status !== "running" &&
+                            serializedJob.status === "running")
+                    ) {
+                        activeJobsByRepoId.set(job.repoId, serializedJob);
+                    }
+                }
                 deps.quota?.assertRepositoriesPerInstallation({
                     githubUserId: context.user.githubUserId,
                     installationId,

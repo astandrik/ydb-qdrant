@@ -522,7 +522,22 @@ describe("code-indexer public API", () => {
             totalFiles: 3,
             updatedAt: new Date("2026-05-25T12:00:02.000Z"),
         };
-        deps.listActiveJobsForInstallation.mockResolvedValue([progress]);
+        deps.listActiveJobsForInstallation.mockResolvedValue([
+            progress,
+            {
+                ...progress,
+                currentPath: undefined,
+                jobId: "manual:queued-job",
+                phase: "queued",
+                processedChunks: 0,
+                processedFiles: 0,
+                startedAt: undefined,
+                status: "pending",
+                totalChunks: undefined,
+                totalFiles: undefined,
+                updatedAt: new Date("2026-05-25T12:00:01.000Z"),
+            },
+        ]);
         deps.getJobProgress.mockResolvedValue(progress);
 
         try {
