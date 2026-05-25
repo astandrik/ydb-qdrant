@@ -1099,7 +1099,7 @@ export class YdbRepoManifestStore implements RepoManifestStore {
 }
 
 export class YdbIndexingQueue implements IndexingQueue {
-    private active = false;
+    private activeWorkerCount = 0;
     private claimLock: Promise<void> = Promise.resolve();
     private readonly concurrency: number;
     private drainRequested = false;
@@ -1163,28 +1163,25 @@ export class YdbIndexingQueue implements IndexingQueue {
     }
 
     private drain(): void {
-        if (this.active) {
+        const workerCapacity = this.concurrency - this.activeWorkerCount;
+        if (workerCapacity <= 0) {
             this.drainRequested = true;
             return;
         }
-        this.active = true;
-        void this.drainLoop();
+        this.drainRequested = false;
+        for (let i = 0; i < workerCapacity; i += 1) {
+            this.startDrainWorker();
+        }
     }
 
-    private async drainLoop(): Promise<void> {
-        try {
-            await Promise.all(
-                Array.from({ length: this.concurrency }, () =>
-                    this.drainWorker()
-                )
-            );
-        } finally {
-            this.active = false;
+    private startDrainWorker(): void {
+        this.activeWorkerCount += 1;
+        void this.drainWorker().finally(() => {
+            this.activeWorkerCount -= 1;
             if (this.drainRequested) {
-                this.drainRequested = false;
                 this.drain();
             }
-        }
+        });
     }
 
     private async drainWorker(): Promise<void> {

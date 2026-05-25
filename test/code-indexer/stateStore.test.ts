@@ -756,6 +756,89 @@ describe("code-indexer durable state store", () => {
         firstBlocker.resolve();
     });
 
+    it("starts newly enqueued jobs while another repository is still running", async () => {
+        const { stateStore, withSessionMock } = await importStateStore();
+        const runningJob = makeJobForRepo(42, "delivery-a");
+        const lateJob = makeJobForRepo(43, "delivery-b");
+        const runningBlocker = createDeferred();
+        const pending = [{ job: runningJob, jobId: "delivery-a:job" }];
+        const processJob = vi.fn((_job, context: { jobId: string }) =>
+            context.jobId === "delivery-a:job"
+                ? runningBlocker.promise
+                : Promise.resolve()
+        );
+        const session = makeSession({
+            executeQuery: vi.fn(
+                (
+                    yql: string,
+                    params?: {
+                        $job_id?: { value?: unknown };
+                        $payload?: { value?: unknown };
+                    }
+                ) => {
+                    if (yql.includes("SELECT job_id, payload, attempts")) {
+                        return Promise.resolve({
+                            resultSets: [
+                                {
+                                    rows: pending.map(({ job, jobId }) =>
+                                        makeStoredJobRow(jobId, job)
+                                    ),
+                                },
+                            ],
+                        });
+                    }
+                    if (yql.includes("UPSERT INTO qdrant_code_indexer_jobs")) {
+                        const jobId = params?.$job_id?.value;
+                        const payload = params?.$payload?.value;
+                        if (typeof jobId === "string" && typeof payload === "string") {
+                            pending.push({
+                                job: JSON.parse(payload) as ReturnType<typeof makeJob>,
+                                jobId,
+                            });
+                        }
+                    }
+                    if (yql.includes('SET status = Utf8("running")')) {
+                        const jobId = params?.$job_id?.value;
+                        const index = pending.findIndex(
+                            (item) => item.jobId === jobId
+                        );
+                        if (index >= 0) {
+                            pending.splice(index, 1);
+                        }
+                    }
+                    return Promise.resolve({ resultSets: [] });
+                }
+            ),
+        });
+        useSession(withSessionMock, session);
+        const queue = new stateStore.YdbIndexingQueue(processJob, {
+            concurrency: 2,
+            retryBackoffMs: 0,
+        });
+
+        queue.start();
+
+        await vi.waitFor(() => {
+            expect(processJob).toHaveBeenCalledWith(runningJob, {
+                jobId: "delivery-a:job",
+            });
+        });
+
+        const enqueued = await queue.enqueue(lateJob);
+        try {
+            await vi.waitFor(
+                () => {
+                    expect(processJob).toHaveBeenCalledWith(lateJob, {
+                        jobId: enqueued.jobId,
+                    });
+                },
+                { timeout: 250 }
+            );
+        } finally {
+            runningBlocker.resolve();
+        }
+    });
+
     it("retries failed durable jobs before completing a later attempt", async () => {
         const { stateStore, withSessionMock } = await importStateStore();
         const job = makeJob();
