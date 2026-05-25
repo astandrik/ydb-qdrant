@@ -47,6 +47,14 @@ export type CodeIndexerSession = {
     sessionId: string;
 };
 
+export type CodeIndexerInstallationRecord = {
+    accountLogin: string;
+    accountType: string;
+    createdByGithubUserId?: string;
+    installationId: string;
+    status: string;
+};
+
 export type CodeIndexerRepositoryRecord = {
     chunkCount?: number;
     defaultBranch: string;
@@ -637,6 +645,24 @@ export class YdbCodeIndexerSaasStore {
         });
     }
 
+    async deleteGitHubUser(githubUserId: number | string): Promise<void> {
+        await ensureCodeIndexerSaasTables();
+        const yql = `
+            DECLARE $github_user_id AS Utf8;
+
+            DELETE FROM ${CODE_INDEXER_USERS_TABLE}
+            WHERE github_user_id = $github_user_id;
+        `;
+        await withSession(async (session) => {
+            await session.executeQuery(
+                yql,
+                { $github_user_id: TypedValues.utf8(normalizeId(githubUserId)) },
+                undefined,
+                createExecuteQuerySettings()
+            );
+        });
+    }
+
     async upsertInstallation(params: {
         accountLogin: string;
         accountType: string;
@@ -692,6 +718,56 @@ export class YdbCodeIndexerSaasStore {
         });
     }
 
+    async listInstallationsForUser(
+        githubUserId: number | string
+    ): Promise<CodeIndexerInstallationRecord[]> {
+        await ensureCodeIndexerSaasTables();
+        const yql = `
+            DECLARE $github_user_id AS Utf8;
+
+            SELECT
+                installation_id,
+                account_login,
+                account_type,
+                created_by_github_user_id,
+                status
+            FROM ${CODE_INDEXER_INSTALLATIONS_TABLE}
+            WHERE created_by_github_user_id = $github_user_id
+            ORDER BY account_login;
+        `;
+        const result = await withSession(async (session) => {
+            return (await session.executeQuery(
+                yql,
+                { $github_user_id: TypedValues.utf8(normalizeId(githubUserId)) },
+                undefined,
+                createExecuteQuerySettings()
+            )) as ExecuteQueryResultLike;
+        });
+        return (result.resultSets?.[0]?.rows ?? []).map(parseInstallationRow);
+    }
+
+    async deleteInstallation(installationId: number | string): Promise<void> {
+        await ensureCodeIndexerSaasTables();
+        const yql = `
+            DECLARE $installation_id AS Utf8;
+
+            DELETE FROM ${CODE_INDEXER_INSTALLATIONS_TABLE}
+            WHERE installation_id = $installation_id;
+        `;
+        await withSession(async (session) => {
+            await session.executeQuery(
+                yql,
+                {
+                    $installation_id: TypedValues.utf8(
+                        normalizeId(installationId)
+                    ),
+                },
+                undefined,
+                createExecuteQuerySettings()
+            );
+        });
+    }
+
     async upsertRepository(params: CodeIndexerRepositoryRecord): Promise<void> {
         await ensureCodeIndexerSaasTables();
         const yql = `
@@ -739,6 +815,39 @@ export class YdbCodeIndexerSaasStore {
                 createExecuteQuerySettings()
             );
         });
+    }
+
+    async getRepository(
+        repoId: number | string
+    ): Promise<CodeIndexerRepositoryRecord | null> {
+        await ensureCodeIndexerSaasTables();
+        const yql = `
+            DECLARE $repo_id AS Utf8;
+
+            SELECT
+                repo_id,
+                installation_id,
+                owner,
+                repo,
+                default_branch,
+                status,
+                last_indexed_sha,
+                chunk_count,
+                last_error
+            FROM ${CODE_INDEXER_REPOSITORIES_TABLE}
+            WHERE repo_id = $repo_id
+            LIMIT 1;
+        `;
+        const result = await withSession(async (session) => {
+            return (await session.executeQuery(
+                yql,
+                { $repo_id: TypedValues.utf8(normalizeId(repoId)) },
+                undefined,
+                createExecuteQuerySettings()
+            )) as ExecuteQueryResultLike;
+        });
+        const row = readFirstRow(result);
+        return row ? parseRepositoryRow(row) : null;
     }
 
     async markRepositoryStatus(params: {
@@ -819,6 +928,30 @@ export class YdbCodeIndexerSaasStore {
         return (result.resultSets?.[0]?.rows ?? []).map(parseRepositoryRow);
     }
 
+    async deleteRepositoriesForInstallation(
+        installationId: number | string
+    ): Promise<void> {
+        await ensureCodeIndexerSaasTables();
+        const yql = `
+            DECLARE $installation_id AS Utf8;
+
+            DELETE FROM ${CODE_INDEXER_REPOSITORIES_TABLE}
+            WHERE installation_id = $installation_id;
+        `;
+        await withSession(async (session) => {
+            await session.executeQuery(
+                yql,
+                {
+                    $installation_id: TypedValues.utf8(
+                        normalizeId(installationId)
+                    ),
+                },
+                undefined,
+                createExecuteQuerySettings()
+            );
+        });
+    }
+
     async createApiToken(params: {
         githubUserId: number | string;
         name: string;
@@ -863,6 +996,24 @@ export class YdbCodeIndexerSaasStore {
                     ),
                     $token_id: TypedValues.utf8(params.tokenId),
                 },
+                undefined,
+                createExecuteQuerySettings()
+            );
+        });
+    }
+
+    async deleteApiTokensForUser(githubUserId: number | string): Promise<void> {
+        await ensureCodeIndexerSaasTables();
+        const yql = `
+            DECLARE $github_user_id AS Utf8;
+
+            DELETE FROM ${CODE_INDEXER_API_TOKENS_TABLE}
+            WHERE github_user_id = $github_user_id;
+        `;
+        await withSession(async (session) => {
+            await session.executeQuery(
+                yql,
+                { $github_user_id: TypedValues.utf8(normalizeId(githubUserId)) },
                 undefined,
                 createExecuteQuerySettings()
             );
@@ -1157,6 +1308,24 @@ function parseRepositoryRow(row: QueryRow): CodeIndexerRepositoryRecord {
         ...(readText(row, 6) ? { lastIndexedSha: readText(row, 6) } : {}),
         ...(readUint(row, 7) !== undefined ? { chunkCount: readUint(row, 7) } : {}),
         ...(readText(row, 8) ? { lastError: readText(row, 8) } : {}),
+    };
+}
+
+function parseInstallationRow(row: QueryRow): CodeIndexerInstallationRecord {
+    const installationId = readText(row, 0);
+    const accountLogin = readText(row, 1);
+    const accountType = readText(row, 2);
+    const createdByGithubUserId = readText(row, 3);
+    const status = readText(row, 4);
+    if (!installationId || !accountLogin || !accountType || !status) {
+        throw new Error("stored code-indexer installation row is invalid");
+    }
+    return {
+        accountLogin,
+        accountType,
+        ...(createdByGithubUserId ? { createdByGithubUserId } : {}),
+        installationId,
+        status,
     };
 }
 

@@ -12,6 +12,10 @@ import {
     verifyOAuthState,
     type CodeIndexerAuthDeps,
 } from "./auth.js";
+import {
+    createPublicApiRouter,
+    type CodeIndexerPublicApiDeps,
+} from "./publicApi.js";
 import { parseCodeSearchRequest, searchCode } from "./searchAdapter.js";
 import { createWebhookHandler } from "./webhooks.js";
 import type {
@@ -25,6 +29,7 @@ type CodeIndexerServerDeps = {
     auth?: CodeIndexerAuthDeps;
     deliveryStore: DeliveryStore;
     embeddingProvider: EmbeddingProvider;
+    publicApi?: CodeIndexerPublicApiDeps;
     queue: IndexingQueue;
     searchApiKey?: string;
     store: CodeIndexStore;
@@ -182,6 +187,9 @@ export function buildCodeIndexerServer(deps: CodeIndexerServerDeps) {
 
     if (deps.auth) {
         registerAuthRoutes(app, deps.auth);
+    }
+    if (deps.publicApi) {
+        app.use("/api", createPublicApiRouter(deps.publicApi));
     }
 
     app.post(

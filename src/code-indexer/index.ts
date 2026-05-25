@@ -102,6 +102,11 @@ function start(): void {
         },
         deliveryStore,
         embeddingProvider,
+        publicApi: {
+            indexStore: store,
+            queue,
+            store: saasStore,
+        },
         queue,
         searchApiKey: config.searchApiKey,
         store,
