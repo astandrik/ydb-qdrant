@@ -629,6 +629,11 @@ Evidence recorded on 2026-05-25:
   - After completion, `listActiveJobsForInstallation(135399283)` returned no active rows.
   - A synthetic `check_run.rerequested` webhook delivery was accepted and recorded failed progress with `lastError=GitHub request failed: 422 Unprocessable Entity`; this verifies failure-path persistence, not a successful indexing path.
   - Authenticated dashboard visual verification was not performed by the agent because the available browser session was unauthenticated; deployed UI code and production API/YDB progress rows were verified.
+- Queue parallelism implementation and deploy on 2026-05-25:
+  - Backend commit `538593c` added bounded repository-level indexing parallelism.
+  - `CODE_INDEXER_JOB_CONCURRENCY` defaults to `2`; production is deployed with `CODE_INDEXER_JOB_CONCURRENCY=4`.
+  - Jobs for different repositories can run concurrently in one backend process; jobs for the same installation/repository remain serialized to avoid collection and manifest conflicts.
+  - Current production backend image is `ydb-qdrant-code-indexer:538593c`; public health returned `{"status":"ok"}` and Docker reports the container as `healthy`.
 - Local verification passed: `npm run typecheck`, `npm run lint`, `npm run build`, `npm test`, and `YDB_ANONYMOUS_CREDENTIALS=1 npm run test:integration:code-indexer`.
 - UI verification passed in `ydb-qdrant-ui`: `npm run lint`, `npm run build`.
 - Remaining destructive E2E step: uninstall App and confirm indexed collection deletion.
