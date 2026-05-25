@@ -9,6 +9,7 @@ GitHub Actions workflows cover:
 - Build and typecheck.
 - Unit and integration tests.
 - Integration tests against YDB using the integration suite.
+- Code-indexer smoke tests against local YDB using `astandrik/setup-local-ydb@v1`.
 - Recall and F1 evaluation for the one-table global layout in exact-only mode.
 
 Badges in the root README link to:

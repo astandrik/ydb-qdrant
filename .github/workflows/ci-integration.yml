@@ -53,3 +53,34 @@ jobs:
           YDB_QDRANT_DATABASE: /local
           YDB_ANONYMOUS_CREDENTIALS: "1"
 
+  code_indexer_smoke:
+    name: Code indexer smoke (setup-local-ydb)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup local YDB
+        id: ydb
+        uses: astandrik/setup-local-ydb@v1
+        with:
+          version: 26.1.1.6
+          tenant: /local/code-indexer
+          auth: false
+
+      - name: Run code-indexer integration smoke
+        run: npm run test:integration:code-indexer
+        env:
+          YDB_QDRANT_ENDPOINT: ${{ steps.ydb.outputs.endpoint }}
+          YDB_QDRANT_DATABASE: ${{ steps.ydb.outputs.database }}
+          YDB_ANONYMOUS_CREDENTIALS: "1"
+          CODE_INDEXER_EMBEDDING_PROVIDER: hash
