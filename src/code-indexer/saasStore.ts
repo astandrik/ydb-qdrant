@@ -186,11 +186,12 @@ function readBool(row: QueryRow, index: number): boolean | undefined {
 }
 
 function readTimestamp(row: QueryRow, index: number): Date | undefined {
-    const value = row.items?.[index]?.timestampValue;
+    const item = row.items?.[index];
+    const value = item?.timestampValue;
     if (value instanceof Date) {
         return value;
     }
-    const numericValue = toSafeNumber(value);
+    const numericValue = toSafeNumber(value) ?? toSafeNumber(item?.uint64Value);
     if (numericValue !== null) {
         return new Date(Math.trunc(numericValue / 1000));
     }
