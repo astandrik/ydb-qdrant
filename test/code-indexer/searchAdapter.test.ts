@@ -46,6 +46,7 @@ function indexStore(): {
         ])
     );
     const store: CodeIndexStore = {
+        countCollection: vi.fn(),
         deleteCollection: vi.fn(),
         deletePath: vi.fn(),
         ensureCollection: vi.fn(),

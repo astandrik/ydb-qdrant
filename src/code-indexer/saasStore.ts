@@ -190,6 +190,10 @@ function readTimestamp(row: QueryRow, index: number): Date | undefined {
     if (value instanceof Date) {
         return value;
     }
+    const numericValue = toSafeNumber(value);
+    if (numericValue !== null) {
+        return new Date(Math.trunc(numericValue / 1000));
+    }
     if (typeof value === "string") {
         const date = new Date(value);
         return Number.isNaN(date.getTime()) ? undefined : date;
@@ -906,6 +910,24 @@ export class YdbCodeIndexerSaasStore {
         status: CodeIndexerRepositoryStatus;
     }): Promise<void> {
         await ensureCodeIndexerSaasTables();
+        const assignments = [
+            "status = $status",
+            ...(params.lastIndexedSha === undefined
+                ? []
+                : ["last_indexed_sha = $last_indexed_sha"]),
+            ...(params.lastIndexedAt === undefined
+                ? []
+                : ["last_indexed_at = $last_indexed_at"]),
+            ...(params.chunkCount === undefined
+                ? []
+                : ["chunk_count = $chunk_count"]),
+            ...(params.lastError !== undefined
+                ? ["last_error = $last_error"]
+                : params.status === "failed"
+                  ? []
+                  : ["last_error = CAST(NULL AS Utf8?)"]),
+            "updated_at = CurrentUtcTimestamp()",
+        ].join(",\n                ");
         const yql = `
             DECLARE $repo_id AS Utf8;
             DECLARE $status AS Utf8;
@@ -915,12 +937,7 @@ export class YdbCodeIndexerSaasStore {
             DECLARE $last_error AS Utf8?;
 
             UPDATE ${CODE_INDEXER_REPOSITORIES_TABLE}
-            SET status = $status,
-                last_indexed_sha = $last_indexed_sha,
-                last_indexed_at = $last_indexed_at,
-                chunk_count = $chunk_count,
-                last_error = $last_error,
-                updated_at = CurrentUtcTimestamp()
+            SET ${assignments}
             WHERE repo_id = $repo_id;
         `;
         await withSession(async (session) => {

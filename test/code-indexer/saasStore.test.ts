@@ -397,7 +397,7 @@ describe("code-indexer SaaS store", () => {
                                 { textValue: "main" },
                                 { textValue: "ready" },
                                 { textValue: "f".repeat(40) },
-                                {},
+                                { timestampValue: 1_779_707_543_244_000 },
                                 { uint32Value: 17 },
                                 {},
                             ],
@@ -412,6 +412,7 @@ describe("code-indexer SaaS store", () => {
                 chunkCount: 17,
                 defaultBranch: "main",
                 installationId: "700",
+                lastIndexedAt: new Date(1_779_707_543_244),
                 lastIndexedSha: "f".repeat(40),
                 owner: "octo",
                 repo: "demo",
@@ -419,6 +420,29 @@ describe("code-indexer SaaS store", () => {
                 status: "ready",
             },
         ]);
+    });
+
+    it("preserves indexed repository metrics when marking transient status", async () => {
+        const { saasStore, withSessionMock } = await importSaasStore();
+        const session = readyStore({ withSessionMock });
+        const store = new saasStore.YdbCodeIndexerSaasStore({
+            encryptionSecret: "encryption-secret",
+            tokenPepper: "pepper",
+        });
+        await saasStore.ensureCodeIndexerSaasTables();
+        session.executeQuery.mockClear();
+
+        await store.markRepositoryStatus({
+            repoId: "42",
+            status: "indexing",
+        });
+
+        const yql = session.executeQuery.mock.calls[0]?.[0] as string;
+        expect(yql).toContain("status = $status");
+        expect(yql).not.toContain("last_indexed_sha = $last_indexed_sha");
+        expect(yql).not.toContain("last_indexed_at = $last_indexed_at");
+        expect(yql).not.toContain("chunk_count = $chunk_count");
+        expect(yql).toContain("last_error = CAST(NULL AS Utf8?)");
     });
 
     it("preserves linked GitHub user ownership when webhook updates omit it", async () => {

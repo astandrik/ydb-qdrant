@@ -102,6 +102,7 @@ class FakeManifestStore implements RepoManifestStore {
 }
 
 class FakeStore implements CodeIndexStore {
+    collectionCount = 0;
     readonly deletedCollections: Array<{ collection: string; userUid: string }> = [];
     readonly deletedPaths: Array<{
         collection: string;
@@ -124,6 +125,10 @@ class FakeStore implements CodeIndexStore {
         userUid: string;
         vectors: number[][];
     }> = [];
+
+    countCollection(): Promise<number> {
+        return Promise.resolve(this.collectionCount);
+    }
 
     deleteCollection(params: {
         collection: string;
@@ -445,7 +450,9 @@ describe("code-indexer repo indexer", () => {
         ];
         client.contents.set("src/new.ts", "export const value = 1;");
         const store = new FakeStore();
+        store.collectionCount = 5;
         const manifestStore = new FakeManifestStore();
+        const statusStore = new FakeStatusStore();
         manifestStore.seed(
             makeDefaultManifest([
                 { blobSha: "blob-deleted", path: "src/deleted.ts" },
@@ -453,7 +460,13 @@ describe("code-indexer repo indexer", () => {
                 { blobSha: "blob-unchanged", path: "src/unchanged.ts" },
             ])
         );
-        const indexer = buildIndexer(client, store, manifestStore);
+        const indexer = buildIndexer(
+            client,
+            store,
+            manifestStore,
+            defaultTestChunker,
+            statusStore
+        );
 
         const job: IndexingJob = {
             after: "b".repeat(40),
@@ -509,6 +522,12 @@ describe("code-indexer repo indexer", () => {
             repository: repository(),
             sha: "b".repeat(40),
             userUid: "gh_installation_7",
+        });
+        expect(statusStore.statusUpdates.at(-1)).toMatchObject({
+            chunkCount: 5,
+            lastIndexedSha: "b".repeat(40),
+            repoId: 42,
+            status: "ready",
         });
     });
 

@@ -73,6 +73,22 @@ export class YdbQdrantIndexStore implements CodeIndexStore {
         this.includeTextInPayload = options.includeTextInPayload ?? true;
     }
 
+    async countCollection(params: {
+        collection: string;
+        userUid: string;
+    }): Promise<number> {
+        const client = await this.clientForUser(params.userUid);
+        try {
+            const result = await client.getCollection(params.collection);
+            return result.points_count;
+        } catch (err: unknown) {
+            if (!isCollectionMissingError(err)) {
+                throw err;
+            }
+            return 0;
+        }
+    }
+
     async deleteCollection(params: {
         collection: string;
         userUid: string;

@@ -61,6 +61,7 @@ function createBaseDeps() {
         embedQuery: vi.fn(),
     };
     const indexStore: CodeIndexStore = {
+        countCollection: vi.fn(),
         deleteCollection,
         deletePath: vi.fn(),
         ensureCollection: vi.fn(),

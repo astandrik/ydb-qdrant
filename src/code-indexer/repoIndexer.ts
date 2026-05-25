@@ -421,7 +421,10 @@ export class RepoIndexer {
             sha: job.after,
             userUid,
         });
-        return { lastIndexedSha: job.after };
+        return {
+            chunkCount: await this.store.countCollection({ collection, userUid }),
+            lastIndexedSha: job.after,
+        };
     }
 
     private async indexRepositoryRef(params: {

@@ -27,6 +27,7 @@ function makeServer() {
         embedQuery: vi.fn(() => Promise.resolve([0.1, 0.2])),
     };
     const store: CodeIndexStore = {
+        countCollection: vi.fn(),
         deleteCollection: vi.fn(),
         deletePath: vi.fn(),
         ensureCollection: vi.fn(),

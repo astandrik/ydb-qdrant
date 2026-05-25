@@ -189,6 +189,10 @@ export interface CheckRunReporter {
 }
 
 export interface CodeIndexStore {
+    countCollection(params: {
+        collection: string;
+        userUid: string;
+    }): Promise<number>;
     deleteCollection(params: {
         collection: string;
         userUid: string;
