@@ -36,3 +36,6 @@ pnpm-debug.log*
 # Misc caches
 .cache/
 ydb-sa.json
+
+# Local private runbooks and deployment helpers
+private/

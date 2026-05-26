@@ -13,7 +13,14 @@ type WebhookDependencies = {
     deliveryStore: DeliveryStore;
     lifecycleStore?: WebhookLifecycleStore;
     queue: IndexingQueue;
+    repositorySource?: WebhookRepositorySource;
     webhookSecret: string;
+};
+
+export type WebhookRepositorySource = {
+    listRepositoriesForInstallation(
+        installationId: number
+    ): Promise<GitHubRepositoryRef[]>;
 };
 
 type WebhookStoredRepository = {
@@ -479,6 +486,7 @@ export function createWebhookHandler(deps: WebhookDependencies) {
                 event,
                 lifecycleStore: deps.lifecycleStore,
                 payload,
+                repositorySource: deps.repositorySource,
             });
             if (deps.lifecycleStore) {
                 await recordWebhookLifecycle({
@@ -516,6 +524,7 @@ async function jobsForWebhook(params: {
     event: string;
     lifecycleStore?: WebhookLifecycleStore;
     payload: unknown;
+    repositorySource?: WebhookRepositorySource;
 }): Promise<IndexingJob[]> {
     const jobs = mapWebhookToJobs(params);
     const fallbackAction = readInstallationRepositoryFallbackAction(
@@ -526,17 +535,33 @@ async function jobsForWebhook(params: {
         return jobs;
     }
     const installationId = readInstallationId(params.payload);
-    if (
-        installationId === null ||
-        !params.lifecycleStore?.listRepositoriesForInstallation
-    ) {
+    if (installationId === null) {
         return jobs;
     }
-    const repositories =
-        await params.lifecycleStore.listRepositoriesForInstallation(installationId);
+    let repositories: GitHubRepositoryRef[] = [];
+    if (params.lifecycleStore?.listRepositoriesForInstallation) {
+        const storedRepositories =
+            await params.lifecycleStore.listRepositoriesForInstallation(
+                installationId
+            );
+        repositories = storedRepositories
+            .map(storedRepositoryToRef)
+            .filter(
+                (repository): repository is GitHubRepositoryRef =>
+                    repository !== null
+            );
+    }
+    if (
+        repositories.length === 0 &&
+        fallbackAction === "unsuspend" &&
+        params.repositorySource
+    ) {
+        repositories =
+            await params.repositorySource.listRepositoriesForInstallation(
+                installationId
+            );
+    }
     return repositories
-        .map(storedRepositoryToRef)
-        .filter((repository): repository is GitHubRepositoryRef => repository !== null)
         .map((repository): IndexingJob => {
             if (fallbackAction === "deleted") {
                 return {

@@ -30,7 +30,11 @@ import {
     parseCodeSearchRequest,
     searchCode,
 } from "./searchAdapter.js";
-import { createWebhookHandler, type WebhookLifecycleStore } from "./webhooks.js";
+import {
+    createWebhookHandler,
+    type WebhookLifecycleStore,
+    type WebhookRepositorySource,
+} from "./webhooks.js";
 import type {
     CodeIndexStore,
     DeliveryStore,
@@ -46,6 +50,7 @@ type CodeIndexerServerDeps = {
     mcp?: CodeIndexerMcpHttpDeps;
     publicApi?: CodeIndexerPublicApiDeps;
     queue: IndexingQueue;
+    repositorySource?: WebhookRepositorySource;
     searchApiKey?: string;
     store: CodeIndexStore;
     webhookSecret: string;
@@ -299,6 +304,7 @@ export function buildCodeIndexerServer(deps: CodeIndexerServerDeps) {
             deliveryStore: deps.deliveryStore,
             lifecycleStore: deps.lifecycleStore,
             queue: deps.queue,
+            repositorySource: deps.repositorySource,
             webhookSecret: deps.webhookSecret,
         })
     );

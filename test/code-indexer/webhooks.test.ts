@@ -841,6 +841,72 @@ describe("code-indexer webhook handler", () => {
         expect(res.json).toHaveBeenCalledWith({ enqueued: 1, status: "accepted" });
     });
 
+    it("loads GitHub repositories for unsuspend reindex when lifecycle state is unavailable", async () => {
+        const body = Buffer.from(
+            JSON.stringify({
+                action: "unsuspend",
+                installation: {
+                    account: { login: "octo", type: "User" },
+                    id: 7,
+                },
+            })
+        );
+        const enqueue = vi.fn(() =>
+            Promise.resolve({
+                jobId: "job-1",
+                phase: "queued",
+                status: "pending",
+            })
+        );
+        const repositorySource = {
+            listRepositoriesForInstallation: vi.fn(() =>
+                Promise.resolve([repository()])
+            ),
+        };
+        const handler = createWebhookHandler({
+            deliveryStore: {
+                has: vi.fn(() => Promise.resolve(false)),
+                mark: vi.fn(() => Promise.resolve()),
+            },
+            queue: { enqueue },
+            repositorySource,
+            webhookSecret: "secret",
+        });
+        const req = {
+            body,
+            header(name: string): string | undefined {
+                const headers: Record<string, string> = {
+                    "X-GitHub-Delivery": "delivery-unsuspend",
+                    "X-GitHub-Event": "installation",
+                    "X-Hub-Signature-256": createWebhookSignature(
+                        "secret",
+                        body
+                    ),
+                };
+                return headers[name];
+            },
+        } as unknown as Request;
+        const res = {
+            json: vi.fn(),
+            status: vi.fn(() => res),
+        } as unknown as Response;
+
+        await handler(req, res);
+
+        expect(repositorySource.listRepositoriesForInstallation).toHaveBeenCalledWith(
+            7
+        );
+        expect(enqueue).toHaveBeenCalledWith({
+            deliveryId: "delivery-unsuspend",
+            installationId: 7,
+            kind: "full-index",
+            reason: "installation-unsuspended",
+            ref: "main",
+            repository: repository(),
+        });
+        expect(res.json).toHaveBeenCalledWith({ enqueued: 1, status: "accepted" });
+    });
+
     it("does not overwrite default branch repository status for PR jobs", async () => {
         const body = Buffer.from(
             JSON.stringify({

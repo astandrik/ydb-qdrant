@@ -147,6 +147,7 @@ function start(): void {
             store: saasStore,
         },
         queue,
+        repositorySource: clientFactory,
         searchApiKey: config.searchApiKey,
         store,
         webhookSecret: config.webhookSecret,

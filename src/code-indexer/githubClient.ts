@@ -16,6 +16,7 @@ import type {
     GitHubContentClient,
     GitHubContentClientFactory,
     GitHubFileEntry,
+    GitHubRepositoryRef,
     GitHubRepositorySnapshot,
     GitHubRepositorySnapshotContent,
     GitHubRepositorySnapshotFile,
@@ -36,6 +37,15 @@ type GitHubAppAuthOptions = {
 
 type InstallationTokenResponse = {
     token: string;
+};
+
+type InstallationRepositoriesResponse = {
+    repositories: Array<{
+        default_branch?: unknown;
+        id?: unknown;
+        name?: unknown;
+        owner?: unknown;
+    }>;
 };
 
 type TreeResponse = {
@@ -101,6 +111,16 @@ function isInstallationTokenResponse(
     return isRecord(value) && typeof value.token === "string";
 }
 
+function isInstallationRepositoriesResponse(
+    value: unknown
+): value is InstallationRepositoriesResponse {
+    return (
+        isRecord(value) &&
+        Array.isArray(value.repositories) &&
+        value.repositories.every(isRecord)
+    );
+}
+
 function isTreeResponse(value: unknown): value is TreeResponse {
     return (
         isRecord(value) &&
@@ -124,6 +144,28 @@ function encodePath(path: string): string {
         .split("/")
         .map((segment) => encodeURIComponent(segment))
         .join("/");
+}
+
+function repositorySummaryToRef(
+    repository: InstallationRepositoriesResponse["repositories"][number]
+): GitHubRepositoryRef | null {
+    const owner = isRecord(repository.owner) ? repository.owner.login : undefined;
+    if (
+        typeof repository.id !== "number" ||
+        typeof repository.name !== "string" ||
+        typeof owner !== "string"
+    ) {
+        return null;
+    }
+    return {
+        defaultBranch:
+            typeof repository.default_branch === "string"
+                ? repository.default_branch
+                : "HEAD",
+        owner,
+        repo: repository.name,
+        repoId: repository.id,
+    };
 }
 
 function joinApiUrl(baseUrl: string, path: string): string {
@@ -309,6 +351,19 @@ export class GitHubAppClientFactory
         });
     }
 
+    async listRepositoriesForInstallation(
+        installationId: number
+    ): Promise<GitHubRepositoryRef[]> {
+        const token = await this.createInstallationToken(installationId);
+        const client = new GitHubInstallationClient({
+            apiBaseUrl: this.apiBaseUrl,
+            apiVersion: this.apiVersion,
+            fetchImpl: this.fetchImpl,
+            token,
+        });
+        return await client.listInstallationRepositories();
+    }
+
     async createInstallationToken(
         installationId: number
     ): Promise<string> {
@@ -361,6 +416,33 @@ class GitHubInstallationClient
         this.apiVersion = params.apiVersion;
         this.fetchImpl = params.fetchImpl;
         this.token = params.token;
+    }
+
+    async listInstallationRepositories(): Promise<GitHubRepositoryRef[]> {
+        const repositories: GitHubRepositoryRef[] = [];
+        let page = 1;
+        while (true) {
+            const json = await this.githubJson(
+                `/installation/repositories?per_page=100&page=${page}`
+            );
+            if (!isInstallationRepositoriesResponse(json)) {
+                throw new Error(
+                    "GitHub installation repositories response is invalid"
+                );
+            }
+            repositories.push(
+                ...json.repositories
+                    .map(repositorySummaryToRef)
+                    .filter(
+                        (repository): repository is GitHubRepositoryRef =>
+                            repository !== null
+                    )
+            );
+            if (json.repositories.length < 100) {
+                return repositories;
+            }
+            page += 1;
+        }
     }
 
     async compareCommits(params: {

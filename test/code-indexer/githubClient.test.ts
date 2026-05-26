@@ -88,6 +88,52 @@ describe("GitHubAppClientFactory", () => {
         expect(fetchImpl).toHaveBeenCalledTimes(3);
     });
 
+    it("lists repositories available to an installation", async () => {
+        const privateKey = generatePrivateKeyPem();
+        const fetchImpl = vi.fn((input: URL | RequestInfo) => {
+            const url = requestUrl(input);
+            if (url.endsWith("/app/installations/42/access_tokens")) {
+                return Promise.resolve(
+                    new Response(JSON.stringify({ token: "installation-token" }), {
+                        status: 201,
+                    })
+                );
+            }
+            if (url.endsWith("/installation/repositories?per_page=100&page=1")) {
+                return Promise.resolve(
+                    new Response(
+                        JSON.stringify({
+                            repositories: [
+                                {
+                                    default_branch: "main",
+                                    id: 1001,
+                                    name: "demo",
+                                    owner: { login: "octo" },
+                                },
+                            ],
+                        }),
+                        { status: 200 }
+                    )
+                );
+            }
+            throw new Error(`unexpected fetch: ${url}`);
+        }) as unknown as typeof fetch;
+        const factory = new GitHubAppClientFactory({
+            appId: "123",
+            fetchImpl,
+            privateKey,
+        });
+
+        await expect(factory.listRepositoriesForInstallation(42)).resolves.toEqual([
+            {
+                defaultBranch: "main",
+                owner: "octo",
+                repo: "demo",
+                repoId: 1001,
+            },
+        ]);
+    });
+
     it("downloads a repository tarball and exposes a local snapshot", async () => {
         const tempDir = await mkdtemp(join(tmpdir(), "github-client-test-"));
         try {
