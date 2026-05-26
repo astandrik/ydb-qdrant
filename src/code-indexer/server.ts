@@ -15,6 +15,7 @@ import {
     verifyOAuthState,
     type CodeIndexerAuthDeps,
     type GitHubUserInstallation,
+    type OAuthStatePayload,
 } from "./auth.js";
 import {
     createPublicApiRouter,
@@ -65,6 +66,23 @@ function readQueryString(value: unknown): string | undefined {
         return value[0];
     }
     return undefined;
+}
+
+function createInstallCallbackState(
+    req: Request,
+    now: Date
+): OAuthStatePayload | null {
+    // Install-time OAuth starts on github.com, so there is no app-created state cookie.
+    const installationId = readQueryString(req.query.installation_id)?.trim();
+    if (!installationId) {
+        return null;
+    }
+    return {
+        createdAtMs: now.getTime(),
+        installationId,
+        nonce: "",
+        returnPath: "/code-indexer/dashboard/",
+    };
 }
 
 function sendAuthError(res: Response, err: unknown): void {
@@ -150,26 +168,35 @@ function registerAuthRoutes(
                     });
                 }
                 const rawState = readQueryString(req.query.state);
-                if (!rawState) {
-                    throw new CodeIndexerAuthError({
-                        code: "missing_oauth_state",
-                        message: "missing OAuth state",
-                        statusCode: 400,
-                    });
-                }
                 const now = auth.now?.() ?? new Date();
-                const state = verifyOAuthState({
-                    nowMs: now.getTime(),
-                    secret: auth.sessionSecret,
-                    state: rawState,
-                    ttlSeconds: auth.oauthStateTtlSeconds,
-                });
-                if (readOAuthStateCookie(req.header("cookie")) !== state.nonce) {
-                    throw new CodeIndexerAuthError({
-                        code: "invalid_oauth_state",
-                        message: "invalid OAuth state",
-                        statusCode: 400,
+                let state: OAuthStatePayload;
+                if (rawState) {
+                    state = verifyOAuthState({
+                        nowMs: now.getTime(),
+                        secret: auth.sessionSecret,
+                        state: rawState,
+                        ttlSeconds: auth.oauthStateTtlSeconds,
                     });
+                    if (readOAuthStateCookie(req.header("cookie")) !== state.nonce) {
+                        throw new CodeIndexerAuthError({
+                            code: "invalid_oauth_state",
+                            message: "invalid OAuth state",
+                            statusCode: 400,
+                        });
+                    }
+                } else {
+                    const installCallbackState = createInstallCallbackState(
+                        req,
+                        now
+                    );
+                    if (!installCallbackState) {
+                        throw new CodeIndexerAuthError({
+                            code: "missing_oauth_state",
+                            message: "missing OAuth state",
+                            statusCode: 400,
+                        });
+                    }
+                    state = installCallbackState;
                 }
                 const token = await auth.client.exchangeCode(code);
                 const user = await auth.client.fetchUser(token.accessToken);

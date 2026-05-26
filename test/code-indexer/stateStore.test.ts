@@ -343,6 +343,9 @@ describe("code-indexer durable state store", () => {
             undefined,
             { settings: true }
         );
+        expect(session.executeQuery.mock.calls[0][0]).toContain(
+            "FROM (SELECT 1 AS reserve_row)"
+        );
     });
 
     it("persists repo manifests in YDB", async () => {

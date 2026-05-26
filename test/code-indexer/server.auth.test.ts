@@ -432,7 +432,7 @@ describe("code-indexer auth routes", () => {
         }
     });
 
-    it("rejects GitHub install OAuth callbacks without signed state", async () => {
+    it("creates a user session after a GitHub install callback without signed state", async () => {
         const fetchImpl: typeof fetch = (input) => {
             const url = fetchInputUrl(input);
             if (url.origin === "https://github.example.test") {
@@ -465,6 +465,44 @@ describe("code-indexer auth routes", () => {
             throw new Error(`unexpected GitHub URL ${url.toString()}`);
         };
         const { baseUrl, server, store } = await startAuthServer({ fetchImpl });
+        try {
+            const response = await request({
+                baseUrl,
+                path:
+                    "/github/oauth/callback?code=oauth-code" +
+                    "&installation_id=777&setup_action=install",
+            });
+
+            expect(response.statusCode).toBe(302);
+            expect(response.headers.location).toBe(
+                "https://ydb-qdrant.tech/code-indexer/dashboard/"
+            );
+            expect(store.upsertGitHubUser).toHaveBeenCalledWith({
+                accessToken: "ghu-user",
+                githubUserId: "123",
+                login: "octocat",
+                refreshToken: "ghr-refresh",
+            });
+            expect(store.upsertInstallation).toHaveBeenCalledTimes(1);
+            expect(store.upsertInstallation).toHaveBeenCalledWith({
+                accountLogin: "astandrik",
+                accountType: "User",
+                createdByGithubUserId: "123",
+                installationId: "777",
+                status: "active",
+            });
+            expect(store.createSession).toHaveBeenCalledWith({
+                expiresAt: new Date("2026-05-25T01:00:00.000Z"),
+                githubUserId: "123",
+                sessionId: "session-id",
+            });
+        } finally {
+            await closeServer(server);
+        }
+    });
+
+    it("rejects OAuth callbacks without signed state or installation id", async () => {
+        const { baseUrl, server, store } = await startAuthServer();
         try {
             const response = await request({
                 baseUrl,

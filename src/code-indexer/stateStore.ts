@@ -1273,6 +1273,7 @@ export class YdbDeliveryStore implements DeliveryStore {
             UPSERT INTO ${CODE_INDEXER_DELIVERIES_TABLE}
                 (delivery_id, received_at)
             SELECT $delivery_id AS delivery_id, CurrentUtcTimestamp() AS received_at
+            FROM (SELECT 1 AS reserve_row)
             WHERE NOT EXISTS (SELECT * FROM $existing);
 
             SELECT COUNT(*) AS existing_count FROM $existing;
