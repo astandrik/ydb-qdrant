@@ -1798,10 +1798,10 @@ export class YdbIndexingQueue implements IndexingQueue {
         });
         const resultSets = result.resultSets;
         if (!resultSets || resultSets.length === 0) {
-            return true;
+            return false;
         }
         const verificationRows = resultSets[resultSets.length - 1]?.rows;
-        return verificationRows === undefined || verificationRows.length > 0;
+        return verificationRows !== undefined && verificationRows.length > 0;
     }
 
     private async withClaimLock<T>(fn: () => Promise<T>): Promise<T> {

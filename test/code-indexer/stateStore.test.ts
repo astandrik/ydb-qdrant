@@ -153,6 +153,21 @@ function makeStoredJobRow(jobId: string, job: ReturnType<typeof makeJob>) {
     };
 }
 
+function makeClaimVerificationRow(jobId: string) {
+    return {
+        items: [{ textValue: jobId }],
+    };
+}
+
+function makeClaimResult(jobId: unknown) {
+    return {
+        resultSets:
+            typeof jobId === "string"
+                ? [{ rows: [makeClaimVerificationRow(jobId)] }]
+                : [{ rows: [] }],
+    };
+}
+
 function createDeferred(): {
     promise: Promise<void>;
     resolve: () => void;
@@ -780,6 +795,9 @@ describe("code-indexer durable state store", () => {
                         ],
                     });
                 }
+                if (yql.includes('SET status = Utf8("running")')) {
+                    return Promise.resolve(makeClaimResult("delivery-1:job"));
+                }
                 return Promise.resolve({ resultSets: [] });
             }),
         });
@@ -879,6 +897,47 @@ describe("code-indexer durable state store", () => {
         expect(processJob).not.toHaveBeenCalled();
     });
 
+    it.each([
+        ["empty result sets", { resultSets: [] }],
+        ["missing rows", { resultSets: [{}] }],
+    ])(
+        "does not process a job when durable claim verification returns %s",
+        async (_name, claimResult) => {
+            const { stateStore, withSessionMock } = await importStateStore();
+            const job = makeJob();
+            const processJob = vi.fn(() => Promise.resolve());
+            const session = makeSession({
+                executeQuery: vi.fn((yql: string) => {
+                    if (yql.includes("SELECT job_id, payload, attempts")) {
+                        return Promise.resolve({
+                            resultSets: [
+                                {
+                                    rows: [
+                                        makeStoredJobRow("delivery-1:job", job),
+                                    ],
+                                },
+                            ],
+                        });
+                    }
+                    if (yql.includes('SET status = Utf8("running")')) {
+                        return Promise.resolve(claimResult);
+                    }
+                    return Promise.resolve({ resultSets: [] });
+                }),
+            });
+            useSession(withSessionMock, session);
+            const queue = new stateStore.YdbIndexingQueue(processJob, {
+                retryBackoffMs: 0,
+            });
+
+            queue.start();
+            await flushAsync();
+            await flushAsync();
+
+            expect(processJob).not.toHaveBeenCalled();
+        }
+    );
+
     it("processes durable jobs for different repositories concurrently", async () => {
         const { stateStore, withSessionMock } = await importStateStore();
         const jobA = makeJobForRepo(42, "delivery-a");
@@ -920,6 +979,7 @@ describe("code-indexer durable state store", () => {
                         if (index >= 0) {
                             pending.splice(index, 1);
                         }
+                        return Promise.resolve(makeClaimResult(jobId));
                     }
                     return Promise.resolve({ resultSets: [] });
                 }
@@ -986,6 +1046,7 @@ describe("code-indexer durable state store", () => {
                         if (index >= 0) {
                             pending.splice(index, 1);
                         }
+                        return Promise.resolve(makeClaimResult(jobId));
                     }
                     return Promise.resolve({ resultSets: [] });
                 }
@@ -1063,6 +1124,7 @@ describe("code-indexer durable state store", () => {
                         if (index >= 0) {
                             pending.splice(index, 1);
                         }
+                        return Promise.resolve(makeClaimResult(jobId));
                     }
                     return Promise.resolve({ resultSets: [] });
                 }
@@ -1137,6 +1199,7 @@ describe("code-indexer durable state store", () => {
                         if (index >= 0) {
                             pending.splice(index, 1);
                         }
+                        return Promise.resolve(makeClaimResult(jobId));
                     }
                     return Promise.resolve({ resultSets: [] });
                 }
@@ -1203,6 +1266,9 @@ describe("code-indexer durable state store", () => {
                         });
                     }
                     return Promise.resolve({ resultSets: [{ rows: [] }] });
+                }
+                if (yql.includes('SET status = Utf8("running")')) {
+                    return Promise.resolve(makeClaimResult("delivery-1:job"));
                 }
                 return Promise.resolve({ resultSets: [] });
             }),
@@ -1271,6 +1337,9 @@ describe("code-indexer durable state store", () => {
                             },
                         ],
                     });
+                }
+                if (yql.includes('SET status = Utf8("running")')) {
+                    return Promise.resolve(makeClaimResult("delivery-1:job"));
                 }
                 return Promise.resolve({ resultSets: [] });
             }),
