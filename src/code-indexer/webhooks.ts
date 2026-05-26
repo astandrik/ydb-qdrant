@@ -472,6 +472,7 @@ export function createWebhookHandler(deps: WebhookDependencies) {
             return;
         }
 
+        let enqueued = 0;
         try {
             const jobs = await jobsForWebhook({
                 deliveryId,
@@ -489,6 +490,7 @@ export function createWebhookHandler(deps: WebhookDependencies) {
             }
             for (const job of jobs) {
                 await deps.queue.enqueue(job);
+                enqueued += 1;
             }
             if (!usedAtomicReservation) {
                 await deps.deliveryStore.mark(deliveryId);
@@ -496,7 +498,13 @@ export function createWebhookHandler(deps: WebhookDependencies) {
             res.json({ enqueued: jobs.length, status: "accepted" });
         } catch (err: unknown) {
             if (usedAtomicReservation) {
-                await deps.deliveryStore.release?.(deliveryId).catch(() => undefined);
+                if (enqueued === 0) {
+                    await deps.deliveryStore
+                        .release?.(deliveryId)
+                        .catch(() => undefined);
+                }
+            } else if (enqueued > 0) {
+                await deps.deliveryStore.mark(deliveryId).catch(() => undefined);
             }
             throw err;
         }

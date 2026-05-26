@@ -1049,7 +1049,7 @@ export class RepoIndexer {
     }
 
     private async assertRepositoryQuota(job: IndexingJob): Promise<void> {
-        if (!this.quota || !this.quotaStore) {
+        if (!this.quota || !this.quotaStore || !addsRepositoryToInstallation(job)) {
             return;
         }
         const repositories = await this.quotaStore.listRepositoriesForInstallation(
@@ -1196,6 +1196,14 @@ function shouldFallbackToFullIndex(
     }
     const branch = branchNameFromRef(job.ref);
     return branch !== job.repository.defaultBranch;
+}
+
+function addsRepositoryToInstallation(job: IndexingJob): boolean {
+    return (
+        job.kind === "full-index" &&
+        (job.reason === "installation" ||
+            job.reason === "installation-repositories-added")
+    );
 }
 
 function updatesDefaultBranchStatus(job: IndexingJob): boolean {

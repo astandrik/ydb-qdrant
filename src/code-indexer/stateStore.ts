@@ -1454,8 +1454,12 @@ export class YdbIndexingQueue implements IndexingQueue {
     async enqueue(job: IndexingJob): Promise<EnqueuedIndexingJob> {
         await ensureCodeIndexerStateTables();
         const jobId = jobIdForJob(job);
-        await this.enqueueStoredJob(job, jobId);
-        await this.progressStore.createJobProgress({ job, jobId });
+        if (this.progressStore instanceof YdbIndexingProgressStore) {
+            await this.enqueueStoredJobWithProgress(job, jobId);
+        } else {
+            await this.enqueueStoredJob(job, jobId);
+            await this.progressStore.createJobProgress({ job, jobId });
+        }
         this.drain();
         return { jobId, phase: "queued", status: "pending" };
     }
@@ -1746,6 +1750,109 @@ export class YdbIndexingQueue implements IndexingQueue {
                 {
                     $job_id: TypedValues.utf8(jobId),
                     $payload: TypedValues.jsonDocument(ensureJsonSerializable(job)),
+                    $repo_key: TypedValues.utf8(repoLockKeyForJob(job)),
+                },
+                undefined,
+                createExecuteQuerySettings()
+            );
+        });
+    }
+
+    private async enqueueStoredJobWithProgress(
+        job: IndexingJob,
+        jobId: string
+    ): Promise<void> {
+        const yql = `
+            DECLARE $job_id AS Utf8;
+            DECLARE $payload AS JsonDocument;
+            DECLARE $repo_key AS Utf8;
+            DECLARE $installation_id AS Utf8;
+            DECLARE $repo_id AS Utf8;
+            DECLARE $owner AS Utf8;
+            DECLARE $repo AS Utf8;
+            DECLARE $job_kind AS Utf8;
+            DECLARE $pr_number AS Uint32?;
+
+            UPSERT INTO ${CODE_INDEXER_JOBS_TABLE}
+                (
+                    job_id,
+                    status,
+                    attempts,
+                    payload,
+                    repo_key,
+                    created_at,
+                    updated_at,
+                    last_error
+                )
+            VALUES (
+                $job_id,
+                Utf8("pending"),
+                0u,
+                $payload,
+                $repo_key,
+                CurrentUtcTimestamp(),
+                CurrentUtcTimestamp(),
+                CAST(NULL AS Utf8?)
+            );
+
+            UPSERT INTO ${CODE_INDEXER_JOB_PROGRESS_TABLE}
+                (
+                    job_id,
+                    installation_id,
+                    repo_id,
+                    owner,
+                    repo,
+                    job_kind,
+                    status,
+                    phase,
+                    message,
+                    total_files,
+                    processed_files,
+                    total_chunks,
+                    processed_chunks,
+                    current_path,
+                    last_error,
+                    created_at,
+                    started_at,
+                    updated_at,
+                    finished_at,
+                    pr_number
+                )
+            VALUES (
+                $job_id,
+                $installation_id,
+                $repo_id,
+                $owner,
+                $repo,
+                $job_kind,
+                Utf8("pending"),
+                Utf8("queued"),
+                CAST(NULL AS Utf8?),
+                CAST(NULL AS Uint32?),
+                0u,
+                CAST(NULL AS Uint32?),
+                0u,
+                CAST(NULL AS Utf8?),
+                CAST(NULL AS Utf8?),
+                CurrentUtcTimestamp(),
+                CAST(NULL AS Timestamp?),
+                CurrentUtcTimestamp(),
+                CAST(NULL AS Timestamp?),
+                $pr_number
+            );
+        `;
+        await withSession(async (session) => {
+            await session.executeQuery(
+                yql,
+                {
+                    $installation_id: TypedValues.utf8(String(job.installationId)),
+                    $job_id: TypedValues.utf8(jobId),
+                    $job_kind: TypedValues.utf8(job.kind),
+                    $owner: TypedValues.utf8(job.repository.owner),
+                    $payload: TypedValues.jsonDocument(ensureJsonSerializable(job)),
+                    $pr_number: optionalUint32(prNumberForJob(job)),
+                    $repo: TypedValues.utf8(job.repository.repo),
+                    $repo_id: TypedValues.utf8(String(job.repository.repoId)),
                     $repo_key: TypedValues.utf8(repoLockKeyForJob(job)),
                 },
                 undefined,

@@ -524,6 +524,64 @@ describe("code-indexer webhook handler", () => {
         expect(release).toHaveBeenCalledWith("delivery-1");
     });
 
+    it("keeps an atomic delivery reservation after a partial enqueue failure", async () => {
+        const body = Buffer.from(
+            JSON.stringify({
+                action: "created",
+                installation: { id: 7 },
+                repositories: [
+                    repositoryPayload(),
+                    {
+                        full_name: "octo/other",
+                        id: 43,
+                        name: "other",
+                    },
+                ],
+            })
+        );
+        const enqueueError = new Error("enqueue failed");
+        const enqueue = vi
+            .fn()
+            .mockResolvedValueOnce({
+                jobId: "job-1",
+                phase: "queued",
+                status: "pending",
+            })
+            .mockRejectedValueOnce(enqueueError);
+        const release = vi.fn(() => Promise.resolve());
+        const deliveryStore: DeliveryStore = {
+            has: vi.fn(),
+            mark: vi.fn(),
+            release,
+            reserve: vi.fn(() => Promise.resolve(true)),
+        };
+        const handler = createWebhookHandler({
+            deliveryStore,
+            queue: { enqueue },
+            webhookSecret: "secret",
+        });
+        const req = {
+            body,
+            header(name: string): string | undefined {
+                const headers: Record<string, string> = {
+                    "X-GitHub-Delivery": "delivery-1",
+                    "X-GitHub-Event": "installation",
+                    "X-Hub-Signature-256": createWebhookSignature("secret", body),
+                };
+                return headers[name];
+            },
+        } as unknown as Request;
+        const res = {
+            json: vi.fn(),
+            status: vi.fn(() => res),
+        } as unknown as Response;
+
+        await expect(handler(req, res)).rejects.toThrow("enqueue failed");
+
+        expect(enqueue).toHaveBeenCalledTimes(2);
+        expect(release).not.toHaveBeenCalled();
+    });
+
     it("records lifecycle status before enqueueing uninstall jobs", async () => {
         const body = Buffer.from(
             JSON.stringify({

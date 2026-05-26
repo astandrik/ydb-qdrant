@@ -757,6 +757,7 @@ describe("code-indexer durable state store", () => {
         );
         expect(upsertCall).toBeDefined();
         expect(progressUpsertCall).toBeDefined();
+        expect(upsertCall).toBe(progressUpsertCall);
         expect(upsertCall?.[0]).toContain('Utf8("pending")');
         expect(upsertCall?.[0]).toContain("0u");
         const params = upsertCall?.[1] as

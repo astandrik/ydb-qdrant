@@ -5,8 +5,14 @@ import {
     LineWindowChunker,
     type CodeChunker,
 } from "../../src/code-indexer/chunker.js";
-import { RepoIndexer } from "../../src/code-indexer/repoIndexer.js";
-import { createCodeIndexerQuota, type CodeIndexerQuota } from "../../src/code-indexer/quota.js";
+import {
+    RepoIndexer,
+    type RepoIndexerQuotaStore,
+} from "../../src/code-indexer/repoIndexer.js";
+import {
+    createCodeIndexerQuota,
+    type CodeIndexerQuota,
+} from "../../src/code-indexer/quota.js";
 import { REPO_CONFIG_PATH } from "../../src/code-indexer/repoConfig.js";
 import type {
     CodeChunk,
@@ -314,7 +320,8 @@ function buildIndexer(
     quota?: CodeIndexerQuota,
     progressStore?: IndexingProgressStore,
     provider: EmbeddingProvider = embeddingProvider,
-    extraOptions: Record<string, unknown> = {}
+    extraOptions: Record<string, unknown> = {},
+    quotaStore?: RepoIndexerQuotaStore
 ): RepoIndexer {
     const clientFactory: GitHubContentClientFactory = {
         forInstallation: vi.fn(() => Promise.resolve(client)),
@@ -327,6 +334,7 @@ function buildIndexer(
         options: { ...defaultTestChunkingOptions, ...extraOptions } as never,
         progressStore,
         quota,
+        quotaStore,
         statusStore,
         store,
     });
@@ -620,6 +628,94 @@ describe("code-indexer repo indexer", () => {
             },
         ]);
         expect(store.upserts).toEqual([]);
+    });
+
+    it("skips repository-count quota for routine full reindex jobs", async () => {
+        const client = new FakeGitHubClient();
+        const store = new FakeStore();
+        const quota = createCodeIndexerQuota({
+            limits: {
+                chunksPerRepo: 50,
+                filesPerRepo: 10,
+                reposPerInstallation: 1,
+                searchesPerUserPerDay: 100,
+            },
+            logger: { warn: vi.fn() },
+        });
+        const quotaStore = {
+            listRepositoriesForInstallation: vi.fn(() =>
+                Promise.resolve([{ status: "ready" }, { status: "ready" }])
+            ),
+        };
+        const indexer = buildIndexer(
+            client,
+            store,
+            new FakeManifestStore(),
+            defaultTestChunker,
+            undefined,
+            quota,
+            undefined,
+            embeddingProvider,
+            {},
+            quotaStore
+        );
+
+        await expect(
+            indexer.processJob({
+                installationId: 7,
+                kind: "full-index",
+                reason: "manual-reindex",
+                ref: "main",
+                repository: repository(),
+            })
+        ).resolves.toBeUndefined();
+        expect(quotaStore.listRepositoriesForInstallation).not.toHaveBeenCalled();
+    });
+
+    it("enforces repository-count quota for repository-add full index jobs", async () => {
+        const client = new FakeGitHubClient();
+        const store = new FakeStore();
+        const quota = createCodeIndexerQuota({
+            limits: {
+                chunksPerRepo: 50,
+                filesPerRepo: 10,
+                reposPerInstallation: 1,
+                searchesPerUserPerDay: 100,
+            },
+            logger: { warn: vi.fn() },
+        });
+        const quotaStore = {
+            listRepositoriesForInstallation: vi.fn(() =>
+                Promise.resolve([{ status: "ready" }, { status: "queued" }])
+            ),
+        };
+        const indexer = buildIndexer(
+            client,
+            store,
+            new FakeManifestStore(),
+            defaultTestChunker,
+            undefined,
+            quota,
+            undefined,
+            embeddingProvider,
+            {},
+            quotaStore
+        );
+
+        await expect(
+            indexer.processJob({
+                installationId: 7,
+                kind: "full-index",
+                reason: "installation-repositories-added",
+                ref: "main",
+                repository: repository(),
+            })
+        ).rejects.toMatchObject({
+            code: "quota_repos_per_installation_exceeded",
+            statusCode: 422,
+        });
+        expect(quotaStore.listRepositoriesForInstallation).toHaveBeenCalledWith(7);
+        expect(client.contentRequests).toEqual([]);
     });
 
     it("uses the injected code chunker implementation", async () => {
