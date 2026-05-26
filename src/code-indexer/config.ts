@@ -24,6 +24,7 @@ export type CodeIndexerConfig = {
     embeddingModel?: string;
     embeddingProvider: CodeIndexerEmbeddingProvider;
     embeddingUrl?: string;
+    encryptionSecret: string;
     githubApiBaseUrl: string;
     githubApiVersion: string;
     githubAppId: string;
@@ -202,6 +203,7 @@ export function loadCodeIndexerConfig(): CodeIndexerConfig {
         githubClientId: readRequiredEnv("GITHUB_CLIENT_ID"),
         githubClientSecret: readRequiredEnv("GITHUB_CLIENT_SECRET"),
         githubPrivateKey: readPrivateKey(),
+        encryptionSecret: readRequiredEnv("CODE_INDEXER_ENCRYPTION_SECRET"),
         fileConcurrency: parseIntegerEnv(
             process.env.CODE_INDEXER_FILE_CONCURRENCY,
             4,

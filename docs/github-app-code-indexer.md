@@ -93,6 +93,7 @@ export GITHUB_WEBHOOK_SECRET=<webhook-secret>
 export CODE_INDEXER_PUBLIC_BASE_URL=https://code-indexer.ydb-qdrant.tech
 export CODE_INDEXER_UI_ORIGIN=https://ydb-qdrant.tech
 export CODE_INDEXER_SESSION_SECRET=<long-random-secret>
+export CODE_INDEXER_ENCRYPTION_SECRET=<different-long-random-secret>
 export CODE_INDEXER_TOKEN_PEPPER=<long-random-secret>
 
 export YDB_QDRANT_ENDPOINT=grpcs://ydb.serverless.yandexcloud.net:2135

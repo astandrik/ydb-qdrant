@@ -4,6 +4,7 @@ const ORIGINAL_ENV = { ...process.env };
 
 function setRequiredEnv(): void {
     process.env.CODE_INDEXER_PUBLIC_BASE_URL = "https://code-indexer.example.test";
+    process.env.CODE_INDEXER_ENCRYPTION_SECRET = "encryption-secret";
     process.env.CODE_INDEXER_SESSION_SECRET = "session-secret";
     process.env.CODE_INDEXER_TOKEN_PEPPER = "token-pepper";
     process.env.CODE_INDEXER_UI_ORIGIN = "https://app.example.test";
@@ -41,6 +42,7 @@ describe("code-indexer config", () => {
     it("requires public SaaS env vars for the HTTP service config", async () => {
         const requiredEnvVars = [
             "CODE_INDEXER_PUBLIC_BASE_URL",
+            "CODE_INDEXER_ENCRYPTION_SECRET",
             "CODE_INDEXER_SESSION_SECRET",
             "CODE_INDEXER_TOKEN_PEPPER",
             "CODE_INDEXER_UI_ORIGIN",
@@ -70,6 +72,7 @@ describe("code-indexer config", () => {
             embeddingBatchMaxChars: 200_000,
             embeddingBatchSize: 64,
             embeddingConcurrency: 2,
+            encryptionSecret: "encryption-secret",
             fileConcurrency: 4,
             jobConcurrency: 2,
             oauthStateTtlSeconds: 600,

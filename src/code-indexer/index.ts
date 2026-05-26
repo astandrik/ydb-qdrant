@@ -45,7 +45,7 @@ function start(): void {
             : new InMemoryRepoManifestStore();
     const progressStore = new YdbIndexingProgressStore();
     const saasStore = new YdbCodeIndexerSaasStore({
-        encryptionSecret: config.sessionSecret,
+        encryptionSecret: config.encryptionSecret,
         tokenPepper: config.tokenPepper,
     });
     const quota = createCodeIndexerQuota({
