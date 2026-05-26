@@ -432,38 +432,10 @@ describe("code-indexer auth routes", () => {
         }
     });
 
-    it("creates a user session after a GitHub install callback without signed state", async () => {
-        const fetchImpl: typeof fetch = (input) => {
-            const url = fetchInputUrl(input);
-            if (url.origin === "https://github.example.test") {
-                return Promise.resolve(jsonResponse({
-                    access_token: "ghu-user",
-                    expires_in: 28_800,
-                    refresh_token: "ghr-refresh",
-                    refresh_token_expires_in: 15_897_600,
-                    token_type: "bearer",
-                }));
-            }
-            if (url.pathname === "/user") {
-                return Promise.resolve(jsonResponse({ id: 123, login: "octocat" }));
-            }
-            if (url.pathname === "/user/installations") {
-                return Promise.resolve(jsonResponse({
-                    installations: [
-                        {
-                            account: { login: "astandrik", type: "User" },
-                            id: 777,
-                        },
-                        {
-                            account: { login: "ydb-platform", type: "Organization" },
-                            id: 778,
-                        },
-                    ],
-                    total_count: 2,
-                }));
-            }
-            throw new Error(`unexpected GitHub URL ${url.toString()}`);
-        };
+    it("redirects GitHub install callbacks without creating an unbound session", async () => {
+        const fetchImpl = vi.fn(() =>
+            Promise.reject(new Error("unexpected GitHub OAuth exchange"))
+        ) as unknown as typeof fetch;
         const { baseUrl, server, store } = await startAuthServer({ fetchImpl });
         try {
             const response = await request({
@@ -477,25 +449,10 @@ describe("code-indexer auth routes", () => {
             expect(response.headers.location).toBe(
                 "https://ydb-qdrant.tech/code-indexer/dashboard/"
             );
-            expect(store.upsertGitHubUser).toHaveBeenCalledWith({
-                accessToken: "ghu-user",
-                githubUserId: "123",
-                login: "octocat",
-                refreshToken: "ghr-refresh",
-            });
-            expect(store.upsertInstallation).toHaveBeenCalledTimes(1);
-            expect(store.upsertInstallation).toHaveBeenCalledWith({
-                accountLogin: "astandrik",
-                accountType: "User",
-                createdByGithubUserId: "123",
-                installationId: "777",
-                status: "active",
-            });
-            expect(store.createSession).toHaveBeenCalledWith({
-                expiresAt: new Date("2026-05-25T01:00:00.000Z"),
-                githubUserId: "123",
-                sessionId: "session-id",
-            });
+            expect(fetchImpl).not.toHaveBeenCalled();
+            expect(store.upsertGitHubUser).not.toHaveBeenCalled();
+            expect(store.upsertInstallation).not.toHaveBeenCalled();
+            expect(store.createSession).not.toHaveBeenCalled();
         } finally {
             await closeServer(server);
         }

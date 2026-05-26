@@ -68,21 +68,13 @@ function readQueryString(value: unknown): string | undefined {
     return undefined;
 }
 
-function createInstallCallbackState(
-    req: Request,
-    now: Date
-): OAuthStatePayload | null {
-    // Install-time OAuth starts on github.com, so there is no app-created state cookie.
+function isInstallCallbackWithoutState(req: Request): boolean {
     const installationId = readQueryString(req.query.installation_id)?.trim();
-    if (!installationId) {
-        return null;
-    }
-    return {
-        createdAtMs: now.getTime(),
-        installationId,
-        nonce: "",
-        returnPath: "/code-indexer/dashboard/",
-    };
+    const setupAction = readQueryString(req.query.setup_action)?.trim();
+    return (
+        installationId !== undefined &&
+        (setupAction === "install" || setupAction === "update")
+    );
 }
 
 function sendAuthError(res: Response, err: unknown): void {
@@ -159,6 +151,21 @@ function registerAuthRoutes(
         "/github/oauth/callback",
         async (req: Request, res: Response): Promise<void> => {
             try {
+                const rawState = readQueryString(req.query.state);
+                if (!rawState && isInstallCallbackWithoutState(req)) {
+                    // GitHub App install-time OAuth starts on github.com, so it
+                    // has no app-created state cookie. Do not exchange the code
+                    // or create a session; send the user back to the UI to start
+                    // a state-bound sign-in from our origin.
+                    res.setHeader("Set-Cookie", clearOAuthStateCookie());
+                    res.redirect(
+                        buildUiRedirectUrl(
+                            auth.uiOrigin,
+                            "/code-indexer/dashboard/"
+                        )
+                    );
+                    return;
+                }
                 const code = readQueryString(req.query.code);
                 if (!code) {
                     throw new CodeIndexerAuthError({
@@ -167,7 +174,6 @@ function registerAuthRoutes(
                         statusCode: 400,
                     });
                 }
-                const rawState = readQueryString(req.query.state);
                 const now = auth.now?.() ?? new Date();
                 let state: OAuthStatePayload;
                 if (rawState) {
@@ -185,18 +191,11 @@ function registerAuthRoutes(
                         });
                     }
                 } else {
-                    const installCallbackState = createInstallCallbackState(
-                        req,
-                        now
-                    );
-                    if (!installCallbackState) {
-                        throw new CodeIndexerAuthError({
-                            code: "missing_oauth_state",
-                            message: "missing OAuth state",
-                            statusCode: 400,
-                        });
-                    }
-                    state = installCallbackState;
+                    throw new CodeIndexerAuthError({
+                        code: "missing_oauth_state",
+                        message: "missing OAuth state",
+                        statusCode: 400,
+                    });
                 }
                 const token = await auth.client.exchangeCode(code);
                 const user = await auth.client.fetchUser(token.accessToken);
