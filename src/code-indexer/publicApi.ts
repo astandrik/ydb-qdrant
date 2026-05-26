@@ -538,17 +538,6 @@ export function createPublicApiRouter(deps: CodeIndexerPublicApiDeps) {
                     repoId: readPathParam(req, "repoId"),
                     store: deps.store,
                 });
-                const repositories =
-                    await deps.store.listRepositoriesForInstallation(
-                        repository.installationId
-                    );
-                deps.quota?.assertRepositoriesPerInstallation({
-                    githubUserId: context.user.githubUserId,
-                    installationId: repository.installationId,
-                    repoCount: repositories.filter(
-                        (candidate) => candidate.status !== "deleted"
-                    ).length,
-                });
                 const job = await deps.queue.enqueue({
                     installationId: toSafeIntegerId(
                         repository.installationId,

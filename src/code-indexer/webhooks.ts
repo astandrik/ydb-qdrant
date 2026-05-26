@@ -510,7 +510,11 @@ async function jobsForWebhook(params: {
     payload: unknown;
 }): Promise<IndexingJob[]> {
     const jobs = mapWebhookToJobs(params);
-    if (jobs.length > 0 || !isInstallationDeleted(params.event, params.payload)) {
+    const fallbackAction = readInstallationRepositoryFallbackAction(
+        params.event,
+        params.payload
+    );
+    if (jobs.length > 0 || fallbackAction === null) {
         return jobs;
     }
     const installationId = readInstallationId(params.payload);
@@ -525,21 +529,37 @@ async function jobsForWebhook(params: {
     return repositories
         .map(storedRepositoryToRef)
         .filter((repository): repository is GitHubRepositoryRef => repository !== null)
-        .map((repository) => ({
-            deliveryId: params.deliveryId,
-            installationId,
-            kind: "delete-repo-index" as const,
-            reason: "installation-deleted",
-            repository,
-        }));
+        .map((repository): IndexingJob => {
+            if (fallbackAction === "deleted") {
+                return {
+                    deliveryId: params.deliveryId,
+                    installationId,
+                    kind: "delete-repo-index",
+                    reason: "installation-deleted",
+                    repository,
+                };
+            }
+            return {
+                deliveryId: params.deliveryId,
+                installationId,
+                kind: "full-index",
+                reason: "installation-unsuspended",
+                ref: repository.defaultBranch,
+                repository,
+            };
+        });
 }
 
-function isInstallationDeleted(event: string, payload: unknown): boolean {
-    return (
-        event === "installation" &&
-        isRecord(payload) &&
-        payload.action === "deleted"
-    );
+function readInstallationRepositoryFallbackAction(
+    event: string,
+    payload: unknown
+): "deleted" | "unsuspend" | null {
+    if (event !== "installation" || !isRecord(payload)) {
+        return null;
+    }
+    return payload.action === "deleted" || payload.action === "unsuspend"
+        ? payload.action
+        : null;
 }
 
 function storedRepositoryToRef(

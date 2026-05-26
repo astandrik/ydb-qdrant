@@ -82,6 +82,7 @@ export class InMemoryIndexingQueue implements IndexingQueue {
         job: IndexingJob,
         context: IndexingJobExecutionContext
     ) => Promise<void>;
+    private readonly repoIdleWaiters = new Map<string, Array<() => void>>();
     private readonly runningRepoKeys = new Set<string>();
 
     constructor(
@@ -108,11 +109,23 @@ export class InMemoryIndexingQueue implements IndexingQueue {
         return Promise.resolve({ jobId, phase: "queued", status: "pending" });
     }
 
-    deleteRepositoryJobs(params: {
+    async deleteRepositoryJobs(params: {
         installationId: number | string;
         repoId: number | string;
     }): Promise<number> {
         const repoKey = `${params.installationId}/${params.repoId}`;
+        let deleted = 0;
+        while (true) {
+            deleted += this.deleteQueuedRepositoryJobs(repoKey);
+            await this.waitForRepoIdle(repoKey);
+            deleted += this.deleteQueuedRepositoryJobs(repoKey);
+            if (!this.runningRepoKeys.has(repoKey)) {
+                return deleted;
+            }
+        }
+    }
+
+    private deleteQueuedRepositoryJobs(repoKey: string): number {
         let deleted = 0;
         for (let index = this.jobs.length - 1; index >= 0; index -= 1) {
             const item = this.jobs[index];
@@ -121,7 +134,32 @@ export class InMemoryIndexingQueue implements IndexingQueue {
                 deleted += 1;
             }
         }
-        return Promise.resolve(deleted);
+        return deleted;
+    }
+
+    private waitForRepoIdle(repoKey: string): Promise<void> {
+        if (!this.runningRepoKeys.has(repoKey)) {
+            return Promise.resolve();
+        }
+        return new Promise((resolve) => {
+            const waiters = this.repoIdleWaiters.get(repoKey) ?? [];
+            waiters.push(resolve);
+            this.repoIdleWaiters.set(repoKey, waiters);
+        });
+    }
+
+    private notifyRepoIdle(repoKey: string): void {
+        if (this.runningRepoKeys.has(repoKey)) {
+            return;
+        }
+        const waiters = this.repoIdleWaiters.get(repoKey);
+        if (!waiters) {
+            return;
+        }
+        this.repoIdleWaiters.delete(repoKey);
+        for (const resolve of waiters) {
+            resolve();
+        }
     }
 
     private drain(): void {
@@ -181,7 +219,9 @@ export class InMemoryIndexingQueue implements IndexingQueue {
                 );
             }
         } finally {
-            this.runningRepoKeys.delete(repoKeyForJob(job));
+            const repoKey = repoKeyForJob(job);
+            this.runningRepoKeys.delete(repoKey);
+            this.notifyRepoIdle(repoKey);
             this.activeCount -= 1;
             this.drain();
         }

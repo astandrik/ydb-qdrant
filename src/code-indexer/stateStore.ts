@@ -1418,6 +1418,7 @@ export class YdbIndexingQueue implements IndexingQueue {
     private readonly retentionCleanupIntervalMs: number;
     private readonly retryBackoffMs: number;
     private readonly runningJobTimeoutMs: number;
+    private readonly repoIdleWaiters = new Map<string, Array<() => void>>();
     private readonly runningRepoKeys = new Set<string>();
 
     constructor(
@@ -1464,6 +1465,24 @@ export class YdbIndexingQueue implements IndexingQueue {
         repoId: number | string;
     }): Promise<void> {
         await ensureCodeIndexerStateTables();
+        const repoKey = `${params.installationId}/${params.repoId}`;
+        while (true) {
+            await this.deleteStoredRepositoryJobs(params, repoKey);
+            await this.waitForRepoIdle(repoKey);
+            await this.deleteStoredRepositoryJobs(params, repoKey);
+            if (!this.runningRepoKeys.has(repoKey)) {
+                return;
+            }
+        }
+    }
+
+    private async deleteStoredRepositoryJobs(
+        params: {
+            installationId: number | string;
+            repoId: number | string;
+        },
+        repoKey: string
+    ): Promise<void> {
         const yql = `
             DECLARE $installation_id AS Utf8;
             DECLARE $repo_id AS Utf8;
@@ -1484,14 +1503,37 @@ export class YdbIndexingQueue implements IndexingQueue {
                         String(params.installationId)
                     ),
                     $repo_id: TypedValues.utf8(String(params.repoId)),
-                    $repo_key: TypedValues.utf8(
-                        `${params.installationId}/${params.repoId}`
-                    ),
+                    $repo_key: TypedValues.utf8(repoKey),
                 },
                 undefined,
                 createExecuteQuerySettings()
             );
         });
+    }
+
+    private waitForRepoIdle(repoKey: string): Promise<void> {
+        if (!this.runningRepoKeys.has(repoKey)) {
+            return Promise.resolve();
+        }
+        return new Promise((resolve) => {
+            const waiters = this.repoIdleWaiters.get(repoKey) ?? [];
+            waiters.push(resolve);
+            this.repoIdleWaiters.set(repoKey, waiters);
+        });
+    }
+
+    private notifyRepoIdle(repoKey: string): void {
+        if (this.runningRepoKeys.has(repoKey)) {
+            return;
+        }
+        const waiters = this.repoIdleWaiters.get(repoKey);
+        if (!waiters) {
+            return;
+        }
+        this.repoIdleWaiters.delete(repoKey);
+        for (const resolve of waiters) {
+            resolve();
+        }
     }
 
     start(): void {
@@ -1558,6 +1600,7 @@ export class YdbIndexingQueue implements IndexingQueue {
                 await this.processStoredJob(storedJob);
             } finally {
                 this.runningRepoKeys.delete(repoKey);
+                this.notifyRepoIdle(repoKey);
             }
         }
     }

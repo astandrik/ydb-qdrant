@@ -1086,6 +1086,78 @@ describe("code-indexer durable state store", () => {
         });
     });
 
+    it("waits for a running durable repository job before delete returns", async () => {
+        const { stateStore, withSessionMock } = await importStateStore();
+        const job = makeJobForRepo(42, "delivery-a");
+        const pending = [{ job, jobId: "delivery-a:job" }];
+        const blocker = createDeferred();
+        const processJob = vi.fn(() => blocker.promise);
+        const session = makeSession({
+            executeQuery: vi.fn(
+                (
+                    yql: string,
+                    params?: { $job_id?: { value?: unknown } }
+                ) => {
+                    if (yql.includes("SELECT job_id, payload, attempts")) {
+                        return Promise.resolve({
+                            resultSets: [
+                                {
+                                    rows: pending.map(({ job, jobId }) =>
+                                        makeStoredJobRow(jobId, job)
+                                    ),
+                                },
+                            ],
+                        });
+                    }
+                    if (yql.includes('SET status = Utf8("running")')) {
+                        const jobId = params?.$job_id?.value;
+                        const index = pending.findIndex(
+                            (item) => item.jobId === jobId
+                        );
+                        if (index >= 0) {
+                            pending.splice(index, 1);
+                        }
+                        return Promise.resolve(makeClaimResult(jobId));
+                    }
+                    return Promise.resolve({ resultSets: [] });
+                }
+            ),
+        });
+        useSession(withSessionMock, session);
+        const queue = new stateStore.YdbIndexingQueue(processJob, {
+            retryBackoffMs: 0,
+        });
+
+        queue.start();
+
+        await vi.waitFor(() => {
+            expect(processJob).toHaveBeenCalledWith(job, {
+                jobId: "delivery-a:job",
+            });
+        });
+
+        let settled = false;
+        const deleted = queue
+            .deleteRepositoryJobs({ installationId: 7, repoId: 42 })
+            .then(() => {
+                settled = true;
+            });
+
+        await flushAsync();
+        expect(settled).toBe(false);
+
+        blocker.resolve();
+        await deleted;
+
+        expect(settled).toBe(true);
+        expect(
+            session.executeQuery.mock.calls.filter(([yql]: [string]) =>
+                yql.includes("DELETE FROM qdrant_code_indexer_jobs") &&
+                yql.includes("WHERE repo_key = $repo_key")
+            )
+        ).toHaveLength(2);
+    });
+
     it("scans past locked same-repository pending jobs to claim other repositories", async () => {
         const { stateStore, withSessionMock } = await importStateStore();
         const firstJob = makeJobForRepo(42, "delivery-a");

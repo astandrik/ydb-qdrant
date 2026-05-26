@@ -98,4 +98,32 @@ describe("InMemoryIndexingQueue", () => {
             expect(processJob).toHaveBeenCalledTimes(2);
         });
     });
+
+    it("waits for a running repository job before delete returns", async () => {
+        const blocker = createDeferred();
+        const processJob = vi.fn(() => blocker.promise);
+        const queue = new InMemoryIndexingQueue(processJob);
+
+        await queue.enqueue(makeJob(42, "delivery-a"));
+
+        await vi.waitFor(() => {
+            expect(processJob).toHaveBeenCalledTimes(1);
+        });
+
+        let settled = false;
+        const deleted = queue
+            .deleteRepositoryJobs({ installationId: 7, repoId: 42 })
+            .then((count) => {
+                settled = true;
+                return count;
+            });
+
+        await flushAsync();
+        expect(settled).toBe(false);
+
+        blocker.resolve();
+
+        await expect(deleted).resolves.toBe(0);
+        expect(settled).toBe(true);
+    });
 });

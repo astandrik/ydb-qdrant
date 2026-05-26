@@ -906,7 +906,7 @@ describe("code-indexer public API", () => {
         }
     });
 
-    it("rejects manual reindex when the installation is over the repository quota", async () => {
+    it("allows manual reindex when the installation is over the repository quota", async () => {
         const quota = createCodeIndexerQuota({
             limits: {
                 chunksPerRepo: 50,
@@ -937,12 +937,27 @@ describe("code-indexer public API", () => {
                 path: "/api/repositories/456/reindex",
             });
 
-            expect(response.statusCode).toBe(422);
+            expect(response.statusCode).toBe(202);
             expect(JSON.parse(response.body)).toMatchObject({
-                error: "quota repos_per_installation exceeded: 2 exceeds limit 1",
-                status: "error",
+                status: "ok",
+                job: {
+                    jobId: "manual:test-job",
+                    phase: "queued",
+                    status: "pending",
+                },
             });
-            expect(deps.enqueue).not.toHaveBeenCalled();
+            expect(deps.enqueue).toHaveBeenCalledWith({
+                installationId: 777,
+                kind: "full-index",
+                reason: "manual-reindex",
+                ref: "main",
+                repository: {
+                    defaultBranch: "main",
+                    owner: "astandrik",
+                    repo: "local-ydb-toolkit",
+                    repoId: 456,
+                },
+            });
         } finally {
             await closeServer(server);
         }
