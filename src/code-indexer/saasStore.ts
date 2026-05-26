@@ -19,6 +19,7 @@ import {
     TypedValues,
     Types,
     withSession,
+    withSessionOnce,
 } from "../ydb/client.js";
 
 export const CODE_INDEXER_USERS_TABLE = "qdrant_code_indexer_users";
@@ -1575,7 +1576,7 @@ export class YdbCodeIndexerSaasStore {
 
             SELECT count FROM $next_count;
         `;
-        return await withSession(async (session) => {
+        return await withSessionOnce(async (session) => {
             const result = (await session.executeQuery(
                 yql,
                 {
@@ -1586,7 +1587,7 @@ export class YdbCodeIndexerSaasStore {
                     $usage_key: TypedValues.utf8(usageKey),
                 },
                 undefined,
-                createExecuteQuerySettings()
+                createExecuteQuerySettings({ idempotent: false })
             )) as ExecuteQueryResultLike;
             return readUint(readLastRow(result) ?? {}, 0) ?? amount;
         });

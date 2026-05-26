@@ -120,8 +120,12 @@ vi.mock("../../src/ydb/client.js", () => {
                 value: { textValue: value },
             })),
         },
-        createExecuteQuerySettings: vi.fn(() => ({ settings: true })),
+        createExecuteQuerySettings: vi.fn((options?: unknown) => ({
+            options,
+            settings: true,
+        })),
         withSession: vi.fn(),
+        withSessionOnce: vi.fn(),
     };
 });
 
@@ -152,24 +156,44 @@ async function importSaasStore() {
     vi.resetModules();
     const client = await import("../../src/ydb/client.js");
     const saasStore = await import("../../src/code-indexer/saasStore.js");
+    const createExecuteQuerySettingsMock =
+        client.createExecuteQuerySettings as unknown as Mock;
     const withSessionMock = client.withSession as unknown as Mock;
-    return { saasStore, withSessionMock };
+    const withSessionOnceMock = client.withSessionOnce as unknown as Mock;
+    return {
+        createExecuteQuerySettingsMock,
+        saasStore,
+        withSessionMock,
+        withSessionOnceMock,
+    };
 }
 
-function useSession(withSessionMock: Mock, session: FakeSession): void {
+function useSession(
+    withSessionMock: Mock,
+    session: FakeSession,
+    withSessionOnceMock?: Mock
+): void {
     withSessionMock.mockImplementation((fn: (s: FakeSession) => Promise<unknown>) =>
         fn(session)
+    );
+    withSessionOnceMock?.mockImplementation(
+        (fn: (s: FakeSession) => Promise<unknown>) => fn(session)
     );
 }
 
 function readyStore(params?: {
     executeQuery?: Mock;
     withSessionMock: Mock;
+    withSessionOnceMock?: Mock;
 }): FakeSession {
     const session = makeSession(
         params?.executeQuery ? { executeQuery: params.executeQuery } : {}
     );
-    useSession(params?.withSessionMock ?? vi.fn(), session);
+    useSession(
+        params?.withSessionMock ?? vi.fn(),
+        session,
+        params?.withSessionOnceMock
+    );
     return session;
 }
 
@@ -711,16 +735,24 @@ describe("code-indexer SaaS store", () => {
         });
     });
 
-    it("increments daily usage counters", async () => {
-        const { saasStore, withSessionMock } = await importSaasStore();
-        const session = readyStore({ withSessionMock });
+    it("increments daily usage counters without session-level retries", async () => {
+        const {
+            createExecuteQuerySettingsMock,
+            saasStore,
+            withSessionMock,
+            withSessionOnceMock,
+        } = await importSaasStore();
+        const session = readyStore({ withSessionMock, withSessionOnceMock });
         const store = new saasStore.YdbCodeIndexerSaasStore({
             encryptionSecret: "encryption-secret",
             now: () => new Date("2026-05-25T08:00:00Z"),
             tokenPepper: "pepper",
         });
         await saasStore.ensureCodeIndexerSaasTables();
+        createExecuteQuerySettingsMock.mockClear();
         session.executeQuery.mockClear();
+        withSessionMock.mockClear();
+        withSessionOnceMock.mockClear();
         session.executeQuery.mockResolvedValueOnce({
             resultSets: [{ rows: [{ items: [{ uint32Value: 8 }] }] }],
         });
@@ -734,6 +766,11 @@ describe("code-indexer SaaS store", () => {
         ).resolves.toBe(8);
 
         expect(session.executeQuery).toHaveBeenCalledTimes(1);
+        expect(withSessionMock).not.toHaveBeenCalled();
+        expect(withSessionOnceMock).toHaveBeenCalledTimes(1);
+        expect(createExecuteQuerySettingsMock).toHaveBeenCalledWith({
+            idempotent: false,
+        });
         expect(session.executeQuery.mock.calls[0]?.[0]).toEqual(
             expect.stringContaining("UPSERT INTO qdrant_code_indexer_usage_daily")
         );

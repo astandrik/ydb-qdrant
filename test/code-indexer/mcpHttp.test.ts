@@ -197,8 +197,9 @@ async function closeServer(server: http.Server): Promise<void> {
 async function request(params: {
     baseUrl: string;
     body?: unknown;
-    method?: "GET" | "POST";
+    method?: "GET" | "OPTIONS" | "POST";
     origin?: string;
+    requestHeaders?: string;
     token?: string;
 }): Promise<TestResponse> {
     const body =
@@ -208,6 +209,12 @@ async function request(params: {
             new URL("/mcp", params.baseUrl),
             {
                 headers: {
+                    ...(params.requestHeaders
+                        ? {
+                              "Access-Control-Request-Headers":
+                                  params.requestHeaders,
+                          }
+                        : {}),
                     ...(params.origin ? { Origin: params.origin } : {}),
                     ...(params.token
                         ? { Authorization: `Bearer ${params.token}` }
@@ -276,6 +283,42 @@ describe("code-indexer hosted MCP HTTP endpoint", () => {
 
             expect(response.statusCode).toBe(403);
             expect(deps.search).not.toHaveBeenCalled();
+        } finally {
+            await closeServer(server);
+        }
+    });
+
+    it("emits CORS headers for allowed browser origins and preflight", async () => {
+        const { baseUrl, server } = await startMcpServer();
+        try {
+            const preflight = await request({
+                baseUrl,
+                method: "OPTIONS",
+                origin: "https://ydb-qdrant.tech",
+                requestHeaders: "authorization, content-type",
+            });
+            const initialized = await request({
+                baseUrl,
+                body: { id: 1, jsonrpc: "2.0", method: "initialize" },
+                origin: "https://ydb-qdrant.tech",
+                token: "valid-token",
+            });
+
+            expect(preflight.statusCode).toBe(204);
+            expect(preflight.headers["access-control-allow-origin"]).toBe(
+                "https://ydb-qdrant.tech"
+            );
+            expect(preflight.headers["access-control-allow-methods"]).toContain(
+                "POST"
+            );
+            expect(preflight.headers["access-control-allow-headers"]).toContain(
+                "Authorization"
+            );
+            expect(initialized.statusCode).toBe(200);
+            expect(initialized.headers["access-control-allow-origin"]).toBe(
+                "https://ydb-qdrant.tech"
+            );
+            expect(initialized.headers.vary).toContain("Origin");
         } finally {
             await closeServer(server);
         }

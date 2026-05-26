@@ -52,6 +52,11 @@ class McpHttpError extends Error {
     }
 }
 
+const CORS_ALLOW_HEADERS =
+    "Authorization, Content-Type, Accept, MCP-Protocol-Version, Mcp-Session-Id";
+const CORS_ALLOW_METHODS = "GET, POST, OPTIONS";
+const CORS_EXPOSE_HEADERS = "Mcp-Session-Id";
+
 function readBearerToken(req: Request): string | null {
     const authorization = req.header("authorization");
     if (!authorization?.startsWith("Bearer ")) {
@@ -61,11 +66,23 @@ function readBearerToken(req: Request): string | null {
     return token.length > 0 ? token : null;
 }
 
-function validateOrigin(req: Request, allowedOrigins: string[]): void {
+function applyCorsHeaders(
+    req: Request,
+    res: Response,
+    allowedOrigins: string[]
+): void {
     const origin = req.header("origin");
     if (origin && !allowedOrigins.includes(origin)) {
         throw new McpHttpError(403, "origin is not allowed");
     }
+    if (!origin) {
+        return;
+    }
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Methods", CORS_ALLOW_METHODS);
+    res.setHeader("Access-Control-Allow-Headers", CORS_ALLOW_HEADERS);
+    res.setHeader("Access-Control-Expose-Headers", CORS_EXPOSE_HEADERS);
+    res.vary("Origin");
 }
 
 async function authenticate(
@@ -375,9 +392,18 @@ export function createMcpHttpRouter(deps: CodeIndexerMcpHttpDeps) {
         },
     });
 
+    router.options("/", (req: Request, res: Response): void => {
+        try {
+            applyCorsHeaders(req, res, deps.allowedOrigins);
+            res.status(204).send();
+        } catch (err: unknown) {
+            sendHttpError(res, err);
+        }
+    });
+
     router.get("/", async (req: Request, res: Response): Promise<void> => {
         try {
-            validateOrigin(req, deps.allowedOrigins);
+            applyCorsHeaders(req, res, deps.allowedOrigins);
             await authenticate(req, deps.accessStore);
             res.status(200)
                 .type("text/event-stream")
@@ -392,7 +418,7 @@ export function createMcpHttpRouter(deps: CodeIndexerMcpHttpDeps) {
         express.json({ limit: "1mb" }),
         async (req: Request, res: Response): Promise<void> => {
             try {
-                validateOrigin(req, deps.allowedOrigins);
+                applyCorsHeaders(req, res, deps.allowedOrigins);
                 const token = await authenticate(req, deps.accessStore);
                 const result = await server.handleJsonRpcMessage(
                     JSON.stringify(req.body),
