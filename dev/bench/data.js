@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777040500485,
+  "lastUpdate": 1779810519795,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (one_table, 768D)": [
@@ -13737,6 +13737,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Soak: Error Rate",
             "value": 0,
+            "unit": "%"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "393f8972bc3d58b8e4cb4d46448546f4d55b9dc7",
+          "message": "Add hosted GitHub App code indexer (#199)\n\n* feat: add GitHub App code indexer MVP\n\n* fix: handle installation indexing state\n\n* docs: record code indexer mvp verification\n\n* feat: add code indexer saas config\n\n* feat: persist code indexer saas state\n\n* feat: add github oauth for code indexer\n\n* feat: add code indexer public api\n\n* fix: handle public github app lifecycle\n\n* feat: add code indexer public beta quotas\n\n* feat: expose hosted code indexer mcp\n\n* chore: raise code indexer beta quotas\n\n* test: cover code indexer public saas flow\n\n* fix: support github install oauth callback\n\n* docs: clarify github install oauth settings\n\n* fix: allow hosted dashboard api cors\n\n* fix: preserve code indexer status metrics\n\n* fix: parse ydb timestamp values in code indexer store\n\n* docs: record code indexer public beta verification\n\n* docs: record code indexer production checks\n\n* docs: design code indexer job progress\n\n* docs: plan code indexer job progress\n\n* feat: track code indexer job progress\n\n* fix: prefer running code indexer job progress\n\n* docs: record code indexer progress verification\n\n* feat: parallelize code indexer jobs\n\n* docs: record code indexer parallelism deploy\n\n* fix: scan pending code indexer jobs past locked repos\n\n* fix: keep code indexer workers filled\n\n* fix: bound code indexer line chunks\n\n* docs: record code indexer public saas completion\n\n* feat: complete hosted code indexer operations\n\n* docs: update code indexer public saas audit\n\n* docs: confirm code indexer public app visibility\n\n* docs: clean up code indexer planning artifacts\n\n* ci: use setup-local-ydb action\n\n* ci: use valid setup-local-ydb tenant\n\n* ci: map setup-local-ydb hostnames\n\n* Fix code indexer review hardening\n\n* Fix code indexer integration smoke\n\n* Separate code indexer encryption secret\n\n* Fix code indexer review regressions\n\n* Fix code indexer fork checks and token index\n\n* Fail closed on unverified code indexer job claims\n\n* Fix code indexer review follow-ups\n\n* Fix code indexer access and webhook cleanup\n\n* Fix code indexer install callback\n\n* Fix code indexer review follow-ups\n\n* Secure code indexer install callback\n\n* Fix code indexer cleanup review comments\n\n* Tighten code indexer enqueue and quota handling\n\n* Fix unsuspend repository fallback\n\n* Address code indexer review feedback\n\n* Address code indexer queue review feedback\n\n* Add code indexer YDB lookup indexes\n\n* Handle missing code index searches",
+          "timestamp": "2026-05-26T18:44:33+03:00",
+          "tree_id": "24d119b2cfd066a4469ad7030be6da69a93123c4",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/393f8972bc3d58b8e4cb4d46448546f4d55b9dc7"
+        },
+        "date": 1779810517744,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Soak: Search Latency p95",
+            "value": 67,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Search Latency p99",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Upsert Latency p95",
+            "value": 18,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Error Rate",
+            "value": 0.0092,
             "unit": "%"
           }
         ]
