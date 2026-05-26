@@ -28,6 +28,7 @@ type WebhookStoredRepository = {
     owner: string;
     repo: string;
     repoId: number | string;
+    status?: string;
 };
 
 export type WebhookLifecycleStore = {
@@ -479,7 +480,6 @@ export function createWebhookHandler(deps: WebhookDependencies) {
             return;
         }
 
-        let enqueued = 0;
         try {
             const jobs = await jobsForWebhook({
                 deliveryId,
@@ -498,7 +498,6 @@ export function createWebhookHandler(deps: WebhookDependencies) {
             }
             for (const job of jobs) {
                 await deps.queue.enqueue(job);
-                enqueued += 1;
             }
             if (!usedAtomicReservation) {
                 await deps.deliveryStore.mark(deliveryId);
@@ -506,13 +505,9 @@ export function createWebhookHandler(deps: WebhookDependencies) {
             res.json({ enqueued: jobs.length, status: "accepted" });
         } catch (err: unknown) {
             if (usedAtomicReservation) {
-                if (enqueued === 0) {
-                    await deps.deliveryStore
-                        .release?.(deliveryId)
-                        .catch(() => undefined);
-                }
-            } else if (enqueued > 0) {
-                await deps.deliveryStore.mark(deliveryId).catch(() => undefined);
+                await deps.deliveryStore
+                    .release?.(deliveryId)
+                    .catch(() => undefined);
             }
             throw err;
         }
@@ -545,6 +540,11 @@ async function jobsForWebhook(params: {
                 installationId
             );
         repositories = storedRepositories
+            .filter(
+                (repository) =>
+                    fallbackAction !== "unsuspend" ||
+                    repository.status !== "deleted"
+            )
             .map(storedRepositoryToRef)
             .filter(
                 (repository): repository is GitHubRepositoryRef =>

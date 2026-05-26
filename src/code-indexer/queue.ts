@@ -3,8 +3,10 @@ import { randomUUID } from "node:crypto";
 import { logger } from "../logging/logger.js";
 import type {
     DeliveryStore,
+    IndexingProgressStore,
     IndexingJob,
     IndexingJobExecutionContext,
+    IndexingJobProgressUpdate,
     IndexingQueue,
     RepoIndexManifest,
     RepoManifestStore,
@@ -82,6 +84,7 @@ export class InMemoryIndexingQueue implements IndexingQueue {
         job: IndexingJob,
         context: IndexingJobExecutionContext
     ) => Promise<void>;
+    private readonly progressStore?: IndexingProgressStore;
     private readonly repoIdleWaiters = new Map<string, Array<() => void>>();
     private readonly runningRepoKeys = new Set<string>();
 
@@ -94,9 +97,10 @@ export class InMemoryIndexingQueue implements IndexingQueue {
     ) {
         this.processJob = processJob;
         this.concurrency = Math.max(1, Math.floor(options.concurrency ?? 1));
+        this.progressStore = options.progressStore;
     }
 
-    enqueue(job: IndexingJob): Promise<{
+    async enqueue(job: IndexingJob): Promise<{
         jobId: string;
         phase: "queued";
         status: "pending";
@@ -104,9 +108,10 @@ export class InMemoryIndexingQueue implements IndexingQueue {
         const jobId = job.deliveryId
             ? `${job.deliveryId}:memory`
             : `memory:${randomUUID()}`;
+        await this.progressStore?.createJobProgress({ job, jobId });
         this.jobs.push({ context: { jobId }, job });
         this.drain();
-        return Promise.resolve({ jobId, phase: "queued", status: "pending" });
+        return { jobId, phase: "queued", status: "pending" };
     }
 
     async deleteRepositoryJobs(params: {
@@ -184,6 +189,11 @@ export class InMemoryIndexingQueue implements IndexingQueue {
         const { context, job } = item;
         try {
             try {
+                await this.updateProgress(context.jobId, {
+                    phase: "claiming",
+                    startedAt: new Date(),
+                    status: "running",
+                });
                 logger.info(
                     {
                         deliveryId: job.deliveryId,
@@ -195,6 +205,13 @@ export class InMemoryIndexingQueue implements IndexingQueue {
                     "code-indexer: processing job"
                 );
                 await this.processJob(job, context);
+                await this.updateProgress(context.jobId, {
+                    finishedAt: new Date(),
+                    lastError: null,
+                    message: null,
+                    phase: "completed",
+                    status: "completed",
+                });
                 logger.info(
                     {
                         deliveryId: job.deliveryId,
@@ -206,6 +223,13 @@ export class InMemoryIndexingQueue implements IndexingQueue {
                     "code-indexer: job completed"
                 );
             } catch (err: unknown) {
+                await this.updateProgress(context.jobId, {
+                    finishedAt: new Date(),
+                    lastError: sanitizeError(err),
+                    message: "Indexing failed.",
+                    phase: "failed",
+                    status: "failed",
+                });
                 logger.error(
                     {
                         deliveryId: job.deliveryId,
@@ -226,10 +250,18 @@ export class InMemoryIndexingQueue implements IndexingQueue {
             this.drain();
         }
     }
+
+    private async updateProgress(
+        jobId: string,
+        update: IndexingJobProgressUpdate
+    ): Promise<void> {
+        await this.progressStore?.updateJobProgress({ jobId, update });
+    }
 }
 
 type InMemoryIndexingQueueOptions = {
     concurrency?: number;
+    progressStore?: IndexingProgressStore;
 };
 
 type QueuedMemoryJob = {
@@ -239,4 +271,11 @@ type QueuedMemoryJob = {
 
 function repoKeyForJob(job: IndexingJob): string {
     return `${job.installationId}/${job.repository.repoId}`;
+}
+
+function sanitizeError(err: unknown): string {
+    if (err instanceof Error) {
+        return err.message;
+    }
+    return String(err);
 }

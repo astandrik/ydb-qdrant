@@ -113,6 +113,7 @@ function start(): void {
               })
             : new InMemoryIndexingQueue(processJob, {
                   concurrency: config.jobConcurrency,
+                  progressStore,
               });
     if (queue instanceof YdbIndexingQueue) {
         queue.start();

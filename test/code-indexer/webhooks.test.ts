@@ -524,7 +524,7 @@ describe("code-indexer webhook handler", () => {
         expect(release).toHaveBeenCalledWith("delivery-1");
     });
 
-    it("keeps an atomic delivery reservation after a partial enqueue failure", async () => {
+    it("releases an atomic delivery reservation after a partial enqueue failure", async () => {
         const body = Buffer.from(
             JSON.stringify({
                 action: "created",
@@ -579,7 +579,7 @@ describe("code-indexer webhook handler", () => {
         await expect(handler(req, res)).rejects.toThrow("enqueue failed");
 
         expect(enqueue).toHaveBeenCalledTimes(2);
-        expect(release).not.toHaveBeenCalled();
+        expect(release).toHaveBeenCalledWith("delivery-1");
     });
 
     it("records lifecycle status before enqueueing uninstall jobs", async () => {
@@ -777,6 +777,14 @@ describe("code-indexer webhook handler", () => {
                         repoId: "42",
                         status: "suspended",
                     },
+                    {
+                        defaultBranch: "main",
+                        installationId: "7",
+                        owner: "octo",
+                        repo: "removed",
+                        repoId: "43",
+                        status: "deleted",
+                    },
                 ])
             ),
             markRepositoryStatus: vi.fn(() => Promise.resolve()),
@@ -838,6 +846,7 @@ describe("code-indexer webhook handler", () => {
             ref: "main",
             repository: repository(),
         });
+        expect(enqueue).toHaveBeenCalledTimes(1);
         expect(res.json).toHaveBeenCalledWith({ enqueued: 1, status: "accepted" });
     });
 
