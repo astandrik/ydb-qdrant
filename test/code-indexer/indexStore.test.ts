@@ -2,16 +2,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
     createYdbQdrantClient: vi.fn(),
+    searchPoints: vi.fn(),
     upsertPoints: vi.fn(),
 }));
 
 vi.mock("../../src/package/api.js", () => {
     class QdrantServiceError extends Error {
         readonly statusCode: number;
+        readonly payload: { status: string; error: unknown };
 
-        constructor(statusCode: number, message: string) {
-            super(message);
+        constructor(
+            statusCode: number,
+            payload: { status: string; error: unknown },
+            message?: string
+        ) {
+            super(message ?? String(payload.error));
             this.statusCode = statusCode;
+            this.payload = payload;
         }
     }
 
@@ -25,9 +32,56 @@ describe("code-indexer index store", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.createYdbQdrantClient.mockResolvedValue({
+            searchPoints: mocks.searchPoints,
             upsertPoints: mocks.upsertPoints,
         });
+        mocks.searchPoints.mockResolvedValue({ points: [] });
         mocks.upsertPoints.mockResolvedValue(undefined);
+    });
+
+    it("returns empty search results when the index collection is missing", async () => {
+        const { YdbQdrantIndexStore } = await import(
+            "../../src/code-indexer/indexStore.js"
+        );
+        const { QdrantServiceError } = await import("../../src/package/api.js");
+        mocks.searchPoints.mockRejectedValueOnce(
+            new QdrantServiceError(404, {
+                error: "collection not found",
+                status: "error",
+            })
+        );
+        const store = new YdbQdrantIndexStore();
+
+        const result = await store.search({
+            collection: "gh_repo_42_default",
+            queryVector: [1, 0, 0],
+            top: 5,
+            userUid: "gh_installation_7",
+        });
+
+        expect(result).toEqual([]);
+    });
+
+    it("propagates non-404 search failures", async () => {
+        const { YdbQdrantIndexStore } = await import(
+            "../../src/code-indexer/indexStore.js"
+        );
+        const { QdrantServiceError } = await import("../../src/package/api.js");
+        const error = new QdrantServiceError(500, {
+            error: "backend unavailable",
+            status: "error",
+        });
+        mocks.searchPoints.mockRejectedValueOnce(error);
+        const store = new YdbQdrantIndexStore();
+
+        await expect(
+            store.search({
+                collection: "gh_repo_42_default",
+                queryVector: [1, 0, 0],
+                top: 5,
+                userUid: "gh_installation_7",
+            })
+        ).rejects.toBe(error);
     });
 
     it("writes optional chunk metadata into Qdrant payloads", async () => {

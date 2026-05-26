@@ -582,7 +582,7 @@ describe("code-indexer webhook handler", () => {
         expect(release).toHaveBeenCalledWith("delivery-1");
     });
 
-    it("records lifecycle status before enqueueing uninstall jobs", async () => {
+    it("records lifecycle status after enqueueing uninstall jobs", async () => {
         const body = Buffer.from(
             JSON.stringify({
                 action: "deleted",
@@ -656,6 +656,65 @@ describe("code-indexer webhook handler", () => {
             reason: "installation-deleted",
             repository: repository(),
         });
+        expect(enqueue.mock.invocationCallOrder[0]).toBeLessThan(
+            lifecycleStore.upsertInstallation.mock.invocationCallOrder[0]
+        );
+        expect(enqueue.mock.invocationCallOrder[0]).toBeLessThan(
+            lifecycleStore.upsertRepository.mock.invocationCallOrder[0]
+        );
+    });
+
+    it("does not record lifecycle status when enqueueing uninstall jobs fails", async () => {
+        const body = Buffer.from(
+            JSON.stringify({
+                action: "deleted",
+                installation: {
+                    account: { login: "octo", type: "User" },
+                    id: 7,
+                },
+                repositories: [repositoryPayload()],
+            })
+        );
+        const enqueueError = new Error("enqueue failed");
+        const enqueue = vi.fn(() => Promise.reject(enqueueError));
+        const lifecycleStore = {
+            markRepositoryStatus: vi.fn(() => Promise.resolve()),
+            upsertInstallation: vi.fn(() => Promise.resolve()),
+            upsertRepository: vi.fn(() => Promise.resolve()),
+        };
+        const handler = createWebhookHandler({
+            deliveryStore: {
+                has: vi.fn(() => Promise.resolve(false)),
+                mark: vi.fn(() => Promise.resolve()),
+            },
+            lifecycleStore,
+            queue: { enqueue },
+            webhookSecret: "secret",
+        });
+        const req = {
+            body,
+            header(name: string): string | undefined {
+                const headers: Record<string, string> = {
+                    "X-GitHub-Delivery": "delivery-delete",
+                    "X-GitHub-Event": "installation",
+                    "X-Hub-Signature-256": createWebhookSignature(
+                        "secret",
+                        body
+                    ),
+                };
+                return headers[name];
+            },
+        } as unknown as Request;
+        const res = {
+            json: vi.fn(),
+            status: vi.fn(() => res),
+        } as unknown as Response;
+
+        await expect(handler(req, res)).rejects.toThrow("enqueue failed");
+
+        expect(lifecycleStore.upsertInstallation).not.toHaveBeenCalled();
+        expect(lifecycleStore.upsertRepository).not.toHaveBeenCalled();
+        expect(lifecycleStore.markRepositoryStatus).not.toHaveBeenCalled();
     });
 
     it("loads installed repositories for uninstall cleanup when GitHub omits the repository list", async () => {

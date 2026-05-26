@@ -606,6 +606,6 @@ describe("code-indexer public SaaS integration", () => {
                 top: 1,
                 userUid,
             })
-        ).rejects.toThrow();
+        ).resolves.toEqual([]);
     }, 120_000);
 });

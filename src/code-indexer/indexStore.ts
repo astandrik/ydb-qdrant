@@ -158,11 +158,19 @@ export class YdbQdrantIndexStore implements CodeIndexStore {
         userUid: string;
     }): Promise<CodeSearchResult[]> {
         const client = await this.clientForUser(params.userUid);
-        const result = await client.searchPoints(params.collection, {
-            top: params.top,
-            vector: params.queryVector,
-            with_payload: true,
-        });
+        let result: Awaited<ReturnType<YdbQdrantClient["searchPoints"]>>;
+        try {
+            result = await client.searchPoints(params.collection, {
+                top: params.top,
+                vector: params.queryVector,
+                with_payload: true,
+            });
+        } catch (err: unknown) {
+            if (!isCollectionMissingError(err)) {
+                throw err;
+            }
+            return [];
+        }
         return (result.points ?? []).map((point) => ({
             id: point.id,
             payload: point.payload,

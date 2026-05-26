@@ -488,6 +488,9 @@ export function createWebhookHandler(deps: WebhookDependencies) {
                 payload,
                 repositorySource: deps.repositorySource,
             });
+            for (const job of jobs) {
+                await deps.queue.enqueue(job);
+            }
             if (deps.lifecycleStore) {
                 await recordWebhookLifecycle({
                     event,
@@ -495,9 +498,6 @@ export function createWebhookHandler(deps: WebhookDependencies) {
                     payload,
                     store: deps.lifecycleStore,
                 });
-            }
-            for (const job of jobs) {
-                await deps.queue.enqueue(job);
             }
             if (!usedAtomicReservation) {
                 await deps.deliveryStore.mark(deliveryId);
