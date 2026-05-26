@@ -60,7 +60,7 @@ describe("code-indexer check runs", () => {
                     repoId: 99,
                 },
             })
-        ).toBeNull();
+        ).toBe("c".repeat(40));
     });
 
     it("creates and completes GitHub check runs", async () => {

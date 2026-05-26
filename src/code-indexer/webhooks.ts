@@ -233,11 +233,7 @@ function readCheckRunPrJob(params: {
     const number = typeof pr.number === "number" ? pr.number : undefined;
     const head = readStringRecord(pr.head);
     const base = readStringRecord(pr.base);
-    const headRepo = readStringRecord(head.repo);
-    const headRepoId =
-        typeof headRepo.id === "number" ? headRepo.id : params.repository.repoId;
-    const headRepoName =
-        typeof headRepo.name === "string" ? headRepo.name : params.repository.repo;
+    const sourceRepository = readRepository(head.repo) ?? params.repository;
     const headRef = typeof head.ref === "string" ? head.ref : "";
     const headSha =
         typeof head.sha === "string" ? head.sha : params.checkRun.head_sha;
@@ -245,8 +241,6 @@ function readCheckRunPrJob(params: {
 
     if (
         typeof number !== "number" ||
-        headRepoId !== params.repository.repoId ||
-        headRepoName !== params.repository.repo ||
         !headRef ||
         !baseRef ||
         typeof headSha !== "string" ||
@@ -264,7 +258,7 @@ function readCheckRunPrJob(params: {
         kind: "pr-index",
         prNumber: number,
         repository: params.repository,
-        sourceRepository: params.repository,
+        sourceRepository,
     };
 }
 

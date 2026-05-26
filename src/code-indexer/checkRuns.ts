@@ -81,9 +81,6 @@ export function checkRunShaForJob(job: IndexingJob): string | null {
         case "incremental-push":
             return SHA_RE.test(job.after) ? job.after : null;
         case "pr-index":
-            if (job.sourceRepository.repoId !== job.repository.repoId) {
-                return null;
-            }
             return SHA_RE.test(job.headSha) ? job.headSha : null;
         case "full-index":
             return job.sha && SHA_RE.test(job.sha) ? job.sha : null;

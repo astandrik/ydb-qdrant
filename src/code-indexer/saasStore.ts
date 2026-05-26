@@ -9,8 +9,12 @@ import type { Ydb } from "ydb-sdk";
 
 import { logger } from "../logging/logger.js";
 import {
+    AlterTableDescription,
+    AlterTableSettings,
     Column,
     createExecuteQuerySettings,
+    OperationParams,
+    TableIndex,
     TableDescription,
     TypedValues,
     Types,
@@ -29,6 +33,7 @@ export const CODE_INDEXER_API_TOKENS_TABLE = "qdrant_code_indexer_api_tokens";
 export const CODE_INDEXER_USAGE_DAILY_TABLE =
     "qdrant_code_indexer_usage_daily";
 export const CODE_INDEXER_AUDIT_LOG_TABLE = "qdrant_code_indexer_audit_log";
+const CODE_INDEXER_API_TOKEN_HASH_INDEX = "token_hash_idx";
 
 export type CodeIndexerRepositoryStatus =
     | "queued"
@@ -307,6 +312,21 @@ export function hashApiToken(plaintextToken: string, pepper: string): string {
     return createHmac("sha256", pepper).update(plaintextToken).digest("hex");
 }
 
+function apiTokenHashIndex(): InstanceType<typeof TableIndex> {
+    return new TableIndex(CODE_INDEXER_API_TOKEN_HASH_INDEX)
+        .withIndexColumns("token_hash")
+        .withDataColumns("github_user_id", "name", "revoked_at")
+        .withGlobalAsync(false);
+}
+
+function hasIndex(
+    tableDescription: { indexes?: Array<{ name?: string | null }> },
+    indexName: string
+): boolean {
+    return tableDescription.indexes?.some((index) => index.name === indexName) ??
+        false;
+}
+
 async function ensureTable(
     tableName: string,
     desc: InstanceType<typeof TableDescription>
@@ -412,19 +432,59 @@ async function ensureRepositoriesTable(): Promise<void> {
 }
 
 async function ensureApiTokensTable(): Promise<void> {
-    await ensureTable(
-        CODE_INDEXER_API_TOKENS_TABLE,
-        new TableDescription()
-            .withColumns(
-                new Column("token_id", Types.UTF8),
-                new Column("github_user_id", Types.UTF8),
-                new Column("token_hash", Types.UTF8),
-                new Column("name", Types.UTF8),
-                new Column("created_at", Types.TIMESTAMP),
-                new Column("revoked_at", Types.optional(Types.TIMESTAMP))
-            )
-            .withPrimaryKeys("token_id")
-    );
+    const desc = new TableDescription()
+        .withColumns(
+            new Column("token_id", Types.UTF8),
+            new Column("github_user_id", Types.UTF8),
+            new Column("token_hash", Types.UTF8),
+            new Column("name", Types.UTF8),
+            new Column("created_at", Types.TIMESTAMP),
+            new Column("revoked_at", Types.optional(Types.TIMESTAMP))
+        )
+        .withPrimaryKeys("token_id")
+        .withIndexes(apiTokenHashIndex());
+    await withSession(async (session) => {
+        try {
+            const tableDescription = await session.describeTable(
+                CODE_INDEXER_API_TOKENS_TABLE
+            );
+            if (
+                !hasIndex(
+                    tableDescription,
+                    CODE_INDEXER_API_TOKEN_HASH_INDEX
+                )
+            ) {
+                const alter = new AlterTableDescription();
+                alter.addIndexes = [apiTokenHashIndex()];
+                await session.alterTable(
+                    CODE_INDEXER_API_TOKENS_TABLE,
+                    alter,
+                    new AlterTableSettings().withOperationParams(
+                        new OperationParams().withSyncMode()
+                    )
+                );
+                logger.info(
+                    `added token hash index to code-indexer SaaS table ${CODE_INDEXER_API_TOKENS_TABLE}`
+                );
+            }
+            return;
+        } catch (err: unknown) {
+            if (!isTableNotFoundError(err)) {
+                throw err;
+            }
+        }
+
+        try {
+            await session.createTable(CODE_INDEXER_API_TOKENS_TABLE, desc);
+            logger.info(
+                `created code-indexer SaaS table ${CODE_INDEXER_API_TOKENS_TABLE}`
+            );
+        } catch (err: unknown) {
+            if (!isAlreadyExistsError(err)) {
+                throw err;
+            }
+        }
+    });
 }
 
 async function ensureUsageDailyTable(): Promise<void> {
@@ -1392,7 +1452,7 @@ export class YdbCodeIndexerSaasStore {
                 github_user_id,
                 name,
                 revoked_at IS NOT NULL AS revoked
-            FROM ${CODE_INDEXER_API_TOKENS_TABLE}
+            FROM ${CODE_INDEXER_API_TOKENS_TABLE} VIEW ${CODE_INDEXER_API_TOKEN_HASH_INDEX}
             WHERE token_hash = $token_hash
             LIMIT 1;
         `;

@@ -7,14 +7,69 @@ vi.mock("../../src/logging/logger.js", () => ({
 }));
 
 vi.mock("../../src/ydb/client.js", () => {
+    class FakeAlterTableDescription {
+        addIndexes: unknown[] = [];
+    }
+
+    class FakeOperationParams {
+        syncMode = false;
+
+        withSyncMode() {
+            this.syncMode = true;
+            return this;
+        }
+    }
+
+    class FakeAlterTableSettings {
+        operationParams: unknown;
+
+        withOperationParams(operationParams: unknown) {
+            this.operationParams = operationParams;
+            return this;
+        }
+    }
+
     class FakeTableDescription {
+        indexes: unknown[] = [];
+
         withColumns(...columns: unknown[]) {
             void columns;
             return this;
         }
 
+        withIndexes(...indexes: unknown[]) {
+            this.indexes.push(...indexes);
+            return this;
+        }
+
         withPrimaryKeys(...keys: string[]) {
             void keys;
+            return this;
+        }
+    }
+
+    class FakeTableIndex {
+        dataColumns: string[] = [];
+        indexColumns: string[] = [];
+        globalAsync = true;
+        readonly name: string;
+
+        constructor(name: string) {
+            this.name = name;
+        }
+
+        withDataColumns(...dataColumns: string[]) {
+            this.dataColumns.push(...dataColumns);
+            return this;
+        }
+
+        withGlobalAsync(isAsync: boolean) {
+            this.globalAsync = isAsync;
+            return this;
+        }
+
+        withIndexColumns(...indexColumns: string[]) {
+            this.indexColumns.push(...indexColumns);
             return this;
         }
     }
@@ -29,8 +84,12 @@ vi.mock("../../src/ydb/client.js", () => {
     }
 
     return {
+        AlterTableDescription: FakeAlterTableDescription,
+        AlterTableSettings: FakeAlterTableSettings,
         Column: FakeColumn,
+        OperationParams: FakeOperationParams,
         TableDescription: FakeTableDescription,
+        TableIndex: FakeTableIndex,
         Types: {
             JSON_DOCUMENT: { typeId: "JsonDocument" },
             TIMESTAMP: { typeId: "Timestamp" },
@@ -67,6 +126,7 @@ vi.mock("../../src/ydb/client.js", () => {
 });
 
 type FakeSession = {
+    alterTable: Mock;
     createTable: Mock;
     describeTable: Mock;
     executeQuery: Mock;
@@ -80,6 +140,7 @@ type FakeQueryParams = Record<string, FakeTypedValue>;
 
 function makeSession(overrides: Partial<FakeSession> = {}): FakeSession {
     return {
+        alterTable: vi.fn(() => Promise.resolve()),
         createTable: vi.fn(() => Promise.resolve()),
         describeTable: vi.fn(() => Promise.resolve({ columns: [] })),
         executeQuery: vi.fn(() => Promise.resolve({ resultSets: [] })),
@@ -156,6 +217,24 @@ describe("code-indexer SaaS store", () => {
             saasStore.CODE_INDEXER_API_TOKENS_TABLE,
             expect.anything()
         );
+        const apiTokensCreateCall = session.createTable.mock.calls.find(
+            ([tableName]: [string]) =>
+                tableName === saasStore.CODE_INDEXER_API_TOKENS_TABLE
+        );
+        expect(apiTokensCreateCall?.[1]).toMatchObject({
+            indexes: [
+                expect.objectContaining({
+                    dataColumns: [
+                        "github_user_id",
+                        "name",
+                        "revoked_at",
+                    ],
+                    globalAsync: false,
+                    indexColumns: ["token_hash"],
+                    name: "token_hash_idx",
+                }),
+            ],
+        });
         expect(session.createTable).toHaveBeenCalledWith(
             saasStore.CODE_INDEXER_USAGE_DAILY_TABLE,
             expect.anything()
@@ -164,6 +243,37 @@ describe("code-indexer SaaS store", () => {
             saasStore.CODE_INDEXER_AUDIT_LOG_TABLE,
             expect.anything()
         );
+    });
+
+    it("adds the API token hash index to existing SaaS tables", async () => {
+        const { saasStore, withSessionMock } = await importSaasStore();
+        const session = makeSession({
+            describeTable: vi.fn(() =>
+                Promise.resolve({ columns: [], indexes: [] })
+            ),
+        });
+        useSession(withSessionMock, session);
+
+        await saasStore.ensureCodeIndexerSaasTables();
+
+        expect(session.alterTable).toHaveBeenCalledWith(
+            saasStore.CODE_INDEXER_API_TOKENS_TABLE,
+            expect.objectContaining({
+                addIndexes: [
+                    expect.objectContaining({
+                        indexColumns: ["token_hash"],
+                        name: "token_hash_idx",
+                    }),
+                ],
+            }),
+            expect.anything()
+        );
+        const [, , alterSettings] = session.alterTable.mock.calls[0] as [
+            string,
+            unknown,
+            { operationParams?: { syncMode?: boolean } },
+        ];
+        expect(alterSettings.operationParams?.syncMode).toBe(true);
     });
 
     it("encrypts GitHub tokens before storing and decrypts stored user rows", async () => {
@@ -284,6 +394,9 @@ describe("code-indexer SaaS store", () => {
             revoked: false,
             tokenId: "tok_1",
         });
+        expect(session.executeQuery.mock.calls[1]?.[0]).toContain(
+            "VIEW token_hash_idx"
+        );
 
         session.executeQuery.mockResolvedValueOnce({
             resultSets: [

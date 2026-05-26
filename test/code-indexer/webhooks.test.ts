@@ -257,7 +257,13 @@ describe("code-indexer webhook mapping", () => {
                             base: { ref: "main" },
                             head: {
                                 ref: "feature",
-                                repo: { id: 42, name: "demo" },
+                                repo: {
+                                    default_branch: "main",
+                                    full_name: "contrib/fork",
+                                    id: 99,
+                                    name: "fork",
+                                    owner: { login: "contrib" },
+                                },
                                 sha: "c".repeat(40),
                             },
                             number: 3,
@@ -293,9 +299,9 @@ describe("code-indexer webhook mapping", () => {
             prNumber: 3,
             sourceRepository: {
                 defaultBranch: "main",
-                owner: "octo",
-                repo: "demo",
-                repoId: 42,
+                owner: "contrib",
+                repo: "fork",
+                repoId: 99,
             },
         });
     });
