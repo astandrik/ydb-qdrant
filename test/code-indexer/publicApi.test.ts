@@ -11,6 +11,7 @@ import type {
     EmbeddingProvider,
     IndexingProgressStore,
     IndexingQueue,
+    RepoManifestStore,
 } from "../../src/code-indexer/types.js";
 
 type TestResponse = {
@@ -162,6 +163,13 @@ function createBaseDeps() {
     const queue: IndexingQueue = {
         enqueue,
     };
+    const listCollectionsByPrefix = vi.fn(() => Promise.resolve([]));
+    const manifestStore: RepoManifestStore = {
+        delete: vi.fn(() => Promise.resolve()),
+        get: vi.fn(() => Promise.resolve(null)),
+        listCollectionsByPrefix,
+        save: vi.fn(() => Promise.resolve()),
+    };
     return {
         deleteCollection,
         deliveryStore,
@@ -171,8 +179,10 @@ function createBaseDeps() {
         indexStore,
         listAdminJobs,
         listActiveJobsForInstallation,
+        listCollectionsByPrefix,
         progressStore,
         queue,
+        manifestStore,
     };
 }
 
@@ -380,6 +390,7 @@ async function startPublicApiServer(options: {
             createPlaintextToken: () => "ydbqci_plaintext",
             createTokenId: () => "token-id",
             indexStore: deps.indexStore,
+            manifestStore: deps.manifestStore,
             progressStore: deps.progressStore,
             quota: options.quota,
             queue: deps.queue,
@@ -932,6 +943,49 @@ describe("code-indexer public API", () => {
         }
     });
 
+    it("returns repositories even when the installation is over the repository quota", async () => {
+        const quota = createCodeIndexerQuota({
+            limits: {
+                chunksPerRepo: 50,
+                filesPerRepo: 10,
+                reposPerInstallation: 1,
+                searchesPerUserPerDay: 5,
+            },
+            logger: { warn: vi.fn() },
+        });
+        const { baseUrl, server } = await startPublicApiServer({
+            extraRepositories: [
+                {
+                    defaultBranch: "main",
+                    installationId: "777",
+                    owner: "astandrik",
+                    repo: "another-repo",
+                    repoId: "457",
+                    status: "ready",
+                },
+            ],
+            quota,
+        });
+        try {
+            const response = await request({
+                baseUrl,
+                cookie: sessionCookie(),
+                path: "/api/repositories?installationId=777",
+            });
+
+            expect(response.statusCode).toBe(200);
+            expect(JSON.parse(response.body)).toMatchObject({
+                repositories: [
+                    { repoId: "456" },
+                    { repoId: "457" },
+                ],
+                status: "ok",
+            });
+        } finally {
+            await closeServer(server);
+        }
+    });
+
     it("creates, lists, and revokes API tokens without returning plaintext after creation", async () => {
         const { baseUrl, server, store } = await startPublicApiServer();
         try {
@@ -993,6 +1047,10 @@ describe("code-indexer public API", () => {
 
     it("deletes user data, owned repository rows, sessions, tokens, and indexed collections", async () => {
         const { baseUrl, deps, server, store } = await startPublicApiServer();
+        deps.listCollectionsByPrefix.mockResolvedValue([
+            "gh_repo_456_default",
+            "gh_repo_456_pr_3",
+        ]);
         try {
             const response = await request({
                 baseUrl,
@@ -1009,6 +1067,10 @@ describe("code-indexer public API", () => {
             });
             expect(deps.deleteCollection).toHaveBeenCalledWith({
                 collection: "gh_repo_456_default",
+                userUid: "gh_installation_777",
+            });
+            expect(deps.deleteCollection).toHaveBeenCalledWith({
+                collection: "gh_repo_456_pr_3",
                 userUid: "gh_installation_777",
             });
             expect(deps.enqueue).toHaveBeenCalledWith({

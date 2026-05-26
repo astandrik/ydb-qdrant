@@ -106,6 +106,12 @@ describe("code-indexer auth", () => {
         expect(clearSessionCookie()).toContain("Max-Age=0");
     });
 
+    it("ignores malformed encoded session cookies", () => {
+        expect(
+            readSessionCookie(`${CODE_INDEXER_SESSION_COOKIE}=%E0%A4%A`)
+        ).toBeNull();
+    });
+
     it("builds GitHub authorization URLs with client id, redirect uri, and state", () => {
         const client = new GitHubOAuthClient({
             clientId: "client-id",

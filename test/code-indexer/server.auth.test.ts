@@ -3,6 +3,7 @@ import http from "node:http";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+    CODE_INDEXER_OAUTH_STATE_COOKIE,
     CODE_INDEXER_SESSION_COOKIE,
     type CodeIndexerAuthStore,
     GitHubOAuthClient,
@@ -184,7 +185,10 @@ async function request(params: {
     });
 }
 
-async function createState(baseUrl: string, installationId = "777"): Promise<string> {
+async function createState(
+    baseUrl: string,
+    installationId = "777"
+): Promise<{ cookie: string; state: string }> {
     const response = await request({
         baseUrl,
         path:
@@ -199,7 +203,10 @@ async function createState(baseUrl: string, installationId = "777"): Promise<str
     if (!state) {
         throw new Error("OAuth start redirect did not include state");
     }
-    return state;
+    return {
+        cookie: firstSetCookie(response.headers),
+        state,
+    };
 }
 
 function firstSetCookie(headers: http.IncomingHttpHeaders): string {
@@ -273,6 +280,10 @@ describe("code-indexer auth routes", () => {
                 "https://code-indexer.example.test/github/oauth/callback"
             );
             expect(redirectUrl.searchParams.get("state")).toMatch(/^v1\./u);
+            expect(firstSetCookie(response.headers)).toContain(
+                `${CODE_INDEXER_OAUTH_STATE_COOKIE}=`
+            );
+            expect(firstSetCookie(response.headers)).toContain("HttpOnly");
         } finally {
             await closeServer(server);
         }
@@ -281,9 +292,10 @@ describe("code-indexer auth routes", () => {
     it("rejects callbacks without a code", async () => {
         const { baseUrl, server } = await startAuthServer();
         try {
-            const state = await createState(baseUrl);
+            const { cookie, state } = await createState(baseUrl);
             const response = await request({
                 baseUrl,
+                headers: { Cookie: cookie },
                 path: `/github/oauth/callback?state=${encodeURIComponent(state)}`,
             });
 
@@ -327,9 +339,10 @@ describe("code-indexer auth routes", () => {
         };
         const { baseUrl, server, store } = await startAuthServer({ fetchImpl });
         try {
-            const state = await createState(baseUrl);
+            const { cookie, state } = await createState(baseUrl);
             const response = await request({
                 baseUrl,
+                headers: { Cookie: cookie },
                 path:
                     "/github/oauth/callback?code=oauth-code&state=" +
                     encodeURIComponent(state),
@@ -370,7 +383,7 @@ describe("code-indexer auth routes", () => {
         }
     });
 
-    it("creates a user session for GitHub install OAuth callbacks without state", async () => {
+    it("rejects GitHub install OAuth callbacks without signed state", async () => {
         const fetchImpl: typeof fetch = (input) => {
             const url = fetchInputUrl(input);
             if (url.origin === "https://github.example.test") {
@@ -409,39 +422,36 @@ describe("code-indexer auth routes", () => {
                 path: "/github/oauth/callback?code=oauth-code",
             });
 
-            expect(response.statusCode).toBe(302);
-            expect(response.headers.location).toBe(
-                "https://ydb-qdrant.tech/code-indexer/dashboard/"
-            );
-            expect(firstSetCookie(response.headers)).toContain(
-                `${CODE_INDEXER_SESSION_COOKIE}=session-id`
-            );
-            expect(store.upsertGitHubUser).toHaveBeenCalledWith({
-                accessToken: "ghu-user",
-                githubUserId: "123",
-                login: "octocat",
-                refreshToken: "ghr-refresh",
+            expect(response.statusCode).toBe(400);
+            expect(JSON.parse(response.body)).toMatchObject({
+                error: "missing OAuth state",
+                status: "error",
             });
-            expect(store.upsertInstallation).toHaveBeenCalledTimes(2);
-            expect(store.upsertInstallation).toHaveBeenNthCalledWith(1, {
-                accountLogin: "astandrik",
-                accountType: "User",
-                createdByGithubUserId: "123",
-                installationId: "777",
-                status: "active",
+            expect(store.upsertGitHubUser).not.toHaveBeenCalled();
+            expect(store.upsertInstallation).not.toHaveBeenCalled();
+            expect(store.createSession).not.toHaveBeenCalled();
+        } finally {
+            await closeServer(server);
+        }
+    });
+
+    it("rejects callbacks when signed state is not bound to the browser cookie", async () => {
+        const { baseUrl, server, store } = await startAuthServer();
+        try {
+            const { state } = await createState(baseUrl);
+            const response = await request({
+                baseUrl,
+                path:
+                    "/github/oauth/callback?code=oauth-code&state=" +
+                    encodeURIComponent(state),
             });
-            expect(store.upsertInstallation).toHaveBeenNthCalledWith(2, {
-                accountLogin: "ydb-platform",
-                accountType: "Organization",
-                createdByGithubUserId: "123",
-                installationId: "778",
-                status: "active",
+
+            expect(response.statusCode).toBe(400);
+            expect(JSON.parse(response.body)).toMatchObject({
+                error: "invalid OAuth state",
+                status: "error",
             });
-            expect(store.createSession).toHaveBeenCalledWith({
-                expiresAt: new Date("2026-05-25T01:00:00.000Z"),
-                githubUserId: "123",
-                sessionId: "session-id",
-            });
+            expect(store.createSession).not.toHaveBeenCalled();
         } finally {
             await closeServer(server);
         }
@@ -474,9 +484,10 @@ describe("code-indexer auth routes", () => {
         };
         const { baseUrl, server, store } = await startAuthServer({ fetchImpl });
         try {
-            const state = await createState(baseUrl, "888");
+            const { cookie, state } = await createState(baseUrl, "888");
             const response = await request({
                 baseUrl,
+                headers: { Cookie: cookie },
                 path:
                     "/github/oauth/callback?code=oauth-code&state=" +
                     encodeURIComponent(state),

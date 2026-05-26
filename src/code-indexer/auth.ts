@@ -5,6 +5,7 @@ import {
 } from "node:crypto";
 
 export const CODE_INDEXER_SESSION_COOKIE = "__Host-ydbqci_session";
+export const CODE_INDEXER_OAUTH_STATE_COOKIE = "__Host-ydbqci_oauth_state";
 
 const DEFAULT_RETURN_PATH = "/code-indexer/dashboard/";
 const DEFAULT_GITHUB_API_BASE_URL = "https://api.github.com";
@@ -358,6 +359,20 @@ export function createSessionCookie(
     ].join("; ");
 }
 
+export function createOAuthStateCookie(
+    nonce: string,
+    maxAgeSeconds: number
+): string {
+    return [
+        `${CODE_INDEXER_OAUTH_STATE_COOKIE}=${encodeURIComponent(nonce)}`,
+        `Max-Age=${Math.max(0, Math.floor(maxAgeSeconds))}`,
+        "Path=/",
+        "HttpOnly",
+        "Secure",
+        "SameSite=Lax",
+    ].join("; ");
+}
+
 export function clearSessionCookie(): string {
     return [
         `${CODE_INDEXER_SESSION_COOKIE}=`,
@@ -369,17 +384,45 @@ export function clearSessionCookie(): string {
     ].join("; ");
 }
 
-export function readSessionCookie(cookieHeader: string | undefined): string | null {
+export function clearOAuthStateCookie(): string {
+    return [
+        `${CODE_INDEXER_OAUTH_STATE_COOKIE}=`,
+        "Max-Age=0",
+        "Path=/",
+        "HttpOnly",
+        "Secure",
+        "SameSite=Lax",
+    ].join("; ");
+}
+
+function readCookieValue(
+    cookieHeader: string | undefined,
+    cookieName: string
+): string | null {
     if (!cookieHeader) {
         return null;
     }
     for (const part of cookieHeader.split(";")) {
         const [name, ...rest] = part.trim().split("=");
-        if (name === CODE_INDEXER_SESSION_COOKIE) {
-            return decodeURIComponent(rest.join("="));
+        if (name === cookieName) {
+            try {
+                return decodeURIComponent(rest.join("="));
+            } catch {
+                return null;
+            }
         }
     }
     return null;
+}
+
+export function readSessionCookie(cookieHeader: string | undefined): string | null {
+    return readCookieValue(cookieHeader, CODE_INDEXER_SESSION_COOKIE);
+}
+
+export function readOAuthStateCookie(
+    cookieHeader: string | undefined
+): string | null {
+    return readCookieValue(cookieHeader, CODE_INDEXER_OAUTH_STATE_COOKIE);
 }
 
 export function buildUiRedirectUrl(uiOrigin: string, returnPath: string): string {

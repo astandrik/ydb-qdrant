@@ -140,6 +140,7 @@ function start(): void {
         publicApi: {
             adminGithubUserIds: config.adminGithubUserIds,
             indexStore: store,
+            manifestStore,
             progressStore,
             quota,
             queue,

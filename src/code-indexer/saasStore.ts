@@ -21,6 +21,8 @@ export const CODE_INDEXER_USERS_TABLE = "qdrant_code_indexer_users";
 export const CODE_INDEXER_SESSIONS_TABLE = "qdrant_code_indexer_sessions";
 export const CODE_INDEXER_INSTALLATIONS_TABLE =
     "qdrant_code_indexer_installations";
+export const CODE_INDEXER_INSTALLATION_USERS_TABLE =
+    "qdrant_code_indexer_installation_users";
 export const CODE_INDEXER_REPOSITORIES_TABLE =
     "qdrant_code_indexer_repositories";
 export const CODE_INDEXER_API_TOKENS_TABLE = "qdrant_code_indexer_api_tokens";
@@ -183,6 +185,14 @@ function toSafeNumber(value: unknown): number | null {
 
 function readFirstRow(result: ExecuteQueryResultLike): QueryRow | null {
     return result.resultSets?.[0]?.rows?.[0] ?? null;
+}
+
+function readLastRow(result: ExecuteQueryResultLike): QueryRow | null {
+    const resultSets = result.resultSets;
+    if (!resultSets || resultSets.length === 0) {
+        return null;
+    }
+    return resultSets[resultSets.length - 1]?.rows?.[0] ?? null;
 }
 
 function readText(row: QueryRow, index: number): string | undefined {
@@ -367,6 +377,19 @@ async function ensureInstallationsTable(): Promise<void> {
     );
 }
 
+async function ensureInstallationUsersTable(): Promise<void> {
+    await ensureTable(
+        CODE_INDEXER_INSTALLATION_USERS_TABLE,
+        new TableDescription()
+            .withColumns(
+                new Column("github_user_id", Types.UTF8),
+                new Column("installation_id", Types.UTF8),
+                new Column("linked_at", Types.TIMESTAMP)
+            )
+            .withPrimaryKeys("github_user_id", "installation_id")
+    );
+}
+
 async function ensureRepositoriesTable(): Promise<void> {
     await ensureTable(
         CODE_INDEXER_REPOSITORIES_TABLE,
@@ -449,6 +472,7 @@ export async function ensureCodeIndexerSaasTables(): Promise<void> {
         ensureUsersTable(),
         ensureSessionsTable(),
         ensureInstallationsTable(),
+        ensureInstallationUsersTable(),
         ensureRepositoriesTable(),
         ensureApiTokensTable(),
         ensureUsageDailyTable(),
@@ -719,6 +743,9 @@ export class YdbCodeIndexerSaasStore {
 
             DELETE FROM ${CODE_INDEXER_USERS_TABLE}
             WHERE github_user_id = $github_user_id;
+
+            DELETE FROM ${CODE_INDEXER_INSTALLATION_USERS_TABLE}
+            WHERE github_user_id = $github_user_id;
         `;
         await withSession(async (session) => {
             await session.executeQuery(
@@ -790,6 +817,14 @@ export class YdbCodeIndexerSaasStore {
                 $status,
                 CurrentUtcTimestamp()
             );
+
+            UPSERT INTO ${CODE_INDEXER_INSTALLATION_USERS_TABLE}
+                (github_user_id, installation_id, linked_at)
+            VALUES (
+                $created_by_github_user_id,
+                $installation_id,
+                CurrentUtcTimestamp()
+            );
         `;
         await withSession(async (session) => {
             const queryParams: QueryParams = {
@@ -821,14 +856,16 @@ export class YdbCodeIndexerSaasStore {
             DECLARE $github_user_id AS Utf8;
 
             SELECT
-                installation_id,
-                account_login,
-                account_type,
-                created_by_github_user_id,
-                status
-            FROM ${CODE_INDEXER_INSTALLATIONS_TABLE}
-            WHERE created_by_github_user_id = $github_user_id
-            ORDER BY account_login;
+                installations.installation_id,
+                installations.account_login,
+                installations.account_type,
+                installations.created_by_github_user_id,
+                installations.status
+            FROM ${CODE_INDEXER_INSTALLATION_USERS_TABLE} AS installation_users
+            INNER JOIN ${CODE_INDEXER_INSTALLATIONS_TABLE} AS installations
+                ON installations.installation_id = installation_users.installation_id
+            WHERE installation_users.github_user_id = $github_user_id
+            ORDER BY installations.account_login;
         `;
         const result = await withSession(async (session) => {
             return (await session.executeQuery(
@@ -874,6 +911,9 @@ export class YdbCodeIndexerSaasStore {
             DECLARE $installation_id AS Utf8;
 
             DELETE FROM ${CODE_INDEXER_INSTALLATIONS_TABLE}
+            WHERE installation_id = $installation_id;
+
+            DELETE FROM ${CODE_INDEXER_INSTALLATION_USERS_TABLE}
             WHERE installation_id = $installation_id;
         `;
         await withSession(async (session) => {
@@ -1362,20 +1402,18 @@ export class YdbCodeIndexerSaasStore {
         const githubUserId = normalizeId(params.githubUserId);
         const usageKey = `${usageDate}/${githubUserId}/${params.metric}`;
         const amount = Math.max(1, Math.floor(params.amount ?? 1));
-        const selectYql = `
-            DECLARE $usage_key AS Utf8;
-
-            SELECT count
-            FROM ${CODE_INDEXER_USAGE_DAILY_TABLE}
-            WHERE usage_key = $usage_key
-            LIMIT 1;
-        `;
-        const upsertYql = `
+        const yql = `
             DECLARE $usage_key AS Utf8;
             DECLARE $usage_date AS Utf8;
             DECLARE $github_user_id AS Utf8;
             DECLARE $metric AS Utf8;
-            DECLARE $count AS Uint32;
+            DECLARE $amount AS Uint32;
+
+            $next_count = (
+                SELECT COALESCE(MAX(count), 0u) + $amount AS count
+                FROM ${CODE_INDEXER_USAGE_DAILY_TABLE}
+                WHERE usage_key = $usage_key
+            );
 
             UPSERT INTO ${CODE_INDEXER_USAGE_DAILY_TABLE}
                 (
@@ -1386,30 +1424,22 @@ export class YdbCodeIndexerSaasStore {
                     count,
                     updated_at
                 )
-            VALUES (
-                $usage_key,
-                $usage_date,
-                $github_user_id,
-                $metric,
-                $count,
-                CurrentUtcTimestamp()
-            );
+            SELECT
+                $usage_key AS usage_key,
+                $usage_date AS usage_date,
+                $github_user_id AS github_user_id,
+                $metric AS metric,
+                count,
+                CurrentUtcTimestamp() AS updated_at
+            FROM $next_count;
+
+            SELECT count FROM $next_count;
         `;
         return await withSession(async (session) => {
             const result = (await session.executeQuery(
-                selectYql,
-                { $usage_key: TypedValues.utf8(usageKey) },
-                undefined,
-                createExecuteQuerySettings()
-            )) as ExecuteQueryResultLike;
-            const currentCount = readFirstRow(result)
-                ? readUint(readFirstRow(result) as QueryRow, 0) ?? 0
-                : 0;
-            const nextCount = currentCount + amount;
-            await session.executeQuery(
-                upsertYql,
+                yql,
                 {
-                    $count: TypedValues.uint32(nextCount),
+                    $amount: TypedValues.uint32(amount),
                     $github_user_id: TypedValues.utf8(githubUserId),
                     $metric: TypedValues.utf8(params.metric),
                     $usage_date: TypedValues.utf8(usageDate),
@@ -1417,8 +1447,8 @@ export class YdbCodeIndexerSaasStore {
                 },
                 undefined,
                 createExecuteQuerySettings()
-            );
-            return nextCount;
+            )) as ExecuteQueryResultLike;
+            return readUint(readLastRow(result) ?? {}, 0) ?? amount;
         });
     }
 

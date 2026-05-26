@@ -40,10 +40,14 @@ function repository() {
 class FakeGitHubClient implements GitHubContentClient {
     changedFiles: GitHubChangedFile[] = [];
     compareCalls = 0;
-    readonly contentRequests: Array<{ owner: string; path: string; repo: string }> =
-        [];
+    readonly contentRequests: Array<{
+        owner: string;
+        path: string;
+        ref?: string;
+        repo: string;
+    }> = [];
     files: GitHubFileEntry[] = [];
-    readonly listRequests: Array<{ owner: string; repo: string }> = [];
+    readonly listRequests: Array<{ owner: string; ref?: string; repo: string }> = [];
     readonly contents = new Map<string, string | null>();
 
     compareCommits(): Promise<GitHubChangedFile[]> {
@@ -54,11 +58,13 @@ class FakeGitHubClient implements GitHubContentClient {
     getFileContent(params: {
         owner: string;
         path: string;
+        ref?: string;
         repo: string;
     }): Promise<string | null> {
         this.contentRequests.push({
             owner: params.owner,
             path: params.path,
+            ref: params.ref,
             repo: params.repo,
         });
         return Promise.resolve(this.contents.get(params.path) ?? null);
@@ -66,9 +72,14 @@ class FakeGitHubClient implements GitHubContentClient {
 
     listRepositoryFiles(params: {
         owner: string;
+        ref?: string;
         repo: string;
     }): Promise<GitHubFileEntry[]> {
-        this.listRequests.push({ owner: params.owner, repo: params.repo });
+        this.listRequests.push({
+            owner: params.owner,
+            ref: params.ref,
+            repo: params.repo,
+        });
         return Promise.resolve(this.files);
     }
 }
@@ -125,6 +136,19 @@ class FakeManifestStore implements RepoManifestStore {
         userUid: string;
     }): Promise<RepoIndexManifest | null> {
         return Promise.resolve(this.manifests.get(this.keyFor(params)) ?? null);
+    }
+
+    listCollectionsByPrefix(params: {
+        collectionPrefix: string;
+        userUid: string;
+    }): Promise<string[]> {
+        const keyPrefix = `${params.userUid}/${params.collectionPrefix}`;
+        return Promise.resolve(
+            [...this.manifests.keys()]
+                .filter((key) => key.startsWith(keyPrefix))
+                .map((key) => key.slice(`${params.userUid}/`.length))
+                .sort()
+        );
     }
 
     save(manifest: RepoIndexManifest): Promise<void> {
@@ -357,7 +381,9 @@ describe("code-indexer repo indexer", () => {
         expect(manifestStore.saved).toEqual([
             {
                 collection: "gh_repo_42_default",
-                files: [{ blobSha: "blob-1", path: "src/server.ts" }],
+                files: [
+                    { blobSha: "blob-1", chunkCount: 2, path: "src/server.ts" },
+                ],
                 indexingFingerprint: defaultIndexingFingerprint,
                 ref: "main",
                 repository: repository(),
@@ -410,7 +436,7 @@ describe("code-indexer repo indexer", () => {
         ]);
         expect(client.listRequests).toEqual([]);
         expect(client.contentRequests).toEqual([
-            { owner: "octo", path: REPO_CONFIG_PATH, repo: "demo" },
+            { owner: "octo", path: REPO_CONFIG_PATH, ref: "commit-1", repo: "demo" },
         ]);
         expect(client.snapshot.closed).toBe(true);
         expect(store.upserts[0].chunks).toMatchObject([
@@ -424,7 +450,7 @@ describe("code-indexer repo indexer", () => {
             },
         ]);
         expect(manifestStore.saved[0].files).toEqual([
-            { blobSha: "archive-blob-1", path: "src/server.ts" },
+            { blobSha: "archive-blob-1", chunkCount: 2, path: "src/server.ts" },
         ]);
     });
 
@@ -581,6 +607,7 @@ describe("code-indexer repo indexer", () => {
             {
                 owner: "octo",
                 path: REPO_CONFIG_PATH,
+                ref: "main",
                 repo: "demo",
             },
         ]);
@@ -741,9 +768,13 @@ describe("code-indexer repo indexer", () => {
         const statusStore = new FakeStatusStore();
         manifestStore.seed(
             makeDefaultManifest([
-                { blobSha: "blob-deleted", path: "src/deleted.ts" },
-                { blobSha: "blob-old", path: "src/old.ts" },
-                { blobSha: "blob-unchanged", path: "src/unchanged.ts" },
+                { blobSha: "blob-deleted", chunkCount: 1, path: "src/deleted.ts" },
+                { blobSha: "blob-old", chunkCount: 1, path: "src/old.ts" },
+                {
+                    blobSha: "blob-unchanged",
+                    chunkCount: 4,
+                    path: "src/unchanged.ts",
+                },
             ])
         );
         const indexer = buildIndexer(
@@ -800,8 +831,12 @@ describe("code-indexer repo indexer", () => {
         expect(manifestStore.saved.at(-1)).toEqual({
             collection: "gh_repo_42_default",
             files: [
-                { blobSha: "blob-new", path: "src/new.ts" },
-                { blobSha: "blob-unchanged", path: "src/unchanged.ts" },
+                { blobSha: "blob-new", chunkCount: 1, path: "src/new.ts" },
+                {
+                    blobSha: "blob-unchanged",
+                    chunkCount: 4,
+                    path: "src/unchanged.ts",
+                },
             ],
             indexingFingerprint: defaultIndexingFingerprint,
             ref: "refs/heads/main",
@@ -814,6 +849,60 @@ describe("code-indexer repo indexer", () => {
             lastIndexedSha: "b".repeat(40),
             repoId: 42,
             status: "ready",
+        });
+    });
+
+    it("uses existing manifest chunk counts for incremental chunk quota checks", async () => {
+        const client = new FakeGitHubClient();
+        client.changedFiles = [
+            { filename: "src/changed.ts", sha: "blob-new", status: "modified" },
+        ];
+        client.contents.set("src/changed.ts", "one\ntwo\nthree\nfour\nfive");
+        const store = new FakeStore();
+        const manifestStore = new FakeManifestStore();
+        manifestStore.seed(
+            makeDefaultManifest([
+                { blobSha: "blob-old", chunkCount: 1, path: "src/changed.ts" },
+                {
+                    blobSha: "blob-unchanged",
+                    chunkCount: 9,
+                    path: "src/unchanged.ts",
+                },
+            ])
+        );
+        const quota = createCodeIndexerQuota({
+            limits: {
+                chunksPerRepo: 11,
+                filesPerRepo: 10,
+                reposPerInstallation: 10,
+                searchesPerUserPerDay: 10,
+            },
+            logger: { warn: vi.fn() },
+        });
+        const indexer = buildIndexer(
+            client,
+            store,
+            manifestStore,
+            defaultTestChunker,
+            undefined,
+            quota
+        );
+
+        await expect(
+            indexer.processJob({
+                after: "b".repeat(40),
+                before: "a".repeat(40),
+                created: false,
+                deleted: false,
+                forced: false,
+                installationId: 7,
+                kind: "incremental-push",
+                ref: "refs/heads/main",
+                repository: repository(),
+            })
+        ).rejects.toMatchObject({
+            code: "quota_chunks_per_repo_exceeded",
+            statusCode: 422,
         });
     });
 
@@ -844,6 +933,50 @@ describe("code-indexer repo indexer", () => {
         expect(manifestStore.saved.at(-1)).toMatchObject({
             collection: "gh_repo_42_default",
             files: [{ blobSha: "blob-1", path: "src/server.ts" }],
+            sha: "b".repeat(40),
+        });
+    });
+
+    it("falls back to full reindex when compare reaches GitHub's 300-file cap", async () => {
+        const client = new FakeGitHubClient();
+        client.changedFiles = Array.from({ length: 300 }, (_, index) => ({
+            filename: `src/file-${index}.ts`,
+            sha: `blob-${index}`,
+            status: "modified",
+        }));
+        client.files = [{ path: "src/server.ts", sha: "blob-1", size: 50 }];
+        client.contents.set("src/server.ts", "export const value = 1;");
+        const store = new FakeStore();
+        const manifestStore = new FakeManifestStore();
+        manifestStore.seed(makeDefaultManifest([]));
+        const indexer = buildIndexer(
+            client,
+            store,
+            manifestStore,
+            defaultTestChunker,
+            undefined,
+            undefined,
+            undefined,
+            embeddingProvider,
+            { maxChangedFilesForIncremental: 1_000 }
+        );
+
+        await indexer.processJob({
+            after: "b".repeat(40),
+            before: "a".repeat(40),
+            created: false,
+            deleted: false,
+            forced: false,
+            installationId: 7,
+            kind: "incremental-push",
+            ref: "refs/heads/main",
+            repository: repository(),
+        });
+
+        expect(store.resetCollections).toHaveLength(1);
+        expect(store.ensuredCollections).toEqual([]);
+        expect(manifestStore.saved.at(-1)).toMatchObject({
+            collection: "gh_repo_42_default",
             sha: "b".repeat(40),
         });
     });
@@ -978,7 +1111,7 @@ describe("code-indexer repo indexer", () => {
         });
     });
 
-    it("indexes PR contents from the PR head repository", async () => {
+    it("indexes PR contents through the installation-scoped base repository ref", async () => {
         const client = new FakeGitHubClient();
         client.files = [{ path: "src/pr.ts", sha: "blob-pr", size: 20 }];
         client.contents.set("src/pr.ts", "export const pr = true;");
@@ -1002,10 +1135,17 @@ describe("code-indexer repo indexer", () => {
             },
         });
 
-        expect(client.listRequests).toEqual([{ owner: "contrib", repo: "fork" }]);
+        expect(client.listRequests).toEqual([
+            { owner: "octo", ref: "refs/pull/3/head", repo: "demo" },
+        ]);
         expect(client.contentRequests).toEqual([
-            { owner: "octo", path: REPO_CONFIG_PATH, repo: "demo" },
-            { owner: "contrib", path: "src/pr.ts", repo: "fork" },
+            { owner: "octo", path: REPO_CONFIG_PATH, ref: "main", repo: "demo" },
+            {
+                owner: "octo",
+                path: "src/pr.ts",
+                ref: "refs/pull/3/head",
+                repo: "demo",
+            },
         ]);
         expect(store.resetCollections[0]).toEqual({
             collection: "gh_repo_42_pr_3",
@@ -1018,7 +1158,7 @@ describe("code-indexer repo indexer", () => {
         });
         expect(manifestStore.saved.at(-1)).toEqual({
             collection: "gh_repo_42_pr_3",
-            files: [{ blobSha: "blob-pr", path: "src/pr.ts" }],
+            files: [{ blobSha: "blob-pr", chunkCount: 1, path: "src/pr.ts" }],
             indexingFingerprint: defaultIndexingFingerprint,
             ref: "feature",
             repository: repository(),
@@ -1059,6 +1199,15 @@ describe("code-indexer repo indexer", () => {
         const client = new FakeGitHubClient();
         const store = new FakeStore();
         const manifestStore = new FakeManifestStore();
+        manifestStore.seed({
+            ...makeDefaultManifest(),
+            collection: "gh_repo_42_default",
+        });
+        manifestStore.seed({
+            ...makeDefaultManifest(),
+            collection: "gh_repo_42_pr_3",
+            ref: "feature",
+        });
         const statusStore = new FakeStatusStore();
         const indexer = buildIndexer(
             client,
@@ -1080,10 +1229,18 @@ describe("code-indexer repo indexer", () => {
                 collection: "gh_repo_42_default",
                 userUid: "gh_installation_7",
             },
+            {
+                collection: "gh_repo_42_pr_3",
+                userUid: "gh_installation_7",
+            },
         ]);
         expect(manifestStore.deletedManifests).toEqual([
             {
                 collection: "gh_repo_42_default",
+                userUid: "gh_installation_7",
+            },
+            {
+                collection: "gh_repo_42_pr_3",
                 userUid: "gh_installation_7",
             },
         ]);
@@ -1173,8 +1330,8 @@ describe("code-indexer repo indexer", () => {
             path: "package-lock.json",
         });
         expect(manifestStore.saved.at(-1)?.files).toEqual([
-            { blobSha: "blob-lock", path: "package-lock.json" },
-            { blobSha: "blob-keep", path: "src/keep.ts" },
+            { blobSha: "blob-lock", chunkCount: 1, path: "package-lock.json" },
+            { blobSha: "blob-keep", chunkCount: 2, path: "src/keep.ts" },
         ]);
     });
 

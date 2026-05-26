@@ -13,6 +13,7 @@ import {
 } from "./accessControl.js";
 import {
     defaultBranchCollectionForRepo,
+    repoCollectionPrefixForRepo,
     userUidForInstallation,
 } from "./naming.js";
 import {
@@ -31,6 +32,7 @@ import type {
     IndexingJobProgressRecord,
     IndexingProgressStore,
     IndexingQueue,
+    RepoManifestStore,
 } from "./types.js";
 
 type CodeIndexerAdminProgressStore = IndexingProgressStore & {
@@ -82,6 +84,7 @@ export type CodeIndexerPublicApiDeps = {
     createPlaintextToken?: () => string;
     createTokenId?: () => string;
     indexStore: CodeIndexStore;
+    manifestStore?: RepoManifestStore;
     progressStore: CodeIndexerAdminProgressStore;
     quota?: CodeIndexerQuota;
     queue: IndexingQueue;
@@ -169,6 +172,22 @@ function repositoryRefFromRecord(
         repo: repository.repo,
         repoId: toSafeIntegerId(repository.repoId, "repoId"),
     };
+}
+
+async function listIndexedCollectionsForRepository(params: {
+    manifestStore: RepoManifestStore | undefined;
+    repoId: number;
+    userUid: string;
+}): Promise<string[]> {
+    const defaultCollection = defaultBranchCollectionForRepo(params.repoId);
+    if (!params.manifestStore) {
+        return [defaultCollection];
+    }
+    const collections = await params.manifestStore.listCollectionsByPrefix({
+        collectionPrefix: repoCollectionPrefixForRepo(params.repoId),
+        userUid: params.userUid,
+    });
+    return [...new Set([defaultCollection, ...collections])].sort();
 }
 
 function serializeProgress(progress: IndexingJobProgressRecord) {
@@ -481,13 +500,6 @@ export function createPublicApiRouter(deps: CodeIndexerPublicApiDeps) {
                         serializedJob,
                     ]);
                 }
-                deps.quota?.assertRepositoriesPerInstallation({
-                    githubUserId: context.user.githubUserId,
-                    installationId,
-                    repoCount: repositories.filter(
-                        (repository) => repository.status !== "deleted"
-                    ).length,
-                });
                 res.json({
                     repositories: repositories.map((repository) => {
                         const repoJobs =
@@ -650,10 +662,23 @@ export function createPublicApiRouter(deps: CodeIndexerPublicApiDeps) {
                             repository.repoId,
                             "repoId"
                         );
-                        await deps.indexStore.deleteCollection({
-                            collection: defaultBranchCollectionForRepo(repoId),
-                            userUid: userUidForInstallation(installationId),
-                        });
+                        const userUid = userUidForInstallation(installationId);
+                        const indexedCollections =
+                            await listIndexedCollectionsForRepository({
+                                manifestStore: deps.manifestStore,
+                                repoId,
+                                userUid,
+                            });
+                        for (const collection of indexedCollections) {
+                            await deps.indexStore.deleteCollection({
+                                collection,
+                                userUid,
+                            });
+                            await deps.manifestStore?.delete({
+                                collection,
+                                userUid,
+                            });
+                        }
                         await deps.queue.enqueue({
                             installationId,
                             kind: "delete-repo-index",

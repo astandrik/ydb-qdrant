@@ -447,16 +447,19 @@ export function createWebhookHandler(deps: WebhookDependencies) {
             return;
         }
 
-        if (await deps.deliveryStore.has(deliveryId)) {
-            res.json({ enqueued: 0, status: "duplicate" });
-            return;
-        }
-
         let payload: unknown;
         try {
             payload = JSON.parse(body.toString("utf8")) as unknown;
         } catch {
             res.status(400).json({ error: "invalid json", status: "error" });
+            return;
+        }
+
+        const reserved = deps.deliveryStore.reserve
+            ? await deps.deliveryStore.reserve(deliveryId)
+            : !(await deps.deliveryStore.has(deliveryId));
+        if (!reserved) {
+            res.json({ enqueued: 0, status: "duplicate" });
             return;
         }
 
@@ -472,7 +475,9 @@ export function createWebhookHandler(deps: WebhookDependencies) {
         for (const job of jobs) {
             await deps.queue.enqueue(job);
         }
-        await deps.deliveryStore.mark(deliveryId);
+        if (!deps.deliveryStore.reserve) {
+            await deps.deliveryStore.mark(deliveryId);
+        }
         res.json({ enqueued: jobs.length, status: "accepted" });
     };
 }

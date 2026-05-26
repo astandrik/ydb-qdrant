@@ -16,6 +16,10 @@ export function defaultBranchCollectionForRepo(repoId: number): string {
     return sanitizeIdentifier(`gh_repo_${repoId}_default`);
 }
 
+export function repoCollectionPrefixForRepo(repoId: number): string {
+    return `${sanitizeIdentifier(`gh_repo_${repoId}`)}_`;
+}
+
 export function pullRequestCollectionForRepo(
     repoId: number,
     prNumber: number

@@ -145,6 +145,10 @@ describe("code-indexer SaaS store", () => {
             expect.anything()
         );
         expect(session.createTable).toHaveBeenCalledWith(
+            saasStore.CODE_INDEXER_INSTALLATION_USERS_TABLE,
+            expect.anything()
+        );
+        expect(session.createTable).toHaveBeenCalledWith(
             saasStore.CODE_INDEXER_REPOSITORIES_TABLE,
             expect.anything()
         );
@@ -481,6 +485,79 @@ describe("code-indexer SaaS store", () => {
         expect(queryParamsAt(session, 1).$created_by_github_user_id).toBeUndefined();
     });
 
+    it("links multiple GitHub users to the same installation", async () => {
+        const { saasStore, withSessionMock } = await importSaasStore();
+        const session = readyStore({ withSessionMock });
+        const store = new saasStore.YdbCodeIndexerSaasStore({
+            encryptionSecret: "encryption-secret",
+            tokenPepper: "pepper",
+        });
+        await saasStore.ensureCodeIndexerSaasTables();
+        session.executeQuery.mockClear();
+
+        await store.upsertInstallation({
+            accountLogin: "octo",
+            accountType: "User",
+            createdByGithubUserId: "123",
+            installationId: "700",
+            status: "active",
+        });
+        await store.upsertInstallation({
+            accountLogin: "octo",
+            accountType: "User",
+            createdByGithubUserId: "456",
+            installationId: "700",
+            status: "active",
+        });
+
+        expect(session.executeQuery.mock.calls[0]?.[0]).toContain(
+            "qdrant_code_indexer_installation_users"
+        );
+        expect(session.executeQuery.mock.calls[1]?.[0]).toContain(
+            "qdrant_code_indexer_installation_users"
+        );
+        expect(queryParamsAt(session, 0).$created_by_github_user_id?.value).toEqual({
+            textValue: "123",
+        });
+        expect(queryParamsAt(session, 1).$created_by_github_user_id?.value).toEqual({
+            textValue: "456",
+        });
+
+        session.executeQuery.mockResolvedValueOnce({
+            resultSets: [
+                {
+                    rows: [
+                        {
+                            items: [
+                                { textValue: "700" },
+                                { textValue: "octo" },
+                                { textValue: "User" },
+                                { textValue: "123" },
+                                { textValue: "active" },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        });
+
+        await expect(store.listInstallationsForUser("456")).resolves.toEqual([
+            {
+                accountLogin: "octo",
+                accountType: "User",
+                createdByGithubUserId: "123",
+                installationId: "700",
+                status: "active",
+            },
+        ]);
+        expect(session.executeQuery.mock.calls[2]?.[0]).toContain(
+            "qdrant_code_indexer_installation_users"
+        );
+        expect(queryParamsAt(session, 2).$github_user_id?.value).toEqual({
+            textValue: "456",
+        });
+    });
+
     it("increments daily usage counters", async () => {
         const { saasStore, withSessionMock } = await importSaasStore();
         const session = readyStore({ withSessionMock });
@@ -492,9 +569,8 @@ describe("code-indexer SaaS store", () => {
         await saasStore.ensureCodeIndexerSaasTables();
         session.executeQuery.mockClear();
         session.executeQuery.mockResolvedValueOnce({
-            resultSets: [{ rows: [{ items: [{ uint32Value: 5 }] }] }],
+            resultSets: [{ rows: [{ items: [{ uint32Value: 8 }] }] }],
         });
-        session.executeQuery.mockResolvedValueOnce({ resultSets: [] });
 
         await expect(
             store.incrementDailyUsage({
@@ -504,14 +580,16 @@ describe("code-indexer SaaS store", () => {
             })
         ).resolves.toBe(8);
 
-        expect(session.executeQuery.mock.calls[1]?.[0]).toEqual(
+        expect(session.executeQuery).toHaveBeenCalledTimes(1);
+        expect(session.executeQuery.mock.calls[0]?.[0]).toEqual(
             expect.stringContaining("UPSERT INTO qdrant_code_indexer_usage_daily")
         );
-        expect(queryParamsAt(session, 1).$count?.value).toBe(8);
-        expect(queryParamsAt(session, 1).$usage_date?.value).toEqual({
+        expect(session.executeQuery.mock.calls[0]?.[0]).toContain("COALESCE");
+        expect(queryParamsAt(session, 0).$amount?.value).toBe(3);
+        expect(queryParamsAt(session, 0).$usage_date?.value).toEqual({
             textValue: "2026-05-25",
         });
-        expect(queryParamsAt(session, 1).$usage_key?.value).toEqual({
+        expect(queryParamsAt(session, 0).$usage_key?.value).toEqual({
             textValue: "2026-05-25/123/search",
         });
     });

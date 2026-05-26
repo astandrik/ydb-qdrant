@@ -87,10 +87,11 @@ async function closeServer(server: http.Server): Promise<void> {
 
 async function postSearch(params: {
     baseUrl: string;
+    body?: unknown;
     token?: string;
 }): Promise<{ body: string; statusCode: number }> {
     const url = new URL("/search", params.baseUrl);
-    const body = JSON.stringify({
+    const body = JSON.stringify(params.body ?? {
         installationId: 123,
         query: "build server",
         repoId: 456,
@@ -190,6 +191,30 @@ describe("code-indexer server", () => {
                 status: "ok",
             });
             expect(search).toHaveBeenCalled();
+        } finally {
+            await closeServer(server);
+        }
+    });
+
+    it("returns bad request for invalid search input without matching error text", async () => {
+        const { baseUrl, search, server } = await startCodeIndexerServer();
+        try {
+            const response = await postSearch({
+                baseUrl,
+                body: {
+                    installationId: 123,
+                    query: "build server",
+                    repoId: 456,
+                    top: 0,
+                },
+            });
+
+            expect(response.statusCode).toBe(400);
+            expect(JSON.parse(response.body)).toEqual({
+                error: "top must be greater than 0",
+                status: "error",
+            });
+            expect(search).not.toHaveBeenCalled();
         } finally {
             await closeServer(server);
         }

@@ -32,6 +32,15 @@ export type CodeSearchDeps = {
     store: CodeIndexStore;
 };
 
+export class CodeSearchRequestError extends Error {
+    readonly statusCode = 400;
+
+    constructor(message: string) {
+        super(message);
+        this.name = "CodeSearchRequestError";
+    }
+}
+
 function readNumber(value: unknown): number | null {
     return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
@@ -77,10 +86,12 @@ export function parseCodeSearchRequest(value: unknown): CodeSearchRequest {
     const prNumber = readNumber(body.prNumber);
 
     if (installationId === null || repoId === null || query === null) {
-        throw new Error("installationId, repoId, and query are required");
+        throw new CodeSearchRequestError(
+            "installationId, repoId, and query are required"
+        );
     }
     if (top <= 0) {
-        throw new Error("top must be greater than 0");
+        throw new CodeSearchRequestError("top must be greater than 0");
     }
 
     return {

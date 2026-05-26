@@ -4,10 +4,13 @@ import { logger } from "../logging/logger.js";
 import {
     CodeIndexerAuthError,
     buildUiRedirectUrl,
+    clearOAuthStateCookie,
     clearSessionCookie,
     createOAuthState,
+    createOAuthStateCookie,
     createRandomSessionId,
     createSessionCookie,
+    readOAuthStateCookie,
     readSessionCookie,
     verifyOAuthState,
     type CodeIndexerAuthDeps,
@@ -21,7 +24,11 @@ import {
     createMcpHttpRouter,
     type CodeIndexerMcpHttpDeps,
 } from "./mcpHttp.js";
-import { parseCodeSearchRequest, searchCode } from "./searchAdapter.js";
+import {
+    CodeSearchRequestError,
+    parseCodeSearchRequest,
+    searchCode,
+} from "./searchAdapter.js";
 import { createWebhookHandler, type WebhookLifecycleStore } from "./webhooks.js";
 import type {
     CodeIndexStore,
@@ -114,6 +121,19 @@ function registerAuthRoutes(
                 readQueryString(req.query.returnPath),
             secret: auth.sessionSecret,
         });
+        const statePayload = verifyOAuthState({
+            nowMs: now.getTime(),
+            secret: auth.sessionSecret,
+            state,
+            ttlSeconds: auth.oauthStateTtlSeconds,
+        });
+        res.setHeader(
+            "Set-Cookie",
+            createOAuthStateCookie(
+                statePayload.nonce,
+                auth.oauthStateTtlSeconds
+            )
+        );
         res.redirect(auth.client.authorizationUrl({ state }));
     });
 
@@ -130,19 +150,27 @@ function registerAuthRoutes(
                     });
                 }
                 const rawState = readQueryString(req.query.state);
+                if (!rawState) {
+                    throw new CodeIndexerAuthError({
+                        code: "missing_oauth_state",
+                        message: "missing OAuth state",
+                        statusCode: 400,
+                    });
+                }
                 const now = auth.now?.() ?? new Date();
-                const state = rawState
-                    ? verifyOAuthState({
-                          nowMs: now.getTime(),
-                          secret: auth.sessionSecret,
-                          state: rawState,
-                          ttlSeconds: auth.oauthStateTtlSeconds,
-                      })
-                    : {
-                          createdAtMs: now.getTime(),
-                          nonce: "github-install-oauth",
-                          returnPath: "/code-indexer/dashboard/",
-                      };
+                const state = verifyOAuthState({
+                    nowMs: now.getTime(),
+                    secret: auth.sessionSecret,
+                    state: rawState,
+                    ttlSeconds: auth.oauthStateTtlSeconds,
+                });
+                if (readOAuthStateCookie(req.header("cookie")) !== state.nonce) {
+                    throw new CodeIndexerAuthError({
+                        code: "invalid_oauth_state",
+                        message: "invalid OAuth state",
+                        statusCode: 400,
+                    });
+                }
                 const token = await auth.client.exchangeCode(code);
                 const user = await auth.client.fetchUser(token.accessToken);
                 const installationsToLink: GitHubUserInstallation[] = [];
@@ -195,10 +223,10 @@ function registerAuthRoutes(
                     githubUserId: user.id,
                     sessionId,
                 });
-                res.setHeader(
-                    "Set-Cookie",
-                    createSessionCookie(sessionId, auth.sessionTtlSeconds)
-                );
+                res.setHeader("Set-Cookie", [
+                    createSessionCookie(sessionId, auth.sessionTtlSeconds),
+                    clearOAuthStateCookie(),
+                ]);
                 res.redirect(buildUiRedirectUrl(auth.uiOrigin, state.returnPath));
             } catch (err: unknown) {
                 sendAuthError(res, err);
@@ -275,7 +303,8 @@ export function buildCodeIndexerServer(deps: CodeIndexerServerDeps) {
             } catch (err: unknown) {
                 logger.error({ err }, "code-indexer search failed");
                 const message = err instanceof Error ? err.message : String(err);
-                const status = /required|top must/i.test(message) ? 400 : 500;
+                const status =
+                    err instanceof CodeSearchRequestError ? err.statusCode : 500;
                 res.status(status).json({ error: message, status: "error" });
             }
         }

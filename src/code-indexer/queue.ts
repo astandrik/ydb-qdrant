@@ -21,6 +21,14 @@ export class InMemoryDeliveryStore implements DeliveryStore {
         this.deliveryIds.add(deliveryId);
         return Promise.resolve();
     }
+
+    reserve(deliveryId: string): Promise<boolean> {
+        if (this.deliveryIds.has(deliveryId)) {
+            return Promise.resolve(false);
+        }
+        this.deliveryIds.add(deliveryId);
+        return Promise.resolve(true);
+    }
 }
 
 export class InMemoryRepoManifestStore implements RepoManifestStore {
@@ -36,6 +44,19 @@ export class InMemoryRepoManifestStore implements RepoManifestStore {
         userUid: string;
     }): Promise<RepoIndexManifest | null> {
         return Promise.resolve(this.manifests.get(this.keyFor(params)) ?? null);
+    }
+
+    listCollectionsByPrefix(params: {
+        collectionPrefix: string;
+        userUid: string;
+    }): Promise<string[]> {
+        const keyPrefix = `${params.userUid}/${params.collectionPrefix}`;
+        return Promise.resolve(
+            [...this.manifests.keys()]
+                .filter((key) => key.startsWith(keyPrefix))
+                .map((key) => key.slice(`${params.userUid}/`.length))
+                .sort()
+        );
     }
 
     save(manifest: RepoIndexManifest): Promise<void> {

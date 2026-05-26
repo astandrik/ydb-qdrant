@@ -291,6 +291,36 @@ describe("code-indexer durable state store", () => {
         );
     });
 
+    it("atomically reserves webhook deliveries in YDB", async () => {
+        const { stateStore, withSessionMock } = await importStateStore();
+        const session = makeSession({
+            executeQuery: vi.fn(() =>
+                Promise.resolve({
+                    resultSets: [
+                        {
+                            rows: [
+                                {
+                                    items: [{ uint64Value: 0 }],
+                                },
+                            ],
+                        },
+                    ],
+                })
+            ),
+        });
+        useSession(withSessionMock, session);
+        const deliveryStore = new stateStore.YdbDeliveryStore();
+
+        await expect(deliveryStore.reserve("delivery-1")).resolves.toBe(true);
+
+        expect(session.executeQuery).toHaveBeenCalledWith(
+            expect.stringContaining("WHERE NOT EXISTS"),
+            { $delivery_id: { type: "Utf8", value: "delivery-1" } },
+            undefined,
+            { settings: true }
+        );
+    });
+
     it("persists repo manifests in YDB", async () => {
         const { stateStore, withSessionMock } = await importStateStore();
         const manifest = makeManifest();
@@ -758,7 +788,8 @@ describe("code-indexer durable state store", () => {
         expect(processJob).toHaveBeenCalledWith(job, { jobId: "delivery-1:job" });
         expect(
             session.executeQuery.mock.calls.some(([yql]: [string]) =>
-                yql.includes('SET status = Utf8("pending")')
+                yql.includes('SET status = Utf8("pending")') &&
+                yql.includes("updated_at < $stale_cutoff")
             )
         ).toBe(true);
         expect(
@@ -793,6 +824,45 @@ describe("code-indexer durable state store", () => {
                     params.$phase?.value === "completed"
             )
         ).toBe(true);
+    });
+
+    it("does not process a job when the durable claim verification fails", async () => {
+        const { stateStore, withSessionMock } = await importStateStore();
+        const job = makeJob();
+        const processJob = vi.fn(() => Promise.resolve());
+        const session = makeSession({
+            executeQuery: vi.fn((yql: string) => {
+                if (yql.includes("SELECT job_id, payload, attempts")) {
+                    return Promise.resolve({
+                        resultSets: [
+                            {
+                                rows: [makeStoredJobRow("delivery-1:job", job)],
+                            },
+                        ],
+                    });
+                }
+                if (yql.includes('SET status = Utf8("running")')) {
+                    return Promise.resolve({
+                        resultSets: [
+                            {
+                                rows: [],
+                            },
+                        ],
+                    });
+                }
+                return Promise.resolve({ resultSets: [] });
+            }),
+        });
+        useSession(withSessionMock, session);
+        const queue = new stateStore.YdbIndexingQueue(processJob, {
+            retryBackoffMs: 0,
+        });
+
+        queue.start();
+        await flushAsync();
+        await flushAsync();
+
+        expect(processJob).not.toHaveBeenCalled();
     });
 
     it("processes durable jobs for different repositories concurrently", async () => {
@@ -1255,6 +1325,11 @@ describe("code-indexer durable state store", () => {
             expect(
                 session.executeQuery.mock.calls.some(([yql]: [string]) =>
                     yql.includes("DELETE FROM qdrant_code_indexer_deliveries")
+                )
+            ).toBe(true);
+            expect(
+                session.executeQuery.mock.calls.some(([yql]: [string]) =>
+                    yql.includes("DELETE FROM qdrant_code_indexer_job_progress")
                 )
             ).toBe(true);
         });

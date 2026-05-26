@@ -406,6 +406,71 @@ describe("code-indexer webhook handler", () => {
         });
     });
 
+    it("uses atomic delivery reservation when the store supports it", async () => {
+        const body = Buffer.from(
+            JSON.stringify({
+                after: "b".repeat(40),
+                before: "a".repeat(40),
+                installation: { id: 7 },
+                ref: "refs/heads/main",
+                repository: repositoryPayload(),
+            })
+        );
+        const enqueue = vi.fn(() =>
+            Promise.resolve({
+                jobId: "job-1",
+                phase: "queued" as const,
+                status: "pending" as const,
+            })
+        );
+        const queue: IndexingQueue = {
+            enqueue,
+        };
+        const has = vi.fn(() => Promise.resolve(false));
+        const mark = vi.fn(() => Promise.resolve());
+        const reserve = vi.fn(() => Promise.resolve(false));
+        const deliveryStore: DeliveryStore = {
+            has,
+            mark,
+            reserve,
+        };
+        const handler = createWebhookHandler({
+            deliveryStore,
+            queue,
+            webhookSecret: "secret",
+        });
+        const req = {
+            body,
+            header(name: string): string | undefined {
+                const headers: Record<string, string> = {
+                    "X-GitHub-Delivery": "delivery-1",
+                    "X-GitHub-Event": "push",
+                    "X-Hub-Signature-256": createWebhookSignature(
+                        "secret",
+                        body
+                    ),
+                };
+                return headers[name];
+            },
+        } as unknown as Request;
+        const json = vi.fn();
+        const res = {
+            json,
+            status: vi.fn(() => res),
+        } as unknown as Response;
+
+        await handler(req, res);
+
+        expect(reserve).toHaveBeenCalledWith("delivery-1");
+        expect(has).not.toHaveBeenCalled();
+        expect(mark).not.toHaveBeenCalled();
+        expect(enqueue).not.toHaveBeenCalled();
+        expect(json).toHaveBeenCalledWith({
+            enqueued: 0,
+            status: "duplicate",
+        });
+    });
+
     it("records lifecycle status before enqueueing uninstall jobs", async () => {
         const body = Buffer.from(
             JSON.stringify({

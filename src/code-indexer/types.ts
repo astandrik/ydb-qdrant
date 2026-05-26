@@ -67,6 +67,7 @@ export type CodeSearchResult = {
 
 export type RepoManifestFile = {
     blobSha: string;
+    chunkCount?: number;
     path: string;
 };
 
@@ -340,6 +341,7 @@ export interface IndexingQueue {
 export interface DeliveryStore {
     has(deliveryId: string): Promise<boolean>;
     mark(deliveryId: string): Promise<void>;
+    reserve?(deliveryId: string): Promise<boolean>;
 }
 
 export interface RepoManifestStore {
@@ -348,5 +350,9 @@ export interface RepoManifestStore {
         collection: string;
         userUid: string;
     }): Promise<RepoIndexManifest | null>;
+    listCollectionsByPrefix(params: {
+        collectionPrefix: string;
+        userUid: string;
+    }): Promise<string[]>;
     save(manifest: RepoIndexManifest): Promise<void>;
 }

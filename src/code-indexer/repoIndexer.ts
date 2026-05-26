@@ -4,6 +4,7 @@ import {
     isAllZeroSha,
     pathSegmentsForPath,
     pullRequestCollectionForRepo,
+    repoCollectionPrefixForRepo,
     userUidForInstallation,
 } from "./naming.js";
 import {
@@ -64,6 +65,7 @@ export type RepoIndexerQuotaStore = {
 };
 
 const DEFAULT_MAX_CHANGED_FILES = 300;
+const GITHUB_COMPARE_FILES_CAP = 300;
 const DEFAULT_FILE_CONCURRENCY = 4;
 const DEFAULT_EMBEDDING_BATCH_SIZE = 64;
 const DEFAULT_EMBEDDING_BATCH_MAX_CHARS = 200_000;
@@ -200,14 +202,7 @@ export class RepoIndexer {
                 return;
             case "delete-repo-index":
                 await this.reportProgress(context, { phase: "deleting" });
-                await this.store.deleteCollection({
-                    collection: defaultBranchCollectionForRepo(job.repository.repoId),
-                    userUid: userUidForInstallation(job.installationId),
-                });
-                await this.manifestStore.delete({
-                    collection: defaultBranchCollectionForRepo(job.repository.repoId),
-                    userUid: userUidForInstallation(job.installationId),
-                });
+                await this.deleteRepoCollections(job);
                 await this.markDeleted(job);
                 return;
             case "pr-index":
@@ -323,10 +318,11 @@ export class RepoIndexer {
         );
         const indexingFingerprint = this.indexingFingerprint(chunkingOptions);
 
+        const contentRef = `refs/pull/${job.prNumber}/head`;
         const indexed = await this.indexRepositoryRef({
             client,
             collection,
-            contentRepository: job.sourceRepository,
+            contentRepository: job.repository,
             context,
             chunkingOptions,
             installationId: job.installationId,
@@ -339,7 +335,7 @@ export class RepoIndexer {
             },
             repository: job.repository,
             sha: job.headSha,
-            ref: job.headSha,
+            ref: contentRef,
             userUid,
         });
         await this.reportProgress(context, { phase: "saving_manifest" });
@@ -419,7 +415,10 @@ export class RepoIndexer {
             currentManifest.files.map((file) => [file.path, file])
         );
 
-        if (changedFiles.length > this.maxChangedFilesForIncremental) {
+        if (
+            changedFiles.length > this.maxChangedFilesForIncremental ||
+            changedFiles.length >= GITHUB_COMPARE_FILES_CAP
+        ) {
             await this.reportProgress(context, {
                 message: "Falling back to full index: too-many-changed-files",
             });
@@ -481,17 +480,30 @@ export class RepoIndexer {
             dimension: this.embeddingProvider.dimension,
             userUid,
         });
+        let currentChunkCount = await this.currentManifestChunkCount({
+            collection,
+            manifest: currentManifest,
+            userUid,
+        });
         for (const changedFile of changedFiles) {
             if (changedFile.previousFilename) {
+                currentChunkCount = this.subtractManifestChunkCount({
+                    currentChunkCount,
+                    file: filesByPath.get(changedFile.previousFilename),
+                });
                 filesByPath.delete(changedFile.previousFilename);
             }
+            currentChunkCount = this.subtractManifestChunkCount({
+                currentChunkCount,
+                file: filesByPath.get(changedFile.filename),
+            });
             filesByPath.delete(changedFile.filename);
             const manifestFile = await this.applyChangedFile({
                 changedFile,
                 client,
                 collection,
                 context,
-                currentChunkCount: 0,
+                currentChunkCount,
                 ref: job.after,
                 installationId: job.installationId,
                 repository: job.repository,
@@ -501,6 +513,7 @@ export class RepoIndexer {
             });
             if (manifestFile) {
                 filesByPath.set(manifestFile.file.path, manifestFile.file);
+                currentChunkCount += manifestFile.chunkCount;
             }
         }
         await this.manifestStore.save({
@@ -927,9 +940,65 @@ export class RepoIndexer {
             chunks: indexedChunks,
             file: {
                 blobSha,
+                chunkCount: chunks.length,
                 path: params.path,
             },
         };
+    }
+
+    private async deleteRepoCollections(
+        job: Extract<IndexingJob, { kind: "delete-repo-index" }>
+    ): Promise<void> {
+        const userUid = userUidForInstallation(job.installationId);
+        const collectionPrefix = repoCollectionPrefixForRepo(job.repository.repoId);
+        const collections = await this.manifestStore.listCollectionsByPrefix({
+            collectionPrefix,
+            userUid,
+        });
+        const uniqueCollections = [
+            ...new Set([
+                defaultBranchCollectionForRepo(job.repository.repoId),
+                ...collections,
+            ]),
+        ].sort();
+        for (const collection of uniqueCollections) {
+            await this.store.deleteCollection({ collection, userUid });
+            await this.manifestStore.delete({ collection, userUid });
+        }
+    }
+
+    private async currentManifestChunkCount(params: {
+        collection: string;
+        manifest: { files: RepoManifestFile[] };
+        userUid: string;
+    }): Promise<number> {
+        if (
+            params.manifest.files.every(
+                (file) => file.chunkCount !== undefined
+            )
+        ) {
+            return params.manifest.files.reduce(
+                (sum, file) => sum + (file.chunkCount ?? 0),
+                0
+            );
+        }
+        return await this.store.countCollection({
+            collection: params.collection,
+            userUid: params.userUid,
+        });
+    }
+
+    private subtractManifestChunkCount(params: {
+        currentChunkCount: number;
+        file: RepoManifestFile | undefined;
+    }): number {
+        if (!params.file) {
+            return params.currentChunkCount;
+        }
+        return Math.max(
+            0,
+            params.currentChunkCount - (params.file.chunkCount ?? 0)
+        );
     }
 
     private async embedAndUpsertChunks(params: {

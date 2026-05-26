@@ -51,6 +51,7 @@ export type YdbIndexingQueueOptions = {
     progressStore?: IndexingProgressStore;
     retentionDays?: number;
     retryBackoffMs?: number;
+    runningJobTimeoutMs?: number;
 };
 
 type QueryRow = {
@@ -176,6 +177,14 @@ function optionalUint32(value: number | null): Ydb.ITypedValue {
 
 function readFirstRow(result: ExecuteQueryResultLike): QueryRow | null {
     return result.resultSets?.[0]?.rows?.[0] ?? null;
+}
+
+function readLastRow(result: ExecuteQueryResultLike): QueryRow | null {
+    const resultSets = result.resultSets;
+    if (!resultSets || resultSets.length === 0) {
+        return null;
+    }
+    return resultSets[resultSets.length - 1]?.rows?.[0] ?? null;
 }
 
 function readRows(result: ExecuteQueryResultLike): QueryRow[] {
@@ -534,10 +543,33 @@ function manifestIdFor(params: { collection: string; userUid: string }): string 
     return `${params.userUid}/${params.collection}`;
 }
 
+function manifestPrefixFor(params: {
+    collectionPrefix: string;
+    userUid: string;
+}): string {
+    return `${params.userUid}/${params.collectionPrefix}`;
+}
+
+function stringPrefixUpperBound(prefix: string): string {
+    if (prefix.length === 0) {
+        return "\u{10ffff}";
+    }
+    const chars = [...prefix];
+    const last = chars.pop();
+    if (!last) {
+        return "\u{10ffff}";
+    }
+    return `${chars.join("")}${String.fromCodePoint(last.codePointAt(0)! + 1)}`;
+}
+
 function isManifestFile(value: unknown): boolean {
     return (
         isRecord(value) &&
         typeof value.blobSha === "string" &&
+        (value.chunkCount === undefined ||
+            (typeof value.chunkCount === "number" &&
+                Number.isSafeInteger(value.chunkCount) &&
+                value.chunkCount >= 0)) &&
         typeof value.path === "string"
     );
 }
@@ -592,13 +624,37 @@ async function ensureDeliveryTable(): Promise<void> {
 
 async function ensureJobsTable(): Promise<void> {
     await withSession(async (session) => {
+        let tableDescription: Awaited<
+            ReturnType<typeof session.describeTable>
+        > | null = null;
         try {
-            await session.describeTable(CODE_INDEXER_JOBS_TABLE);
-            return;
+            tableDescription = await session.describeTable(CODE_INDEXER_JOBS_TABLE);
         } catch (err: unknown) {
             if (!isTableNotFoundError(err)) {
                 throw err;
             }
+        }
+        if (tableDescription) {
+            const hasClaimId = tableDescription.columns?.some(
+                (column) => column.name === "claim_id"
+            );
+            if (!hasClaimId) {
+                const alter = new AlterTableDescription();
+                alter.addColumns = [
+                    new Column("claim_id", Types.optional(Types.UTF8)),
+                ];
+                try {
+                    await session.alterTable(CODE_INDEXER_JOBS_TABLE, alter);
+                    logger.info(
+                        `added claim_id column to code-indexer jobs table ${CODE_INDEXER_JOBS_TABLE}`
+                    );
+                } catch (err: unknown) {
+                    if (!isAlreadyExistsError(err)) {
+                        throw err;
+                    }
+                }
+            }
+            return;
         }
 
         const desc = new TableDescription()
@@ -609,6 +665,7 @@ async function ensureJobsTable(): Promise<void> {
                 new Column("payload", Types.JSON_DOCUMENT),
                 new Column("created_at", Types.TIMESTAMP),
                 new Column("updated_at", Types.TIMESTAMP),
+                new Column("claim_id", Types.optional(Types.UTF8)),
                 new Column("last_error", Types.optional(Types.UTF8))
             )
             .withPrimaryKeys("job_id");
@@ -1171,6 +1228,36 @@ export class YdbDeliveryStore implements DeliveryStore {
             );
         });
     }
+
+    async reserve(deliveryId: string): Promise<boolean> {
+        await ensureCodeIndexerStateTables();
+        const yql = `
+            DECLARE $delivery_id AS Utf8;
+
+            $existing = (
+                SELECT delivery_id
+                FROM ${CODE_INDEXER_DELIVERIES_TABLE}
+                WHERE delivery_id = $delivery_id
+            );
+
+            UPSERT INTO ${CODE_INDEXER_DELIVERIES_TABLE}
+                (delivery_id, received_at)
+            SELECT $delivery_id AS delivery_id, CurrentUtcTimestamp() AS received_at
+            WHERE NOT EXISTS (SELECT * FROM $existing);
+
+            SELECT COUNT(*) AS existing_count FROM $existing;
+        `;
+        const result = await withSession(async (session) => {
+            return (await session.executeQuery(
+                yql,
+                { $delivery_id: TypedValues.utf8(deliveryId) },
+                undefined,
+                createExecuteQuerySettings()
+            )) as ExecuteQueryResultLike;
+        });
+        const existingCount = readUint(readLastRow(result) ?? {}, 0) ?? 0;
+        return existingCount === 0;
+    }
 }
 
 export class YdbRepoManifestStore implements RepoManifestStore {
@@ -1220,6 +1307,41 @@ export class YdbRepoManifestStore implements RepoManifestStore {
             : null;
     }
 
+    async listCollectionsByPrefix(params: {
+        collectionPrefix: string;
+        userUid: string;
+    }): Promise<string[]> {
+        await ensureCodeIndexerStateTables();
+        const manifestPrefix = manifestPrefixFor(params);
+        const manifestPrefixEnd = stringPrefixUpperBound(manifestPrefix);
+        const yql = `
+            DECLARE $manifest_prefix AS Utf8;
+            DECLARE $manifest_prefix_end AS Utf8;
+
+            SELECT manifest_id
+            FROM ${CODE_INDEXER_MANIFESTS_TABLE}
+            WHERE manifest_id >= $manifest_prefix
+                AND manifest_id < $manifest_prefix_end
+            ORDER BY manifest_id;
+        `;
+        const result = await withSession(async (session) => {
+            return (await session.executeQuery(
+                yql,
+                {
+                    $manifest_prefix: TypedValues.utf8(manifestPrefix),
+                    $manifest_prefix_end: TypedValues.utf8(manifestPrefixEnd),
+                },
+                undefined,
+                createExecuteQuerySettings()
+            )) as ExecuteQueryResultLike;
+        });
+        const userPrefix = `${params.userUid}/`;
+        return readRows(result)
+            .map((row) => readText(row, 0))
+            .filter((value): value is string => value !== undefined)
+            .map((manifestId) => manifestId.slice(userPrefix.length));
+    }
+
     async save(manifest: RepoIndexManifest): Promise<void> {
         await ensureCodeIndexerStateTables();
         const yql = `
@@ -1262,6 +1384,7 @@ export class YdbIndexingQueue implements IndexingQueue {
     ) => Promise<void>;
     private readonly retentionMs: number;
     private readonly retryBackoffMs: number;
+    private readonly runningJobTimeoutMs: number;
     private readonly runningRepoKeys = new Set<string>();
 
     constructor(
@@ -1283,6 +1406,10 @@ export class YdbIndexingQueue implements IndexingQueue {
         this.retryBackoffMs = Math.max(
             0,
             Math.floor(options.retryBackoffMs ?? 30_000)
+        );
+        this.runningJobTimeoutMs = Math.max(
+            1_000,
+            Math.floor(options.runningJobTimeoutMs ?? 21_600_000)
         );
     }
 
@@ -1490,7 +1617,11 @@ export class YdbIndexingQueue implements IndexingQueue {
             if (!storedJob) {
                 return null;
             }
-            await this.markJobRunning(storedJob.jobId);
+            const claimId = randomUUID();
+            const claimed = await this.markJobRunning(storedJob.jobId, claimId);
+            if (!claimed) {
+                return null;
+            }
             this.runningRepoKeys.add(repoLockKeyForJob(storedJob.job));
             return storedJob;
         });
@@ -1533,24 +1664,42 @@ export class YdbIndexingQueue implements IndexingQueue {
         });
     }
 
-    private async markJobRunning(jobId: string): Promise<void> {
+    private async markJobRunning(jobId: string, claimId: string): Promise<boolean> {
         const yql = `
             DECLARE $job_id AS Utf8;
+            DECLARE $claim_id AS Utf8;
 
             UPDATE ${CODE_INDEXER_JOBS_TABLE}
             SET status = Utf8("running"),
                 attempts = attempts + 1u,
+                claim_id = $claim_id,
                 updated_at = CurrentUtcTimestamp()
             WHERE job_id = $job_id AND status = Utf8("pending");
+
+            SELECT job_id
+            FROM ${CODE_INDEXER_JOBS_TABLE}
+            WHERE job_id = $job_id
+                AND status = Utf8("running")
+                AND claim_id = $claim_id
+            LIMIT 1;
         `;
-        await withSession(async (session) => {
-            await session.executeQuery(
+        const result = await withSession(async (session) => {
+            return (await session.executeQuery(
                 yql,
-                { $job_id: TypedValues.utf8(jobId) },
+                {
+                    $claim_id: TypedValues.utf8(claimId),
+                    $job_id: TypedValues.utf8(jobId),
+                },
                 undefined,
                 createExecuteQuerySettings()
-            );
+            )) as ExecuteQueryResultLike;
         });
+        const resultSets = result.resultSets;
+        if (!resultSets || resultSets.length === 0) {
+            return true;
+        }
+        const verificationRows = resultSets[resultSets.length - 1]?.rows;
+        return verificationRows === undefined || verificationRows.length > 0;
     }
 
     private async withClaimLock<T>(fn: () => Promise<T>): Promise<T> {
@@ -1574,6 +1723,7 @@ export class YdbIndexingQueue implements IndexingQueue {
             UPDATE ${CODE_INDEXER_JOBS_TABLE}
             SET status = Utf8("completed"),
                 updated_at = CurrentUtcTimestamp(),
+                claim_id = CAST(NULL AS Utf8?),
                 last_error = CAST(NULL AS Utf8?)
             WHERE job_id = $job_id;
         `;
@@ -1595,6 +1745,7 @@ export class YdbIndexingQueue implements IndexingQueue {
             UPDATE ${CODE_INDEXER_JOBS_TABLE}
             SET status = Utf8("failed"),
                 updated_at = CurrentUtcTimestamp(),
+                claim_id = CAST(NULL AS Utf8?),
                 last_error = $last_error
             WHERE job_id = $job_id;
         `;
@@ -1623,6 +1774,7 @@ export class YdbIndexingQueue implements IndexingQueue {
             UPDATE ${CODE_INDEXER_JOBS_TABLE}
             SET status = Utf8("pending"),
                 updated_at = CurrentUtcTimestamp(),
+                claim_id = CAST(NULL AS Utf8?),
                 last_error = $last_error
             WHERE job_id = $job_id;
         `;
@@ -1641,16 +1793,23 @@ export class YdbIndexingQueue implements IndexingQueue {
     }
 
     private async resetRunningJobs(): Promise<void> {
+        const staleCutoff = new Date(
+            this.now().getTime() - this.runningJobTimeoutMs
+        );
         const yql = `
+            DECLARE $stale_cutoff AS Timestamp;
+
             UPDATE ${CODE_INDEXER_JOBS_TABLE}
             SET status = Utf8("pending"),
-                updated_at = CurrentUtcTimestamp()
-            WHERE status = Utf8("running");
+                updated_at = CurrentUtcTimestamp(),
+                claim_id = CAST(NULL AS Utf8?)
+            WHERE status = Utf8("running")
+                AND updated_at < $stale_cutoff;
         `;
         await withSession(async (session) => {
             await session.executeQuery(
                 yql,
-                {},
+                { $stale_cutoff: TypedValues.timestamp(staleCutoff) },
                 undefined,
                 createExecuteQuerySettings()
             );
@@ -1672,6 +1831,13 @@ export class YdbIndexingQueue implements IndexingQueue {
             DELETE FROM ${CODE_INDEXER_DELIVERIES_TABLE}
             WHERE received_at < $cutoff;
         `;
+        const deleteProgressYql = `
+            DECLARE $cutoff AS Timestamp;
+
+            DELETE FROM ${CODE_INDEXER_JOB_PROGRESS_TABLE}
+            WHERE updated_at < $cutoff
+                AND (status = Utf8("completed") OR status = Utf8("failed"));
+        `;
         await withSession(async (session) => {
             const params = { $cutoff: TypedValues.timestamp(cutoff) };
             const settings = createExecuteQuerySettings();
@@ -1683,6 +1849,12 @@ export class YdbIndexingQueue implements IndexingQueue {
             );
             await session.executeQuery(
                 deleteDeliveriesYql,
+                params,
+                undefined,
+                settings
+            );
+            await session.executeQuery(
+                deleteProgressYql,
                 params,
                 undefined,
                 settings

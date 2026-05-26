@@ -45,6 +45,12 @@ function accessError(
     return new CodeIndexerAccessError({ code, message, statusCode });
 }
 
+function isActiveInstallation(
+    installation: CodeIndexerInstallationRecord
+): boolean {
+    return installation.status === "active";
+}
+
 export async function resolveDashboardSession(params: {
     cookieHeader?: string;
     store: CodeIndexerAccessStore;
@@ -80,7 +86,9 @@ export async function requireInstallationAccess(params: {
         params.context.user.githubUserId
     );
     const installation = installations.find(
-        (candidate) => candidate.installationId === installationId
+        (candidate) =>
+            candidate.installationId === installationId &&
+            isActiveInstallation(candidate)
     );
     if (!installation) {
         throw accessError(
@@ -109,7 +117,9 @@ export async function requireRepositoryAccess(params: {
         params.context.user.githubUserId
     );
     const hasAccess = installations.some(
-        (installation) => installation.installationId === repository.installationId
+        (installation) =>
+            installation.installationId === repository.installationId &&
+            isActiveInstallation(installation)
     );
     if (!hasAccess) {
         throw accessError(
