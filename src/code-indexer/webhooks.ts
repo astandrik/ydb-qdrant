@@ -18,7 +18,11 @@ type WebhookDependencies = {
 
 export type WebhookLifecycleStore = {
     markRepositoryStatus(params: {
+        defaultBranch?: string;
+        installationId?: number | string;
         lastError?: string;
+        owner?: string;
+        repo?: string;
         repoId: number | string;
         status: "queued" | "indexing" | "ready" | "failed" | "deleted";
     }): Promise<void>;
@@ -564,6 +568,10 @@ async function recordJobQueuedOrDeleted(
     }
     if (job.kind === "full-index" || job.kind === "incremental-push") {
         await store.markRepositoryStatus({
+            defaultBranch: job.repository.defaultBranch,
+            installationId: job.installationId,
+            owner: job.repository.owner,
+            repo: job.repository.repo,
             repoId: job.repository.repoId,
             status: "queued",
         });

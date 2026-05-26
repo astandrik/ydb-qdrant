@@ -61,6 +61,7 @@ vi.mock("../../src/ydb/client.js", () => {
         },
         createExecuteQuerySettings: vi.fn(() => ({ settings: true })),
         withSession: vi.fn(),
+        withSessionOnce: vi.fn(),
     };
 });
 
@@ -194,13 +195,19 @@ async function importStateStore() {
     const client = await import("../../src/ydb/client.js");
     const stateStore = await import("../../src/code-indexer/stateStore.js");
     const withSessionMock = client.withSession as unknown as Mock;
-    return { stateStore, withSessionMock };
+    const withSessionOnceMock = client.withSessionOnce as unknown as Mock;
+    return { stateStore, withSessionMock, withSessionOnceMock };
 }
 
-function useSession(withSessionMock: Mock, session: FakeSession): void {
-    withSessionMock.mockImplementation((fn: (s: FakeSession) => Promise<unknown>) =>
-        fn(session)
-    );
+function useSession(
+    withSessionMock: Mock,
+    session: FakeSession,
+    withSessionOnceMock?: Mock
+): void {
+    const implementation = (fn: (s: FakeSession) => Promise<unknown>) =>
+        fn(session);
+    withSessionMock.mockImplementation(implementation);
+    withSessionOnceMock?.mockImplementation(implementation);
 }
 
 async function flushAsync(): Promise<void> {
@@ -307,7 +314,8 @@ describe("code-indexer durable state store", () => {
     });
 
     it("atomically reserves webhook deliveries in YDB", async () => {
-        const { stateStore, withSessionMock } = await importStateStore();
+        const { stateStore, withSessionMock, withSessionOnceMock } =
+            await importStateStore();
         const session = makeSession({
             executeQuery: vi.fn(() =>
                 Promise.resolve({
@@ -323,11 +331,12 @@ describe("code-indexer durable state store", () => {
                 })
             ),
         });
-        useSession(withSessionMock, session);
+        useSession(withSessionMock, session, withSessionOnceMock);
         const deliveryStore = new stateStore.YdbDeliveryStore();
 
         await expect(deliveryStore.reserve("delivery-1")).resolves.toBe(true);
 
+        expect(withSessionOnceMock).toHaveBeenCalled();
         expect(session.executeQuery).toHaveBeenCalledWith(
             expect.stringContaining("WHERE NOT EXISTS"),
             { $delivery_id: { type: "Utf8", value: "delivery-1" } },
@@ -1426,5 +1435,39 @@ describe("code-indexer durable state store", () => {
         expect(params?.$cutoff?.value).toEqual(
             new Date("2026-05-17T00:00:00.000Z")
         );
+    });
+
+    it("continues state retention cleanup after startup", async () => {
+        vi.useFakeTimers();
+        const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+        try {
+            const { stateStore, withSessionMock } = await importStateStore();
+            const session = makeSession({
+                executeQuery: vi.fn((yql: string) => {
+                    if (yql.includes("SELECT job_id, payload, attempts")) {
+                        return Promise.resolve({ resultSets: [{ rows: [] }] });
+                    }
+                    return Promise.resolve({ resultSets: [] });
+                }),
+            });
+            useSession(withSessionMock, session);
+            const now = new Date("2026-05-24T00:00:00.000Z");
+            const queue = new stateStore.YdbIndexingQueue(vi.fn(), {
+                now: () => now,
+                retentionCleanupIntervalMs: 60_000,
+                retentionDays: 7,
+                retryBackoffMs: 0,
+            });
+
+            queue.start();
+
+            expect(setIntervalSpy).toHaveBeenCalledWith(
+                expect.any(Function),
+                60_000
+            );
+        } finally {
+            setIntervalSpy.mockRestore();
+            vi.useRealTimers();
+        }
     });
 });

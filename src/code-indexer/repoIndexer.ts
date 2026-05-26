@@ -50,9 +50,13 @@ export type RepoIndexerOptions = ChunkingOptions & {
 export type RepoIndexerStatusStore = {
     markRepositoryStatus(params: {
         chunkCount?: number;
+        defaultBranch?: string;
+        installationId?: number | string;
         lastError?: string;
         lastIndexedAt?: Date;
         lastIndexedSha?: string;
+        owner?: string;
+        repo?: string;
         repoId: number | string;
         status: "queued" | "indexing" | "ready" | "failed" | "deleted";
     }): Promise<void>;
@@ -235,7 +239,11 @@ export class RepoIndexer {
             return;
         }
         await this.statusStore.markRepositoryStatus({
+            defaultBranch: job.repository.defaultBranch,
+            installationId: job.installationId,
             lastError: sanitizeError(err),
+            owner: job.repository.owner,
+            repo: job.repository.repo,
             repoId: job.repository.repoId,
             status: "failed",
         });
@@ -1059,6 +1067,10 @@ export class RepoIndexer {
         job: Extract<IndexingJob, { kind: "delete-repo-index" }>
     ): Promise<void> {
         await this.statusStore?.markRepositoryStatus({
+            defaultBranch: job.repository.defaultBranch,
+            installationId: job.installationId,
+            owner: job.repository.owner,
+            repo: job.repository.repo,
             repoId: job.repository.repoId,
             status: "deleted",
         });
@@ -1082,6 +1094,10 @@ export class RepoIndexer {
             return;
         }
         await this.statusStore?.markRepositoryStatus({
+            defaultBranch: job.repository.defaultBranch,
+            installationId: job.installationId,
+            owner: job.repository.owner,
+            repo: job.repository.repo,
             repoId: job.repository.repoId,
             status: "indexing",
         });
@@ -1098,8 +1114,12 @@ export class RepoIndexer {
             ...(result.chunkCount === undefined
                 ? {}
                 : { chunkCount: result.chunkCount }),
+            defaultBranch: job.repository.defaultBranch,
+            installationId: job.installationId,
             lastIndexedAt: new Date(),
             lastIndexedSha: result.lastIndexedSha,
+            owner: job.repository.owner,
+            repo: job.repository.repo,
             repoId: job.repository.repoId,
             status: "ready",
         });

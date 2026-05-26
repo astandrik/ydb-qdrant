@@ -722,6 +722,10 @@ describe("code-indexer webhook handler", () => {
         await handler(req, res);
 
         expect(lifecycleStore.markRepositoryStatus).toHaveBeenCalledWith({
+            defaultBranch: "main",
+            installationId: 7,
+            owner: "octo",
+            repo: "demo",
             repoId: 42,
             status: "queued",
         });
@@ -792,6 +796,10 @@ describe("code-indexer webhook handler", () => {
             })
         );
         expect(lifecycleStore.markRepositoryStatus).toHaveBeenCalledWith({
+            defaultBranch: "main",
+            installationId: 7,
+            owner: "octo",
+            repo: "demo",
             repoId: 42,
             status: "queued",
         });

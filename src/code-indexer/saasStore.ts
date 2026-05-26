@@ -1137,13 +1137,34 @@ export class YdbCodeIndexerSaasStore {
 
     async markRepositoryStatus(params: {
         chunkCount?: number;
+        defaultBranch?: string;
+        installationId?: number | string;
         lastError?: string;
         lastIndexedAt?: Date;
         lastIndexedSha?: string;
+        owner?: string;
+        repo?: string;
         repoId: number | string;
         status: CodeIndexerRepositoryStatus;
     }): Promise<void> {
         await ensureCodeIndexerSaasTables();
+        const repoId = normalizeId(params.repoId);
+        if (
+            params.defaultBranch !== undefined &&
+            params.installationId !== undefined &&
+            params.owner !== undefined &&
+            params.repo !== undefined &&
+            (await this.getRepository(repoId)) === null
+        ) {
+            await this.upsertRepository({
+                defaultBranch: params.defaultBranch,
+                installationId: normalizeId(params.installationId),
+                owner: params.owner,
+                repo: params.repo,
+                repoId,
+                status: params.status,
+            });
+        }
         const assignments = [
             "status = $status",
             ...(params.lastIndexedSha === undefined
@@ -1191,7 +1212,7 @@ export class YdbCodeIndexerSaasStore {
                         ),
                     $last_indexed_sha:
                         optionalUtf8(params.lastIndexedSha),
-                    $repo_id: TypedValues.utf8(normalizeId(params.repoId)),
+                    $repo_id: TypedValues.utf8(repoId),
                     $status: TypedValues.utf8(params.status),
                 },
                 undefined,

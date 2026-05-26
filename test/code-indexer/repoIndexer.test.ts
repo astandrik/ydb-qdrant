@@ -479,6 +479,10 @@ describe("code-indexer repo indexer", () => {
         });
 
         expect(statusStore.statusUpdates[0]).toEqual({
+            defaultBranch: "main",
+            installationId: 7,
+            owner: "octo",
+            repo: "demo",
             repoId: 42,
             status: "indexing",
         });
@@ -486,7 +490,11 @@ describe("code-indexer repo indexer", () => {
         const readyStatus = statusStore.statusUpdates[1];
         expect(readyStatus).toMatchObject({
             chunkCount: 2,
+            defaultBranch: "main",
+            installationId: 7,
             lastIndexedSha: "commit-1",
+            owner: "octo",
+            repo: "demo",
             repoId: 42,
             status: "ready",
         });
@@ -1245,6 +1253,10 @@ describe("code-indexer repo indexer", () => {
             },
         ]);
         expect(statusStore.statusUpdates).toContainEqual({
+            defaultBranch: "main",
+            installationId: 7,
+            owner: "octo",
+            repo: "demo",
             repoId: 42,
             status: "deleted",
         });
@@ -1275,7 +1287,11 @@ describe("code-indexer repo indexer", () => {
 
         expect(statusStore.statusUpdates).toEqual([
             {
+                defaultBranch: "main",
+                installationId: 7,
                 lastError: "boom with unsafe whitespace",
+                owner: "octo",
+                repo: "demo",
                 repoId: 42,
                 status: "failed",
             },

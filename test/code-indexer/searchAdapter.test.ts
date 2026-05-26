@@ -83,6 +83,28 @@ describe("code-indexer search adapter", () => {
                 top: 0,
             })
         ).toThrow("top must be greater than 0");
+        expect(() =>
+            parseCodeSearchRequest({
+                installationId: -7,
+                query: "x",
+                repoId: 42,
+            })
+        ).toThrow("installationId, repoId, and query are required");
+        expect(() =>
+            parseCodeSearchRequest({
+                installationId: 7,
+                query: "x",
+                repoId: 42.5,
+            })
+        ).toThrow("installationId, repoId, and query are required");
+        expect(() =>
+            parseCodeSearchRequest({
+                installationId: 7,
+                prNumber: -3,
+                query: "x",
+                repoId: 42,
+            })
+        ).toThrow("prNumber must be a positive integer");
     });
 
     it("embeds the query and searches the resolved collection", async () => {

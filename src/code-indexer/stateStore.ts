@@ -10,6 +10,7 @@ import {
     TypedValues,
     Types,
     withSession,
+    withSessionOnce,
 } from "../ydb/client.js";
 import { logger } from "../logging/logger.js";
 import type {
@@ -49,6 +50,7 @@ export type YdbIndexingQueueOptions = {
     now?: () => Date;
     onFinalFailure?: (job: IndexingJob, err: unknown) => Promise<void>;
     progressStore?: IndexingProgressStore;
+    retentionCleanupIntervalMs?: number;
     retentionDays?: number;
     retryBackoffMs?: number;
     runningJobTimeoutMs?: number;
@@ -1275,12 +1277,12 @@ export class YdbDeliveryStore implements DeliveryStore {
 
             SELECT COUNT(*) AS existing_count FROM $existing;
         `;
-        const result = await withSession(async (session) => {
+        const result = await withSessionOnce(async (session) => {
             return (await session.executeQuery(
                 yql,
                 { $delivery_id: TypedValues.utf8(deliveryId) },
                 undefined,
-                createExecuteQuerySettings()
+                createExecuteQuerySettings({ idempotent: false })
             )) as ExecuteQueryResultLike;
         });
         const existingCount = readUint(readLastRow(result) ?? {}, 0) ?? 0;
@@ -1405,12 +1407,14 @@ export class YdbIndexingQueue implements IndexingQueue {
     private readonly now: () => Date;
     private readonly onFinalFailure?: (job: IndexingJob, err: unknown) => Promise<void>;
     private readonly progressStore: IndexingProgressStore;
+    private retentionCleanupTimer: ReturnType<typeof setInterval> | null = null;
     private started = false;
     private readonly processJob: (
         job: IndexingJob,
         context: IndexingJobExecutionContext
     ) => Promise<void>;
     private readonly retentionMs: number;
+    private readonly retentionCleanupIntervalMs: number;
     private readonly retryBackoffMs: number;
     private readonly runningJobTimeoutMs: number;
     private readonly runningRepoKeys = new Set<string>();
@@ -1431,6 +1435,10 @@ export class YdbIndexingQueue implements IndexingQueue {
             options.progressStore ?? new YdbIndexingProgressStore();
         this.retentionMs =
             Math.max(1, Math.floor(options.retentionDays ?? 14)) * 86_400_000;
+        this.retentionCleanupIntervalMs = Math.max(
+            60_000,
+            Math.floor(options.retentionCleanupIntervalMs ?? 3_600_000)
+        );
         this.retryBackoffMs = Math.max(
             0,
             Math.floor(options.retryBackoffMs ?? 30_000)
@@ -1490,7 +1498,23 @@ export class YdbIndexingQueue implements IndexingQueue {
             return;
         }
         this.started = true;
+        this.scheduleRetentionCleanup();
         void this.resetRunningJobsAndDrain();
+    }
+
+    private scheduleRetentionCleanup(): void {
+        if (this.retentionCleanupTimer) {
+            return;
+        }
+        this.retentionCleanupTimer = setInterval(() => {
+            void this.cleanupExpiredState().catch((err: unknown) => {
+                logger.warn(
+                    { err },
+                    "code-indexer: scheduled state retention cleanup failed"
+                );
+            });
+        }, this.retentionCleanupIntervalMs);
+        this.retentionCleanupTimer.unref?.();
     }
 
     private async resetRunningJobsAndDrain(): Promise<void> {

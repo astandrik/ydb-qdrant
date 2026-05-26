@@ -562,6 +562,46 @@ describe("code-indexer SaaS store", () => {
         expect(yql).toContain("last_error = CAST(NULL AS Utf8?)");
     });
 
+    it("creates missing repository rows when marking status with metadata", async () => {
+        const { saasStore, withSessionMock } = await importSaasStore();
+        const session = readyStore({ withSessionMock });
+        const store = new saasStore.YdbCodeIndexerSaasStore({
+            encryptionSecret: "encryption-secret",
+            tokenPepper: "pepper",
+        });
+        await saasStore.ensureCodeIndexerSaasTables();
+        session.executeQuery.mockClear();
+
+        await store.markRepositoryStatus({
+            defaultBranch: "main",
+            installationId: 700,
+            owner: "octo",
+            repo: "demo",
+            repoId: "42",
+            status: "queued",
+        });
+
+        const upsertCall = session.executeQuery.mock.calls.find(
+            ([yql]: [string]) =>
+                yql.includes(
+                    `UPSERT INTO ${saasStore.CODE_INDEXER_REPOSITORIES_TABLE}`
+                )
+        );
+        expect(upsertCall?.[1]).toMatchObject({
+            $default_branch: { value: { textValue: "main" } },
+            $installation_id: { value: { textValue: "700" } },
+            $owner: { value: { textValue: "octo" } },
+            $repo: { value: { textValue: "demo" } },
+            $repo_id: { value: { textValue: "42" } },
+            $status: { value: { textValue: "queued" } },
+        });
+        expect(
+            session.executeQuery.mock.calls.some(([yql]: [string]) =>
+                yql.includes(`UPDATE ${saasStore.CODE_INDEXER_REPOSITORIES_TABLE}`)
+            )
+        ).toBe(true);
+    });
+
     it("preserves linked GitHub user ownership when webhook updates omit it", async () => {
         const { saasStore, withSessionMock } = await importSaasStore();
         const session = readyStore({ withSessionMock });

@@ -45,6 +45,14 @@ function readNumber(value: unknown): number | null {
     return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function readPositiveInteger(value: unknown): number | null {
+    return typeof value === "number" &&
+        Number.isSafeInteger(value) &&
+        value > 0
+        ? value
+        : null;
+}
+
 function readString(value: unknown): string | null {
     return typeof value === "string" && value.trim().length > 0
         ? value.trim()
@@ -79,11 +87,12 @@ export function parseCodeSearchRequest(value: unknown): CodeSearchRequest {
         typeof value === "object" && value !== null
             ? (value as Record<string, unknown>)
             : {};
-    const installationId = readNumber(body.installationId);
-    const repoId = readNumber(body.repoId);
+    const installationId = readPositiveInteger(body.installationId);
+    const repoId = readPositiveInteger(body.repoId);
     const query = readString(body.query);
     const top = readNumber(body.top) ?? 10;
-    const prNumber = readNumber(body.prNumber);
+    const prNumber =
+        body.prNumber === undefined ? null : readPositiveInteger(body.prNumber);
 
     if (installationId === null || repoId === null || query === null) {
         throw new CodeSearchRequestError(
@@ -92,6 +101,9 @@ export function parseCodeSearchRequest(value: unknown): CodeSearchRequest {
     }
     if (top <= 0) {
         throw new CodeSearchRequestError("top must be greater than 0");
+    }
+    if (body.prNumber !== undefined && prNumber === null) {
+        throw new CodeSearchRequestError("prNumber must be a positive integer");
     }
 
     return {
