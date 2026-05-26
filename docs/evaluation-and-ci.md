@@ -8,8 +8,12 @@ GitHub Actions workflows cover:
 
 - Build and typecheck.
 - Unit and integration tests.
-- Integration tests against YDB using the integration suite.
+- Integration tests against local YDB using the integration suite.
+- Code-indexer smoke tests against local YDB.
 - Recall and F1 evaluation for the one-table global layout in exact-only mode.
+- Soak and stress load tests against local YDB.
+
+Workflows that need YDB start it through `astandrik/setup-local-ydb@v1` instead of open-coding a local-ydb service container and readiness loop. Host-side Node/YDB SDK jobs also map the action-created static and dynamic Docker hostnames to `127.0.0.1`, because local YDB discovery can advertise container hostnames while the action exposes gRPC through loopback-bound host ports.
 
 Badges in the root README link to:
 

@@ -14,7 +14,10 @@ import {
 } from "../ydb/schema.js";
 import { upsertCollectionMeta } from "./collectionsRepo.shared.js";
 import { withRetry, isTransientYdbError } from "../utils/retry.js";
-import { isOutOfBufferMemoryYdbError } from "../utils/ydbErrors.js";
+import {
+    isOutOfBufferMemoryYdbError,
+    isUnsupportedBatchDeleteYdbError,
+} from "../utils/ydbErrors.js";
 import { logger } from "../logging/logger.js";
 
 const DELETE_COLLECTION_BATCH_SIZE = 10000;
@@ -236,13 +239,16 @@ export async function deleteAllPointsForCollectionOneTable(
                     });
                 });
             } catch (err: unknown) {
-                if (!isOutOfBufferMemoryYdbError(err)) {
+                if (
+                    !isOutOfBufferMemoryYdbError(err) &&
+                    !isUnsupportedBatchDeleteYdbError(err)
+                ) {
                     throw err;
                 }
 
                 logger.warn(
                     { tableName: GLOBAL_POINTS_TABLE, collection },
-                    "BATCH DELETE hit out-of-buffer-memory, falling back to chunked deletion"
+                    "BATCH DELETE failed, falling back to chunked deletion"
                 );
                 await withSession(async (s) => {
                     await deletePointsForCollectionInChunks(s, collection);
@@ -259,13 +265,16 @@ export async function deleteAllPointsForCollectionOneTable(
                     });
                 });
             } catch (err: unknown) {
-                if (!isOutOfBufferMemoryYdbError(err)) {
+                if (
+                    !isOutOfBufferMemoryYdbError(err) &&
+                    !isUnsupportedBatchDeleteYdbError(err)
+                ) {
                     throw err;
                 }
 
                 logger.warn(
                     { tableName: POINTS_BY_FILE_LOOKUP_TABLE, collection },
-                    "BATCH DELETE hit out-of-buffer-memory, falling back to chunked deletion"
+                    "BATCH DELETE failed, falling back to chunked deletion"
                 );
                 await withSession(async (s) => {
                     await deleteLookupRowsForCollectionInChunks(s, collection);

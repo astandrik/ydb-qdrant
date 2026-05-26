@@ -21,6 +21,7 @@ Qdrant-compatible Node.js/TypeScript **service and npm library** that stores and
 Modes:
 - **HTTP server**: Qdrant-compatible REST API (`/collections`, `/points/*`) on top of YDB.
 - **Node.js package**: programmatic client via `createYdbQdrantClient` for direct YDB-backed vector search without running a separate service.
+- **GitHub App code indexer**: public hosted beta and self-hostable service that indexes repository chunks into YDB-backed Qdrant-compatible storage for MCP/IDE/coding-agent search, with OpenAI or custom HTTP embeddings.
 
 Promo site: [ydb-qdrant.tech](http://ydb-qdrant.tech)  
 Architecture diagrams: [docs page](http://ydb-qdrant.tech/docs/)
@@ -35,6 +36,7 @@ Architecture diagrams: [docs page](http://ydb-qdrant.tech/docs/)
 - **Deployment and Docker options**: [docs/deployment-and-docker.md](docs/deployment-and-docker.md)
 - **Architecture, storage layout, and search modes**: [docs/architecture-and-storage.md](docs/architecture-and-storage.md)
 - **Evaluation, CI, and release process**: [docs/evaluation-and-ci.md](docs/evaluation-and-ci.md)
+- **GitHub App code indexer**: [docs/github-app-code-indexer.md](docs/github-app-code-indexer.md)
 
 ## Requirements
 - Node.js 18+
