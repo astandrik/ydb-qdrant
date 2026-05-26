@@ -158,6 +158,7 @@ describe("code-indexer YDB integration smoke", () => {
         expect(manifest?.files).toEqual([
             {
                 blobSha: "blob-request-identity",
+                chunkCount: 1,
                 path: "src/requestIdentity.ts",
             },
         ]);

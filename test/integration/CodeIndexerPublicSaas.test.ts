@@ -412,6 +412,7 @@ describe("code-indexer public SaaS integration", () => {
 
         const callbackResponse = await request({
             baseUrl,
+            headers: { Cookie: firstSetCookie(startResponse.headers) },
             path: `/github/oauth/callback?code=oauth-code&state=${encodeURIComponent(
                 state ?? ""
             )}`,
