@@ -35,6 +35,10 @@ export const CODE_INDEXER_USAGE_DAILY_TABLE =
     "qdrant_code_indexer_usage_daily";
 export const CODE_INDEXER_AUDIT_LOG_TABLE = "qdrant_code_indexer_audit_log";
 const CODE_INDEXER_API_TOKEN_HASH_INDEX = "token_hash_idx";
+const CODE_INDEXER_INSTALLATION_USERS_BY_INSTALLATION_INDEX =
+    "installation_users_by_installation_idx";
+const CODE_INDEXER_REPOSITORIES_BY_INSTALLATION_INDEX =
+    "repositories_by_installation_idx";
 
 export type CodeIndexerRepositoryStatus =
     | "queued"
@@ -313,11 +317,48 @@ export function hashApiToken(plaintextToken: string, pepper: string): string {
     return createHmac("sha256", pepper).update(plaintextToken).digest("hex");
 }
 
-function apiTokenHashIndex(): InstanceType<typeof TableIndex> {
-    return new TableIndex(CODE_INDEXER_API_TOKEN_HASH_INDEX)
-        .withIndexColumns("token_hash")
-        .withDataColumns("github_user_id", "name", "revoked_at")
+function syncGlobalIndex(params: {
+    dataColumns?: string[];
+    indexColumns: string[];
+    name: string;
+}): InstanceType<typeof TableIndex> {
+    const index = new TableIndex(params.name)
+        .withIndexColumns(...params.indexColumns)
         .withGlobalAsync(false);
+    if (params.dataColumns && params.dataColumns.length > 0) {
+        index.withDataColumns(...params.dataColumns);
+    }
+    return index;
+}
+
+function apiTokenHashIndex(): InstanceType<typeof TableIndex> {
+    return syncGlobalIndex({
+        dataColumns: ["github_user_id", "name", "revoked_at"],
+        indexColumns: ["token_hash"],
+        name: CODE_INDEXER_API_TOKEN_HASH_INDEX,
+    });
+}
+
+function installationUsersByInstallationIndex(): InstanceType<typeof TableIndex> {
+    return syncGlobalIndex({
+        indexColumns: ["installation_id", "github_user_id"],
+        name: CODE_INDEXER_INSTALLATION_USERS_BY_INSTALLATION_INDEX,
+    });
+}
+
+function repositoriesByInstallationIndex(): InstanceType<typeof TableIndex> {
+    return syncGlobalIndex({
+        dataColumns: [
+            "default_branch",
+            "status",
+            "last_indexed_sha",
+            "last_indexed_at",
+            "chunk_count",
+            "last_error",
+        ],
+        indexColumns: ["installation_id", "owner", "repo", "repo_id"],
+        name: CODE_INDEXER_REPOSITORIES_BY_INSTALLATION_INDEX,
+    });
 }
 
 function hasIndex(
@@ -326,6 +367,12 @@ function hasIndex(
 ): boolean {
     return tableDescription.indexes?.some((index) => index.name === indexName) ??
         false;
+}
+
+function alterTableSyncSettings(): InstanceType<typeof AlterTableSettings> {
+    return new AlterTableSettings().withOperationParams(
+        new OperationParams().withSyncMode()
+    );
 }
 
 async function ensureTable(
@@ -399,37 +446,113 @@ async function ensureInstallationsTable(): Promise<void> {
 }
 
 async function ensureInstallationUsersTable(): Promise<void> {
-    await ensureTable(
-        CODE_INDEXER_INSTALLATION_USERS_TABLE,
-        new TableDescription()
-            .withColumns(
-                new Column("github_user_id", Types.UTF8),
-                new Column("installation_id", Types.UTF8),
-                new Column("linked_at", Types.TIMESTAMP)
-            )
-            .withPrimaryKeys("github_user_id", "installation_id")
-    );
+    const desc = new TableDescription()
+        .withColumns(
+            new Column("github_user_id", Types.UTF8),
+            new Column("installation_id", Types.UTF8),
+            new Column("linked_at", Types.TIMESTAMP)
+        )
+        .withPrimaryKeys("github_user_id", "installation_id")
+        .withIndexes(installationUsersByInstallationIndex());
+    await withSession(async (session) => {
+        try {
+            const tableDescription = await session.describeTable(
+                CODE_INDEXER_INSTALLATION_USERS_TABLE
+            );
+            if (
+                !hasIndex(
+                    tableDescription,
+                    CODE_INDEXER_INSTALLATION_USERS_BY_INSTALLATION_INDEX
+                )
+            ) {
+                const alter = new AlterTableDescription();
+                alter.addIndexes = [installationUsersByInstallationIndex()];
+                await session.alterTable(
+                    CODE_INDEXER_INSTALLATION_USERS_TABLE,
+                    alter,
+                    alterTableSyncSettings()
+                );
+                logger.info(
+                    `added installation lookup index to code-indexer SaaS table ${CODE_INDEXER_INSTALLATION_USERS_TABLE}`
+                );
+            }
+            return;
+        } catch (err: unknown) {
+            if (!isTableNotFoundError(err)) {
+                throw err;
+            }
+        }
+
+        try {
+            await session.createTable(CODE_INDEXER_INSTALLATION_USERS_TABLE, desc);
+            logger.info(
+                `created code-indexer SaaS table ${CODE_INDEXER_INSTALLATION_USERS_TABLE}`
+            );
+        } catch (err: unknown) {
+            if (!isAlreadyExistsError(err)) {
+                throw err;
+            }
+        }
+    });
 }
 
 async function ensureRepositoriesTable(): Promise<void> {
-    await ensureTable(
-        CODE_INDEXER_REPOSITORIES_TABLE,
-        new TableDescription()
-            .withColumns(
-                new Column("repo_id", Types.UTF8),
-                new Column("installation_id", Types.UTF8),
-                new Column("owner", Types.UTF8),
-                new Column("repo", Types.UTF8),
-                new Column("default_branch", Types.UTF8),
-                new Column("status", Types.UTF8),
-                new Column("last_indexed_sha", Types.optional(Types.UTF8)),
-                new Column("last_indexed_at", Types.optional(Types.TIMESTAMP)),
-                new Column("chunk_count", Types.optional(Types.UINT32)),
-                new Column("last_error", Types.optional(Types.UTF8)),
-                new Column("updated_at", Types.TIMESTAMP)
-            )
-            .withPrimaryKeys("repo_id")
-    );
+    const desc = new TableDescription()
+        .withColumns(
+            new Column("repo_id", Types.UTF8),
+            new Column("installation_id", Types.UTF8),
+            new Column("owner", Types.UTF8),
+            new Column("repo", Types.UTF8),
+            new Column("default_branch", Types.UTF8),
+            new Column("status", Types.UTF8),
+            new Column("last_indexed_sha", Types.optional(Types.UTF8)),
+            new Column("last_indexed_at", Types.optional(Types.TIMESTAMP)),
+            new Column("chunk_count", Types.optional(Types.UINT32)),
+            new Column("last_error", Types.optional(Types.UTF8)),
+            new Column("updated_at", Types.TIMESTAMP)
+        )
+        .withPrimaryKeys("repo_id")
+        .withIndexes(repositoriesByInstallationIndex());
+    await withSession(async (session) => {
+        try {
+            const tableDescription = await session.describeTable(
+                CODE_INDEXER_REPOSITORIES_TABLE
+            );
+            if (
+                !hasIndex(
+                    tableDescription,
+                    CODE_INDEXER_REPOSITORIES_BY_INSTALLATION_INDEX
+                )
+            ) {
+                const alter = new AlterTableDescription();
+                alter.addIndexes = [repositoriesByInstallationIndex()];
+                await session.alterTable(
+                    CODE_INDEXER_REPOSITORIES_TABLE,
+                    alter,
+                    alterTableSyncSettings()
+                );
+                logger.info(
+                    `added installation lookup index to code-indexer SaaS table ${CODE_INDEXER_REPOSITORIES_TABLE}`
+                );
+            }
+            return;
+        } catch (err: unknown) {
+            if (!isTableNotFoundError(err)) {
+                throw err;
+            }
+        }
+
+        try {
+            await session.createTable(CODE_INDEXER_REPOSITORIES_TABLE, desc);
+            logger.info(
+                `created code-indexer SaaS table ${CODE_INDEXER_REPOSITORIES_TABLE}`
+            );
+        } catch (err: unknown) {
+            if (!isAlreadyExistsError(err)) {
+                throw err;
+            }
+        }
+    });
 }
 
 async function ensureApiTokensTable(): Promise<void> {
@@ -460,9 +583,7 @@ async function ensureApiTokensTable(): Promise<void> {
                 await session.alterTable(
                     CODE_INDEXER_API_TOKENS_TABLE,
                     alter,
-                    new AlterTableSettings().withOperationParams(
-                        new OperationParams().withSyncMode()
-                    )
+                    alterTableSyncSettings()
                 );
                 logger.info(
                     `added token hash index to code-indexer SaaS table ${CODE_INDEXER_API_TOKENS_TABLE}`
@@ -977,7 +1098,7 @@ export class YdbCodeIndexerSaasStore {
             DECLARE $installation_id AS Utf8;
 
             SELECT COUNT(*) AS user_count
-            FROM ${CODE_INDEXER_INSTALLATION_USERS_TABLE}
+            FROM ${CODE_INDEXER_INSTALLATION_USERS_TABLE} VIEW ${CODE_INDEXER_INSTALLATION_USERS_BY_INSTALLATION_INDEX}
             WHERE installation_id = $installation_id;
         `;
         const result = await withSession(async (session) => {
@@ -1033,7 +1154,9 @@ export class YdbCodeIndexerSaasStore {
             DELETE FROM ${CODE_INDEXER_INSTALLATIONS_TABLE}
             WHERE installation_id = $installation_id;
 
-            DELETE FROM ${CODE_INDEXER_INSTALLATION_USERS_TABLE}
+            DELETE FROM ${CODE_INDEXER_INSTALLATION_USERS_TABLE} ON
+            SELECT github_user_id, installation_id
+            FROM ${CODE_INDEXER_INSTALLATION_USERS_TABLE} VIEW ${CODE_INDEXER_INSTALLATION_USERS_BY_INSTALLATION_INDEX}
             WHERE installation_id = $installation_id;
         `;
         await withSession(async (session) => {
@@ -1240,7 +1363,7 @@ export class YdbCodeIndexerSaasStore {
                 last_indexed_at,
                 chunk_count,
                 last_error
-            FROM ${CODE_INDEXER_REPOSITORIES_TABLE}
+            FROM ${CODE_INDEXER_REPOSITORIES_TABLE} VIEW ${CODE_INDEXER_REPOSITORIES_BY_INSTALLATION_INDEX}
             WHERE installation_id = $installation_id
             ORDER BY owner, repo;
         `;
@@ -1298,7 +1421,9 @@ export class YdbCodeIndexerSaasStore {
         const yql = `
             DECLARE $installation_id AS Utf8;
 
-            DELETE FROM ${CODE_INDEXER_REPOSITORIES_TABLE}
+            DELETE FROM ${CODE_INDEXER_REPOSITORIES_TABLE} ON
+            SELECT repo_id
+            FROM ${CODE_INDEXER_REPOSITORIES_TABLE} VIEW ${CODE_INDEXER_REPOSITORIES_BY_INSTALLATION_INDEX}
             WHERE installation_id = $installation_id;
         `;
         await withSession(async (session) => {

@@ -233,10 +233,44 @@ describe("code-indexer SaaS store", () => {
             saasStore.CODE_INDEXER_INSTALLATION_USERS_TABLE,
             expect.anything()
         );
+        const installationUsersCreateCall = session.createTable.mock.calls.find(
+            ([tableName]: [string]) =>
+                tableName === saasStore.CODE_INDEXER_INSTALLATION_USERS_TABLE
+        );
+        expect(installationUsersCreateCall?.[1]).toMatchObject({
+            indexes: [
+                expect.objectContaining({
+                    globalAsync: false,
+                    indexColumns: ["installation_id", "github_user_id"],
+                    name: "installation_users_by_installation_idx",
+                }),
+            ],
+        });
         expect(session.createTable).toHaveBeenCalledWith(
             saasStore.CODE_INDEXER_REPOSITORIES_TABLE,
             expect.anything()
         );
+        const repositoriesCreateCall = session.createTable.mock.calls.find(
+            ([tableName]: [string]) =>
+                tableName === saasStore.CODE_INDEXER_REPOSITORIES_TABLE
+        );
+        expect(repositoriesCreateCall?.[1]).toMatchObject({
+            indexes: [
+                expect.objectContaining({
+                    dataColumns: [
+                        "default_branch",
+                        "status",
+                        "last_indexed_sha",
+                        "last_indexed_at",
+                        "chunk_count",
+                        "last_error",
+                    ],
+                    globalAsync: false,
+                    indexColumns: ["installation_id", "owner", "repo", "repo_id"],
+                    name: "repositories_by_installation_idx",
+                }),
+            ],
+        });
         expect(session.createTable).toHaveBeenCalledWith(
             saasStore.CODE_INDEXER_API_TOKENS_TABLE,
             expect.anything()
@@ -298,6 +332,48 @@ describe("code-indexer SaaS store", () => {
             { operationParams?: { syncMode?: boolean } },
         ];
         expect(alterSettings.operationParams?.syncMode).toBe(true);
+    });
+
+    it("adds installation lookup indexes to existing SaaS tables", async () => {
+        const { saasStore, withSessionMock } = await importSaasStore();
+        const session = makeSession({
+            describeTable: vi.fn(() =>
+                Promise.resolve({ columns: [], indexes: [] })
+            ),
+        });
+        useSession(withSessionMock, session);
+
+        await saasStore.ensureCodeIndexerSaasTables();
+
+        expect(session.alterTable).toHaveBeenCalledWith(
+            saasStore.CODE_INDEXER_INSTALLATION_USERS_TABLE,
+            expect.objectContaining({
+                addIndexes: [
+                    expect.objectContaining({
+                        indexColumns: ["installation_id", "github_user_id"],
+                        name: "installation_users_by_installation_idx",
+                    }),
+                ],
+            }),
+            expect.anything()
+        );
+        expect(session.alterTable).toHaveBeenCalledWith(
+            saasStore.CODE_INDEXER_REPOSITORIES_TABLE,
+            expect.objectContaining({
+                addIndexes: [
+                    expect.objectContaining({
+                        indexColumns: [
+                            "installation_id",
+                            "owner",
+                            "repo",
+                            "repo_id",
+                        ],
+                        name: "repositories_by_installation_idx",
+                    }),
+                ],
+            }),
+            expect.anything()
+        );
     });
 
     it("encrypts GitHub tokens before storing and decrypts stored user rows", async () => {
@@ -561,6 +637,44 @@ describe("code-indexer SaaS store", () => {
                 status: "ready",
             },
         ]);
+        const listQuery = session.executeQuery.mock.calls[1]?.[0] as string;
+        expect(listQuery).toContain(
+            "FROM qdrant_code_indexer_repositories VIEW repositories_by_installation_idx"
+        );
+    });
+
+    it("uses installation indexes for installation-scoped reads and deletes", async () => {
+        const { saasStore, withSessionMock } = await importSaasStore();
+        const session = readyStore({ withSessionMock });
+        const store = new saasStore.YdbCodeIndexerSaasStore({
+            encryptionSecret: "encryption-secret",
+            tokenPepper: "pepper",
+        });
+        await saasStore.ensureCodeIndexerSaasTables();
+        session.executeQuery.mockClear();
+
+        await store.countInstallationUsers("700");
+        await store.deleteInstallation("700");
+        await store.deleteRepositoriesForInstallation("700");
+
+        const queries = session.executeQuery.mock.calls.map(
+            ([yql]: [string]) => yql
+        );
+        expect(queries[0]).toContain(
+            "FROM qdrant_code_indexer_installation_users VIEW installation_users_by_installation_idx"
+        );
+        expect(queries[1]).toContain(
+            "DELETE FROM qdrant_code_indexer_installation_users ON"
+        );
+        expect(queries[1]).toContain(
+            "FROM qdrant_code_indexer_installation_users VIEW installation_users_by_installation_idx"
+        );
+        expect(queries[2]).toContain(
+            "DELETE FROM qdrant_code_indexer_repositories ON"
+        );
+        expect(queries[2]).toContain(
+            "FROM qdrant_code_indexer_repositories VIEW repositories_by_installation_idx"
+        );
     });
 
     it("preserves indexed repository metrics when marking transient status", async () => {

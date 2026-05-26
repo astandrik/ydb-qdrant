@@ -4,8 +4,11 @@ import type { Ydb } from "ydb-sdk";
 
 import {
     AlterTableDescription,
+    AlterTableSettings,
     Column,
     createExecuteQuerySettings,
+    OperationParams,
+    TableIndex,
     TableDescription,
     TypedValues,
     Types,
@@ -37,6 +40,12 @@ export const CODE_INDEXER_MANIFESTS_TABLE =
     "qdrant_code_indexer_manifests";
 
 const JOB_CLAIM_SCAN_LIMIT = 50;
+const CODE_INDEXER_JOBS_BY_STATUS_CREATED_AT_INDEX =
+    "jobs_by_status_created_at_idx";
+const CODE_INDEXER_JOBS_BY_REPO_STATUS_INDEX = "jobs_by_repo_status_idx";
+const CODE_INDEXER_JOB_PROGRESS_ACTIVE_BY_INSTALLATION_INDEX =
+    "job_progress_active_by_installation_idx";
+const CODE_INDEXER_JOB_PROGRESS_BY_REPO_INDEX = "job_progress_by_repo_idx";
 
 type StoredJob = {
     attempts: number;
@@ -78,6 +87,131 @@ type ExecuteQueryResultLike = {
 
 let stateTablesReady = false;
 let stateTablesReadyInFlight: Promise<void> | null = null;
+
+function syncGlobalIndex(params: {
+    dataColumns?: string[];
+    indexColumns: string[];
+    name: string;
+}): InstanceType<typeof TableIndex> {
+    const index = new TableIndex(params.name)
+        .withIndexColumns(...params.indexColumns)
+        .withGlobalAsync(false);
+    if (params.dataColumns && params.dataColumns.length > 0) {
+        index.withDataColumns(...params.dataColumns);
+    }
+    return index;
+}
+
+function jobsByStatusCreatedAtIndex(): InstanceType<typeof TableIndex> {
+    return syncGlobalIndex({
+        dataColumns: ["payload", "attempts", "repo_key"],
+        indexColumns: ["status", "created_at", "job_id"],
+        name: CODE_INDEXER_JOBS_BY_STATUS_CREATED_AT_INDEX,
+    });
+}
+
+function jobsByRepoStatusIndex(): InstanceType<typeof TableIndex> {
+    return syncGlobalIndex({
+        indexColumns: ["repo_key", "status", "job_id"],
+        name: CODE_INDEXER_JOBS_BY_REPO_STATUS_INDEX,
+    });
+}
+
+function jobProgressActiveByInstallationIndex(): InstanceType<typeof TableIndex> {
+    return syncGlobalIndex({
+        dataColumns: [
+            "repo_id",
+            "owner",
+            "repo",
+            "job_kind",
+            "phase",
+            "message",
+            "total_files",
+            "processed_files",
+            "total_chunks",
+            "processed_chunks",
+            "current_path",
+            "last_error",
+            "created_at",
+            "started_at",
+            "finished_at",
+            "pr_number",
+        ],
+        indexColumns: ["installation_id", "status", "updated_at", "job_id"],
+        name: CODE_INDEXER_JOB_PROGRESS_ACTIVE_BY_INSTALLATION_INDEX,
+    });
+}
+
+function jobProgressByRepoIndex(): InstanceType<typeof TableIndex> {
+    return syncGlobalIndex({
+        dataColumns: [
+            "owner",
+            "repo",
+            "job_kind",
+            "status",
+            "phase",
+            "message",
+            "total_files",
+            "processed_files",
+            "total_chunks",
+            "processed_chunks",
+            "current_path",
+            "last_error",
+            "created_at",
+            "started_at",
+            "finished_at",
+            "pr_number",
+        ],
+        indexColumns: ["installation_id", "repo_id", "updated_at", "job_id"],
+        name: CODE_INDEXER_JOB_PROGRESS_BY_REPO_INDEX,
+    });
+}
+
+function hasIndex(
+    tableDescription: { indexes?: Array<{ name?: string | null }> },
+    indexName: string
+): boolean {
+    return tableDescription.indexes?.some((index) => index.name === indexName) ??
+        false;
+}
+
+function alterTableSyncSettings(): InstanceType<typeof AlterTableSettings> {
+    return new AlterTableSettings().withOperationParams(
+        new OperationParams().withSyncMode()
+    );
+}
+
+async function addMissingIndexes(params: {
+    indexes: Array<InstanceType<typeof TableIndex>>;
+    logMessage: string;
+    session: {
+        alterTable: (
+            tableName: string,
+            description: InstanceType<typeof AlterTableDescription>,
+            settings?: InstanceType<typeof AlterTableSettings>
+        ) => Promise<unknown>;
+    };
+    tableName: string;
+}): Promise<void> {
+    for (const index of params.indexes) {
+        const alter = new AlterTableDescription();
+        alter.addIndexes = [index];
+        try {
+            await params.session.alterTable(
+                params.tableName,
+                alter,
+                alterTableSyncSettings()
+            );
+        } catch (err: unknown) {
+            if (!isAlreadyExistsError(err)) {
+                throw err;
+            }
+        }
+    }
+    if (params.indexes.length > 0) {
+        logger.info(params.logMessage);
+    }
+}
 
 function isTableNotFoundError(err: unknown): boolean {
     const msg = err instanceof Error ? err.message : String(err);
@@ -666,6 +800,28 @@ async function ensureJobsTable(): Promise<void> {
                     }
                 }
             }
+            const missingIndexes = [
+                ...(hasIndex(
+                    tableDescription,
+                    CODE_INDEXER_JOBS_BY_STATUS_CREATED_AT_INDEX
+                )
+                    ? []
+                    : [jobsByStatusCreatedAtIndex()]),
+                ...(hasIndex(
+                    tableDescription,
+                    CODE_INDEXER_JOBS_BY_REPO_STATUS_INDEX
+                )
+                    ? []
+                    : [jobsByRepoStatusIndex()]),
+            ];
+            if (missingIndexes.length > 0) {
+                await addMissingIndexes({
+                    indexes: missingIndexes,
+                    logMessage: `added lookup indexes to code-indexer jobs table ${CODE_INDEXER_JOBS_TABLE}`,
+                    session,
+                    tableName: CODE_INDEXER_JOBS_TABLE,
+                });
+            }
             return;
         }
 
@@ -681,7 +837,8 @@ async function ensureJobsTable(): Promise<void> {
                 new Column("repo_key", Types.optional(Types.UTF8)),
                 new Column("last_error", Types.optional(Types.UTF8))
             )
-            .withPrimaryKeys("job_id");
+            .withPrimaryKeys("job_id")
+            .withIndexes(jobsByStatusCreatedAtIndex(), jobsByRepoStatusIndex());
         try {
             await session.createTable(CODE_INDEXER_JOBS_TABLE, desc);
             logger.info(
@@ -729,6 +886,28 @@ async function ensureJobProgressTable(): Promise<void> {
                     }
                 }
             }
+            const missingIndexes = [
+                ...(hasIndex(
+                    tableDescription,
+                    CODE_INDEXER_JOB_PROGRESS_ACTIVE_BY_INSTALLATION_INDEX
+                )
+                    ? []
+                    : [jobProgressActiveByInstallationIndex()]),
+                ...(hasIndex(
+                    tableDescription,
+                    CODE_INDEXER_JOB_PROGRESS_BY_REPO_INDEX
+                )
+                    ? []
+                    : [jobProgressByRepoIndex()]),
+            ];
+            if (missingIndexes.length > 0) {
+                await addMissingIndexes({
+                    indexes: missingIndexes,
+                    logMessage: `added lookup indexes to code-indexer job progress table ${CODE_INDEXER_JOB_PROGRESS_TABLE}`,
+                    session,
+                    tableName: CODE_INDEXER_JOB_PROGRESS_TABLE,
+                });
+            }
             return;
         }
 
@@ -755,7 +934,11 @@ async function ensureJobProgressTable(): Promise<void> {
                 new Column("finished_at", Types.optional(Types.TIMESTAMP)),
                 new Column("pr_number", Types.optional(Types.UINT32))
             )
-            .withPrimaryKeys("job_id");
+            .withPrimaryKeys("job_id")
+            .withIndexes(
+                jobProgressActiveByInstallationIndex(),
+                jobProgressByRepoIndex()
+            );
         try {
             await session.createTable(CODE_INDEXER_JOB_PROGRESS_TABLE, desc);
             logger.info(
@@ -975,7 +1158,7 @@ export class YdbIndexingProgressStore implements IndexingProgressStore {
             DECLARE $installation_id AS Utf8;
 
             ${selectJobProgressColumns()}
-            FROM ${CODE_INDEXER_JOB_PROGRESS_TABLE}
+            FROM ${CODE_INDEXER_JOB_PROGRESS_TABLE} VIEW ${CODE_INDEXER_JOB_PROGRESS_ACTIVE_BY_INSTALLATION_INDEX}
             WHERE installation_id = $installation_id
               AND status IN (Utf8("pending"), Utf8("running"))
             ORDER BY updated_at DESC;
@@ -1006,7 +1189,7 @@ export class YdbIndexingProgressStore implements IndexingProgressStore {
             DECLARE $repo_id AS Utf8;
 
             ${selectJobProgressColumns()}
-            FROM ${CODE_INDEXER_JOB_PROGRESS_TABLE}
+            FROM ${CODE_INDEXER_JOB_PROGRESS_TABLE} VIEW ${CODE_INDEXER_JOB_PROGRESS_BY_REPO_INDEX}
             WHERE installation_id = $installation_id
               AND repo_id = $repo_id
             ORDER BY updated_at DESC
@@ -1497,7 +1680,9 @@ export class YdbIndexingQueue implements IndexingQueue {
         const yql = `
             DECLARE $repo_key AS Utf8;
 
-            DELETE FROM ${CODE_INDEXER_JOBS_TABLE}
+            DELETE FROM ${CODE_INDEXER_JOBS_TABLE} ON
+            SELECT job_id
+            FROM ${CODE_INDEXER_JOBS_TABLE} VIEW ${CODE_INDEXER_JOBS_BY_REPO_STATUS_INDEX}
             WHERE repo_key = $repo_key
                 AND status != Utf8("running");
         `;
@@ -1523,10 +1708,14 @@ export class YdbIndexingQueue implements IndexingQueue {
             DECLARE $repo_id AS Utf8;
             DECLARE $repo_key AS Utf8;
 
-            DELETE FROM ${CODE_INDEXER_JOBS_TABLE}
+            DELETE FROM ${CODE_INDEXER_JOBS_TABLE} ON
+            SELECT job_id
+            FROM ${CODE_INDEXER_JOBS_TABLE} VIEW ${CODE_INDEXER_JOBS_BY_REPO_STATUS_INDEX}
             WHERE repo_key = $repo_key;
 
-            DELETE FROM ${CODE_INDEXER_JOB_PROGRESS_TABLE}
+            DELETE FROM ${CODE_INDEXER_JOB_PROGRESS_TABLE} ON
+            SELECT job_id
+            FROM ${CODE_INDEXER_JOB_PROGRESS_TABLE} VIEW ${CODE_INDEXER_JOB_PROGRESS_BY_REPO_INDEX}
             WHERE installation_id = $installation_id
                 AND repo_id = $repo_id;
         `;
@@ -1551,7 +1740,7 @@ export class YdbIndexingQueue implements IndexingQueue {
             DECLARE $repo_key AS Utf8;
 
             SELECT job_id
-            FROM ${CODE_INDEXER_JOBS_TABLE}
+            FROM ${CODE_INDEXER_JOBS_TABLE} VIEW ${CODE_INDEXER_JOBS_BY_REPO_STATUS_INDEX}
             WHERE repo_key = $repo_key
                 AND status = Utf8("running")
             LIMIT 1;
@@ -1975,7 +2164,7 @@ export class YdbIndexingQueue implements IndexingQueue {
     private async selectPendingJobRows(offset: number): Promise<QueryRow[]> {
         const yql = `
             SELECT job_id, payload, attempts
-            FROM ${CODE_INDEXER_JOBS_TABLE}
+            FROM ${CODE_INDEXER_JOBS_TABLE} VIEW ${CODE_INDEXER_JOBS_BY_STATUS_CREATED_AT_INDEX}
             WHERE status = Utf8("pending")
             ORDER BY created_at
             LIMIT ${JOB_CLAIM_SCAN_LIMIT} OFFSET ${offset};
@@ -2004,7 +2193,7 @@ export class YdbIndexingQueue implements IndexingQueue {
 
             $running_for_repo = (
                 SELECT job_id
-                FROM ${CODE_INDEXER_JOBS_TABLE}
+                FROM ${CODE_INDEXER_JOBS_TABLE} VIEW ${CODE_INDEXER_JOBS_BY_REPO_STATUS_INDEX}
                 WHERE repo_key = $repo_key
                     AND status = Utf8("running")
                 LIMIT 1

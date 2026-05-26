@@ -11,16 +11,68 @@ vi.mock("../../src/logging/logger.js", () => ({
 vi.mock("../../src/ydb/client.js", () => {
     class FakeAlterTableDescription {
         addColumns: unknown[] = [];
+        addIndexes: unknown[] = [];
+    }
+
+    class FakeOperationParams {
+        syncMode = false;
+
+        withSyncMode() {
+            this.syncMode = true;
+            return this;
+        }
+    }
+
+    class FakeAlterTableSettings {
+        operationParams: unknown;
+
+        withOperationParams(operationParams: unknown) {
+            this.operationParams = operationParams;
+            return this;
+        }
     }
 
     class FakeTableDescription {
+        indexes: unknown[] = [];
+
         withColumns(...columns: unknown[]) {
             void columns;
             return this;
         }
 
+        withIndexes(...indexes: unknown[]) {
+            this.indexes.push(...indexes);
+            return this;
+        }
+
         withPrimaryKeys(...keys: string[]) {
             void keys;
+            return this;
+        }
+    }
+
+    class FakeTableIndex {
+        dataColumns: string[] = [];
+        indexColumns: string[] = [];
+        globalAsync = true;
+        readonly name: string;
+
+        constructor(name: string) {
+            this.name = name;
+        }
+
+        withDataColumns(...dataColumns: string[]) {
+            this.dataColumns.push(...dataColumns);
+            return this;
+        }
+
+        withGlobalAsync(isAsync: boolean) {
+            this.globalAsync = isAsync;
+            return this;
+        }
+
+        withIndexColumns(...indexColumns: string[]) {
+            this.indexColumns.push(...indexColumns);
             return this;
         }
     }
@@ -36,7 +88,10 @@ vi.mock("../../src/ydb/client.js", () => {
 
     return {
         AlterTableDescription: FakeAlterTableDescription,
+        AlterTableSettings: FakeAlterTableSettings,
         Column: FakeColumn,
+        OperationParams: FakeOperationParams,
+        TableIndex: FakeTableIndex,
         TableDescription: FakeTableDescription,
         Types: {
             JSON_DOCUMENT: "JsonDocument",
@@ -239,12 +294,140 @@ describe("code-indexer durable state store", () => {
             stateStore.CODE_INDEXER_JOBS_TABLE,
             expect.anything()
         );
+        const jobsCreateCall = session.createTable.mock.calls.find(
+            ([tableName]: [string]) => tableName === stateStore.CODE_INDEXER_JOBS_TABLE
+        );
+        expect(jobsCreateCall?.[1]).toMatchObject({
+            indexes: [
+                expect.objectContaining({
+                    dataColumns: ["payload", "attempts", "repo_key"],
+                    globalAsync: false,
+                    indexColumns: ["status", "created_at", "job_id"],
+                    name: "jobs_by_status_created_at_idx",
+                }),
+                expect.objectContaining({
+                    globalAsync: false,
+                    indexColumns: ["repo_key", "status", "job_id"],
+                    name: "jobs_by_repo_status_idx",
+                }),
+            ],
+        });
         expect(session.createTable).toHaveBeenCalledWith(
             stateStore.CODE_INDEXER_JOB_PROGRESS_TABLE,
             expect.anything()
         );
+        const progressCreateCall = session.createTable.mock.calls.find(
+            ([tableName]: [string]) =>
+                tableName === stateStore.CODE_INDEXER_JOB_PROGRESS_TABLE
+        );
+        expect(progressCreateCall?.[1]).toMatchObject({
+            indexes: [
+                expect.objectContaining({
+                    globalAsync: false,
+                    indexColumns: [
+                        "installation_id",
+                        "status",
+                        "updated_at",
+                        "job_id",
+                    ],
+                    name: "job_progress_active_by_installation_idx",
+                }),
+                expect.objectContaining({
+                    globalAsync: false,
+                    indexColumns: [
+                        "installation_id",
+                        "repo_id",
+                        "updated_at",
+                        "job_id",
+                    ],
+                    name: "job_progress_by_repo_idx",
+                }),
+            ],
+        });
         expect(session.createTable).toHaveBeenCalledWith(
             stateStore.CODE_INDEXER_MANIFESTS_TABLE,
+            expect.anything()
+        );
+    });
+
+    it("adds queue lookup indexes to existing state tables", async () => {
+        const { stateStore, withSessionMock } = await importStateStore();
+        const session = makeSession({
+            describeTable: vi.fn((tableName: string) =>
+                Promise.resolve({
+                    columns:
+                        tableName === stateStore.CODE_INDEXER_JOBS_TABLE
+                            ? [
+                                  { name: "claim_id" },
+                                  { name: "repo_key" },
+                              ]
+                            : tableName === stateStore.CODE_INDEXER_JOB_PROGRESS_TABLE
+                              ? [{ name: "pr_number" }]
+                              : [{ name: "existing" }],
+                    indexes: [],
+                })
+            ),
+        });
+        useSession(withSessionMock, session);
+
+        await stateStore.ensureCodeIndexerStateTables();
+
+        expect(session.alterTable).toHaveBeenCalledWith(
+            stateStore.CODE_INDEXER_JOBS_TABLE,
+            expect.objectContaining({
+                addIndexes: [
+                    expect.objectContaining({
+                        indexColumns: ["status", "created_at", "job_id"],
+                        name: "jobs_by_status_created_at_idx",
+                    }),
+                ],
+            }),
+            expect.anything()
+        );
+        expect(session.alterTable).toHaveBeenCalledWith(
+            stateStore.CODE_INDEXER_JOBS_TABLE,
+            expect.objectContaining({
+                addIndexes: [
+                    expect.objectContaining({
+                        indexColumns: ["repo_key", "status", "job_id"],
+                        name: "jobs_by_repo_status_idx",
+                    }),
+                ],
+            }),
+            expect.anything()
+        );
+        expect(session.alterTable).toHaveBeenCalledWith(
+            stateStore.CODE_INDEXER_JOB_PROGRESS_TABLE,
+            expect.objectContaining({
+                addIndexes: [
+                    expect.objectContaining({
+                        indexColumns: [
+                            "installation_id",
+                            "status",
+                            "updated_at",
+                            "job_id",
+                        ],
+                        name: "job_progress_active_by_installation_idx",
+                    }),
+                ],
+            }),
+            expect.anything()
+        );
+        expect(session.alterTable).toHaveBeenCalledWith(
+            stateStore.CODE_INDEXER_JOB_PROGRESS_TABLE,
+            expect.objectContaining({
+                addIndexes: [
+                    expect.objectContaining({
+                        indexColumns: [
+                            "installation_id",
+                            "repo_id",
+                            "updated_at",
+                            "job_id",
+                        ],
+                        name: "job_progress_by_repo_idx",
+                    }),
+                ],
+            }),
             expect.anything()
         );
     });
@@ -548,6 +731,13 @@ describe("code-indexer durable state store", () => {
 
         expect(
             session.executeQuery.mock.calls.some(([yql]: [string]) =>
+                yql.includes(
+                    "FROM qdrant_code_indexer_job_progress VIEW job_progress_active_by_installation_idx"
+                )
+            )
+        ).toBe(true);
+        expect(
+            session.executeQuery.mock.calls.some(([yql]: [string]) =>
                 yql.includes("UPSERT INTO qdrant_code_indexer_job_progress")
             )
         ).toBe(true);
@@ -745,6 +935,9 @@ describe("code-indexer durable state store", () => {
                 yql.includes("WHERE installation_id = $installation_id") &&
                 yql.includes("repo_id = $repo_id")
         );
+        expect(queryCall?.[0]).toContain(
+            "FROM qdrant_code_indexer_job_progress VIEW job_progress_by_repo_idx"
+        );
         expect(queryCall?.[0]).toContain("LIMIT 5");
         expect(queryCall?.[1]).toMatchObject({
             $installation_id: { type: "Utf8", value: "7" },
@@ -777,8 +970,14 @@ describe("code-indexer durable state store", () => {
         const progressUpsertCall = executeCalls.find(([yql]) =>
             yql.includes("UPSERT INTO qdrant_code_indexer_job_progress")
         );
+        const selectPendingCall = executeCalls.find(([yql]) =>
+            yql.includes("SELECT job_id, payload, attempts")
+        );
         expect(upsertCall).toBeDefined();
         expect(progressUpsertCall).toBeDefined();
+        expect(selectPendingCall?.[0]).toContain(
+            "FROM qdrant_code_indexer_jobs VIEW jobs_by_status_created_at_idx"
+        );
         expect(upsertCall).toBe(progressUpsertCall);
         expect(upsertCall?.[0]).toContain('Utf8("pending")');
         expect(upsertCall?.[0]).toContain("0u");
@@ -860,6 +1059,9 @@ describe("code-indexer durable state store", () => {
         >;
         const claimCall = executeCalls.find(([yql]) =>
             yql.includes('SET status = Utf8("running")')
+        );
+        expect(claimCall?.[0]).toContain(
+            "FROM qdrant_code_indexer_jobs VIEW jobs_by_repo_status_idx"
         );
         expect(claimCall?.[0]).toContain("repo_key = $repo_key");
         expect(claimCall?.[0]).toContain("NOT EXISTS");

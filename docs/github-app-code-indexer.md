@@ -34,14 +34,20 @@ The durable state tables are separate from the core vector/search schema:
 
 - `qdrant_code_indexer_deliveries`
 - `qdrant_code_indexer_jobs`
+- `qdrant_code_indexer_job_progress`
 - `qdrant_code_indexer_manifests`
 - `qdrant_code_indexer_users`
 - `qdrant_code_indexer_sessions`
 - `qdrant_code_indexer_installations`
+- `qdrant_code_indexer_installation_users`
 - `qdrant_code_indexer_repositories`
 - `qdrant_code_indexer_api_tokens`
 - `qdrant_code_indexer_usage_daily`
 - `qdrant_code_indexer_audit_log`
+
+Secondary indexes are created for installation-scoped repository and user-link
+lookups, durable queue claims, per-repository job cleanup, and dashboard/MCP job
+progress reads.
 
 ### GitHub App configuration
 
