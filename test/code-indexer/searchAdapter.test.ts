@@ -82,7 +82,23 @@ describe("code-indexer search adapter", () => {
                 repoId: 42,
                 top: 0,
             })
-        ).toThrow("top must be greater than 0");
+        ).toThrow("top must be a positive integer no greater than 1000");
+        expect(() =>
+            parseCodeSearchRequest({
+                installationId: 7,
+                query: "x",
+                repoId: 42,
+                top: 1.5,
+            })
+        ).toThrow("top must be a positive integer no greater than 1000");
+        expect(() =>
+            parseCodeSearchRequest({
+                installationId: 7,
+                query: "x",
+                repoId: 42,
+                top: 1001,
+            })
+        ).toThrow("top must be a positive integer no greater than 1000");
         expect(() =>
             parseCodeSearchRequest({
                 installationId: -7,

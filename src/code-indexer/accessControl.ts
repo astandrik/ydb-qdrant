@@ -106,7 +106,7 @@ export async function requireRepositoryAccess(params: {
     store: CodeIndexerAccessStore;
 }): Promise<CodeIndexerRepositoryRecord> {
     const repository = await params.store.getRepository(params.repoId);
-    if (!repository) {
+    if (!repository || repository.status === "deleted") {
         throw accessError(
             "github_repository_forbidden",
             "repository is not accessible to the authenticated user",

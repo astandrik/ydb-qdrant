@@ -383,6 +383,69 @@ describe("code-indexer MCP server", () => {
         });
     });
 
+    it("rejects invalid owner and repo search bounds before resolving", async () => {
+        const { search, store, embeddingProvider } = makeServer();
+        const resolveRepository = vi.fn(() =>
+            Promise.resolve({
+                installationId: 7,
+                repoId: 42,
+            })
+        );
+        const server = new CodeIndexerMcpServer({
+            embeddingProvider,
+            repositoryResolver: { resolveRepository },
+            store,
+        });
+
+        const badPrNumber = await server.handleJsonRpcMessage(
+            JSON.stringify({
+                id: "bad-pr",
+                jsonrpc: "2.0",
+                method: "tools/call",
+                params: {
+                    arguments: {
+                        owner: "octo",
+                        prNumber: -7,
+                        query: "build server",
+                        repo: "demo",
+                    },
+                    name: "search_code",
+                },
+            }),
+            { githubUserId: "123" }
+        );
+        const badTop = await server.handleJsonRpcMessage(
+            JSON.stringify({
+                id: "bad-top",
+                jsonrpc: "2.0",
+                method: "tools/call",
+                params: {
+                    arguments: {
+                        owner: "octo",
+                        query: "build server",
+                        repo: "demo",
+                        top: 1001,
+                    },
+                    name: "search_code",
+                },
+            }),
+            { githubUserId: "123" }
+        );
+
+        expect(badPrNumber).toMatchObject({
+            error: { message: "prNumber must be a positive integer" },
+            id: "bad-pr",
+        });
+        expect(badTop).toMatchObject({
+            error: {
+                message: "top must be a positive integer no greater than 1000",
+            },
+            id: "bad-top",
+        });
+        expect(resolveRepository).not.toHaveBeenCalled();
+        expect(search).not.toHaveBeenCalled();
+    });
+
     it("returns protocol errors for malformed JSON-RPC requests", async () => {
         const { server } = makeServer();
 

@@ -211,7 +211,7 @@ describe("code-indexer server", () => {
 
             expect(response.statusCode).toBe(400);
             expect(JSON.parse(response.body)).toEqual({
-                error: "top must be greater than 0",
+                error: "top must be a positive integer no greater than 1000",
                 status: "error",
             });
             expect(search).not.toHaveBeenCalled();

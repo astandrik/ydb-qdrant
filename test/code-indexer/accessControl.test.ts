@@ -15,7 +15,10 @@ const context: CodeIndexerAccessContext = {
     },
 };
 
-function createStore(status: "active" | "deleted" | "suspended") {
+function createStore(
+    status: "active" | "deleted" | "suspended",
+    repoStatus: "queued" | "indexing" | "ready" | "failed" | "deleted" = "ready"
+) {
     return {
         getGitHubUser: vi.fn(),
         getRepository: vi.fn(() =>
@@ -25,7 +28,7 @@ function createStore(status: "active" | "deleted" | "suspended") {
                 owner: "astandrik",
                 repo: "local-ydb-toolkit",
                 repoId: "456",
-                status: "ready",
+                status: repoStatus,
             })
         ),
         getSession: vi.fn(),
@@ -82,5 +85,20 @@ describe("code-indexer access control", () => {
                 statusCode: 403,
             });
         }
+    });
+
+    it("rejects deleted repositories even when the installation is active", async () => {
+        const store = createStore("active", "deleted");
+
+        await expect(
+            requireRepositoryAccess({
+                context,
+                repoId: "456",
+                store,
+            })
+        ).rejects.toMatchObject({
+            code: "github_repository_forbidden",
+            statusCode: 403,
+        });
     });
 });

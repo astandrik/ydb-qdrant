@@ -2,6 +2,7 @@ import readline from "node:readline";
 import type { Readable, Writable } from "node:stream";
 
 import {
+    CODE_SEARCH_MAX_TOP,
     formatCodeSearchResponse,
     parseCodeSearchRequest,
     searchCode,
@@ -517,11 +518,22 @@ export class CodeIndexerMcpServer {
                     "owner/repo search requires authenticated MCP access"
                 );
             }
-            const top = readNumber(args.top) ?? 10;
-            if (top <= 0) {
-                throw new Error("top must be greater than 0");
+            const top =
+                args.top === undefined
+                    ? 10
+                    : readBoundedPositiveInteger(args.top, CODE_SEARCH_MAX_TOP);
+            if (top === null) {
+                throw new Error(
+                    `top must be a positive integer no greater than ${CODE_SEARCH_MAX_TOP}`
+                );
             }
-            const prNumber = readNumber(args.prNumber);
+            const prNumber =
+                args.prNumber === undefined
+                    ? null
+                    : readPositiveInteger(args.prNumber);
+            if (args.prNumber !== undefined && prNumber === null) {
+                throw new Error("prNumber must be a positive integer");
+            }
             const resolved = await this.deps.repositoryResolver.resolveRepository({
                 githubUserId: context.githubUserId,
                 owner,
@@ -665,6 +677,19 @@ function formatRepositoryIndexesResponse(
 
 function readNumber(value: unknown): number | null {
     return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readPositiveInteger(value: unknown): number | null {
+    return typeof value === "number" &&
+        Number.isSafeInteger(value) &&
+        value > 0
+        ? value
+        : null;
+}
+
+function readBoundedPositiveInteger(value: unknown, max: number): number | null {
+    const number = readPositiveInteger(value);
+    return number !== null && number <= max ? number : null;
 }
 
 function readString(value: unknown): string | null {

@@ -26,6 +26,8 @@ export type CodeSearchResponse = {
     userUid: string;
 };
 
+export const CODE_SEARCH_MAX_TOP = 1000;
+
 export type CodeSearchDeps = {
     embeddingProvider: EmbeddingProvider;
     quota?: CodeIndexerQuota;
@@ -39,10 +41,6 @@ export class CodeSearchRequestError extends Error {
         super(message);
         this.name = "CodeSearchRequestError";
     }
-}
-
-function readNumber(value: unknown): number | null {
-    return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function readPositiveInteger(value: unknown): number | null {
@@ -90,7 +88,10 @@ export function parseCodeSearchRequest(value: unknown): CodeSearchRequest {
     const installationId = readPositiveInteger(body.installationId);
     const repoId = readPositiveInteger(body.repoId);
     const query = readString(body.query);
-    const top = readNumber(body.top) ?? 10;
+    const top =
+        body.top === undefined
+            ? 10
+            : readBoundedPositiveInteger(body.top, CODE_SEARCH_MAX_TOP);
     const prNumber =
         body.prNumber === undefined ? null : readPositiveInteger(body.prNumber);
 
@@ -99,8 +100,10 @@ export function parseCodeSearchRequest(value: unknown): CodeSearchRequest {
             "installationId, repoId, and query are required"
         );
     }
-    if (top <= 0) {
-        throw new CodeSearchRequestError("top must be greater than 0");
+    if (top === null) {
+        throw new CodeSearchRequestError(
+            `top must be a positive integer no greater than ${CODE_SEARCH_MAX_TOP}`
+        );
     }
     if (body.prNumber !== undefined && prNumber === null) {
         throw new CodeSearchRequestError("prNumber must be a positive integer");
@@ -113,6 +116,11 @@ export function parseCodeSearchRequest(value: unknown): CodeSearchRequest {
         repoId,
         top,
     };
+}
+
+function readBoundedPositiveInteger(value: unknown, max: number): number | null {
+    const number = readPositiveInteger(value);
+    return number !== null && number <= max ? number : null;
 }
 
 export async function searchCode(

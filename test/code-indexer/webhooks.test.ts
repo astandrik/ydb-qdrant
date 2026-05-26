@@ -600,6 +600,97 @@ describe("code-indexer webhook handler", () => {
         });
     });
 
+    it("loads installed repositories for uninstall cleanup when GitHub omits the repository list", async () => {
+        const body = Buffer.from(
+            JSON.stringify({
+                action: "deleted",
+                installation: {
+                    account: { login: "octo", type: "User" },
+                    id: 7,
+                },
+            })
+        );
+        const enqueue = vi.fn(() =>
+            Promise.resolve({
+                jobId: "job-1",
+                phase: "queued",
+                status: "pending",
+            })
+        );
+        const lifecycleStore = {
+            listRepositoriesForInstallation: vi.fn(() =>
+                Promise.resolve([
+                    {
+                        defaultBranch: "main",
+                        installationId: "7",
+                        owner: "octo",
+                        repo: "demo",
+                        repoId: "42",
+                        status: "ready",
+                    },
+                ])
+            ),
+            markRepositoryStatus: vi.fn(() => Promise.resolve()),
+            upsertInstallation: vi.fn(() => Promise.resolve()),
+            upsertRepository: vi.fn(() => Promise.resolve()),
+        };
+        const handler = createWebhookHandler({
+            deliveryStore: {
+                has: vi.fn(() => Promise.resolve(false)),
+                mark: vi.fn(() => Promise.resolve()),
+            },
+            lifecycleStore,
+            queue: { enqueue },
+            webhookSecret: "secret",
+        });
+        const req = {
+            body,
+            header(name: string): string | undefined {
+                const headers: Record<string, string> = {
+                    "X-GitHub-Delivery": "delivery-delete",
+                    "X-GitHub-Event": "installation",
+                    "X-Hub-Signature-256": createWebhookSignature(
+                        "secret",
+                        body
+                    ),
+                };
+                return headers[name];
+            },
+        } as unknown as Request;
+        const res = {
+            json: vi.fn(),
+            status: vi.fn(() => res),
+        } as unknown as Response;
+
+        await handler(req, res);
+
+        expect(lifecycleStore.listRepositoriesForInstallation).toHaveBeenCalledWith(
+            7
+        );
+        expect(lifecycleStore.upsertInstallation).toHaveBeenCalledWith({
+            accountLogin: "octo",
+            accountType: "User",
+            installationId: 7,
+            status: "deleted",
+        });
+        expect(lifecycleStore.upsertRepository).toHaveBeenCalledWith({
+            defaultBranch: "main",
+            installationId: 7,
+            owner: "octo",
+            repo: "demo",
+            repoId: 42,
+            status: "deleted",
+        });
+        expect(enqueue).toHaveBeenCalledWith({
+            deliveryId: "delivery-delete",
+            installationId: 7,
+            kind: "delete-repo-index",
+            reason: "installation-deleted",
+            repository: repository(),
+        });
+        expect(res.json).toHaveBeenCalledWith({ enqueued: 1, status: "accepted" });
+    });
+
     it("does not overwrite default branch repository status for PR jobs", async () => {
         const body = Buffer.from(
             JSON.stringify({

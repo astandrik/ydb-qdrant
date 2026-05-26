@@ -16,7 +16,17 @@ type WebhookDependencies = {
     webhookSecret: string;
 };
 
+type WebhookStoredRepository = {
+    defaultBranch: string;
+    owner: string;
+    repo: string;
+    repoId: number | string;
+};
+
 export type WebhookLifecycleStore = {
+    listRepositoriesForInstallation?(
+        installationId: number | string
+    ): Promise<WebhookStoredRepository[]>;
     markRepositoryStatus(params: {
         defaultBranch?: string;
         installationId?: number | string;
@@ -463,7 +473,12 @@ export function createWebhookHandler(deps: WebhookDependencies) {
         }
 
         try {
-            const jobs = mapWebhookToJobs({ deliveryId, event, payload });
+            const jobs = await jobsForWebhook({
+                deliveryId,
+                event,
+                lifecycleStore: deps.lifecycleStore,
+                payload,
+            });
             if (deps.lifecycleStore) {
                 await recordWebhookLifecycle({
                     event,
@@ -485,6 +500,63 @@ export function createWebhookHandler(deps: WebhookDependencies) {
             }
             throw err;
         }
+    };
+}
+
+async function jobsForWebhook(params: {
+    deliveryId: string;
+    event: string;
+    lifecycleStore?: WebhookLifecycleStore;
+    payload: unknown;
+}): Promise<IndexingJob[]> {
+    const jobs = mapWebhookToJobs(params);
+    if (jobs.length > 0 || !isInstallationDeleted(params.event, params.payload)) {
+        return jobs;
+    }
+    const installationId = readInstallationId(params.payload);
+    if (
+        installationId === null ||
+        !params.lifecycleStore?.listRepositoriesForInstallation
+    ) {
+        return jobs;
+    }
+    const repositories =
+        await params.lifecycleStore.listRepositoriesForInstallation(installationId);
+    return repositories
+        .map(storedRepositoryToRef)
+        .filter((repository): repository is GitHubRepositoryRef => repository !== null)
+        .map((repository) => ({
+            deliveryId: params.deliveryId,
+            installationId,
+            kind: "delete-repo-index" as const,
+            reason: "installation-deleted",
+            repository,
+        }));
+}
+
+function isInstallationDeleted(event: string, payload: unknown): boolean {
+    return (
+        event === "installation" &&
+        isRecord(payload) &&
+        payload.action === "deleted"
+    );
+}
+
+function storedRepositoryToRef(
+    repository: WebhookStoredRepository
+): GitHubRepositoryRef | null {
+    const repoId =
+        typeof repository.repoId === "number"
+            ? repository.repoId
+            : Number(repository.repoId);
+    if (!Number.isSafeInteger(repoId) || repoId <= 0) {
+        return null;
+    }
+    return {
+        defaultBranch: repository.defaultBranch,
+        owner: repository.owner,
+        repo: repository.repo,
+        repoId,
     };
 }
 
