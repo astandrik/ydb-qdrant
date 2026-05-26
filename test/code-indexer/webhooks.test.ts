@@ -471,6 +471,53 @@ describe("code-indexer webhook handler", () => {
         });
     });
 
+    it("releases an atomic delivery reservation when enqueue fails", async () => {
+        const body = Buffer.from(
+            JSON.stringify({
+                after: "b".repeat(40),
+                before: "a".repeat(40),
+                installation: { id: 7 },
+                ref: "refs/heads/main",
+                repository: repositoryPayload(),
+            })
+        );
+        const enqueueError = new Error("enqueue failed");
+        const queue: IndexingQueue = {
+            enqueue: vi.fn(() => Promise.reject(enqueueError)),
+        };
+        const release = vi.fn(() => Promise.resolve());
+        const deliveryStore: DeliveryStore = {
+            has: vi.fn(),
+            mark: vi.fn(),
+            release,
+            reserve: vi.fn(() => Promise.resolve(true)),
+        };
+        const handler = createWebhookHandler({
+            deliveryStore,
+            queue,
+            webhookSecret: "secret",
+        });
+        const req = {
+            body,
+            header(name: string): string | undefined {
+                const headers: Record<string, string> = {
+                    "X-GitHub-Delivery": "delivery-1",
+                    "X-GitHub-Event": "push",
+                    "X-Hub-Signature-256": createWebhookSignature("secret", body),
+                };
+                return headers[name];
+            },
+        } as unknown as Request;
+        const res = {
+            json: vi.fn(),
+            status: vi.fn(() => res),
+        } as unknown as Response;
+
+        await expect(handler(req, res)).rejects.toThrow("enqueue failed");
+
+        expect(release).toHaveBeenCalledWith("delivery-1");
+    });
+
     it("records lifecycle status before enqueueing uninstall jobs", async () => {
         const body = Buffer.from(
             JSON.stringify({

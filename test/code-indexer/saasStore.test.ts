@@ -594,6 +594,26 @@ describe("code-indexer SaaS store", () => {
         });
     });
 
+    it("deletes usage counters when deleting a GitHub user", async () => {
+        const { saasStore, withSessionMock } = await importSaasStore();
+        const session = readyStore({ withSessionMock });
+        const store = new saasStore.YdbCodeIndexerSaasStore({
+            encryptionSecret: "encryption-secret",
+            tokenPepper: "pepper",
+        });
+        await saasStore.ensureCodeIndexerSaasTables();
+        session.executeQuery.mockClear();
+
+        await store.deleteGitHubUser("123");
+
+        expect(session.executeQuery.mock.calls[0]?.[0]).toContain(
+            "DELETE FROM qdrant_code_indexer_usage_daily"
+        );
+        expect(queryParamsAt(session, 0).$github_user_id?.value).toEqual({
+            textValue: "123",
+        });
+    });
+
     it("writes sanitized audit metadata as optional JSON", async () => {
         const { saasStore, withSessionMock } = await importSaasStore();
         const session = readyStore({ withSessionMock });

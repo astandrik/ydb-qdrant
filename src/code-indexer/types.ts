@@ -335,12 +335,17 @@ export interface CodeIndexStore {
 }
 
 export interface IndexingQueue {
+    deleteRepositoryJobs?(params: {
+        installationId: number | string;
+        repoId: number | string;
+    }): Promise<number | void>;
     enqueue(job: IndexingJob): Promise<EnqueuedIndexingJob>;
 }
 
 export interface DeliveryStore {
     has(deliveryId: string): Promise<boolean>;
     mark(deliveryId: string): Promise<void>;
+    release?(deliveryId: string): Promise<void>;
     reserve?(deliveryId: string): Promise<boolean>;
 }
 

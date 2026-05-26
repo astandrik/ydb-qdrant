@@ -210,7 +210,7 @@ function registerAuthRoutes(
                         accountType: installationToLink.accountType,
                         createdByGithubUserId: user.id,
                         installationId: installationToLink.id,
-                        status: "active",
+                        status: installationToLink.status,
                     });
                 }
 

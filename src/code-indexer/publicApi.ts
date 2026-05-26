@@ -48,9 +48,14 @@ export type CodeIndexerPublicApiStore = CodeIndexerAccessStore & {
         plaintextToken: string;
         tokenId: string;
     }): Promise<void>;
+    countInstallationUsers(installationId: number | string): Promise<number>;
     deleteApiTokensForUser(githubUserId: number | string): Promise<void>;
     deleteGitHubUser(githubUserId: number | string): Promise<void>;
     deleteInstallation(installationId: number | string): Promise<void>;
+    deleteInstallationUser(params: {
+        githubUserId: number | string;
+        installationId: number | string;
+    }): Promise<void>;
     deleteRepositoriesForInstallation(
         installationId: number | string
     ): Promise<void>;
@@ -647,8 +652,20 @@ export function createPublicApiRouter(deps: CodeIndexerPublicApiDeps) {
                 const installations = await deps.store.listInstallationsForUser(
                     context.user.githubUserId
                 );
+                let deletedInstallations = 0;
                 let deletedRepositories = 0;
                 for (const installation of installations) {
+                    await deps.store.deleteInstallationUser({
+                        githubUserId: context.user.githubUserId,
+                        installationId: installation.installationId,
+                    });
+                    const remainingUsers =
+                        await deps.store.countInstallationUsers(
+                            installation.installationId
+                        );
+                    if (remainingUsers > 0) {
+                        continue;
+                    }
                     const repositories =
                         await deps.store.listRepositoriesForInstallation(
                             installation.installationId
@@ -662,6 +679,10 @@ export function createPublicApiRouter(deps: CodeIndexerPublicApiDeps) {
                             repository.repoId,
                             "repoId"
                         );
+                        await deps.queue.deleteRepositoryJobs?.({
+                            installationId,
+                            repoId,
+                        });
                         const userUid = userUidForInstallation(installationId);
                         const indexedCollections =
                             await listIndexedCollectionsForRepository({
@@ -679,12 +700,6 @@ export function createPublicApiRouter(deps: CodeIndexerPublicApiDeps) {
                                 userUid,
                             });
                         }
-                        await deps.queue.enqueue({
-                            installationId,
-                            kind: "delete-repo-index",
-                            reason: "privacy-delete",
-                            repository: repositoryRefFromRecord(repository),
-                        });
                         deletedRepositories += 1;
                     }
                     await deps.store.deleteRepositoriesForInstallation(
@@ -693,6 +708,7 @@ export function createPublicApiRouter(deps: CodeIndexerPublicApiDeps) {
                     await deps.store.deleteInstallation(
                         installation.installationId
                     );
+                    deletedInstallations += 1;
                 }
                 await deps.store.deleteSessionsForUser(
                     context.user.githubUserId
@@ -702,7 +718,7 @@ export function createPublicApiRouter(deps: CodeIndexerPublicApiDeps) {
                 );
                 await deps.store.deleteGitHubUser(context.user.githubUserId);
                 res.json({
-                    deletedInstallations: installations.length,
+                    deletedInstallations,
                     deletedRepositories,
                     status: "ok",
                 });

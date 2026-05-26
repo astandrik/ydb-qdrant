@@ -89,6 +89,7 @@ function createBaseDeps() {
             status: "pending" as const,
         })
     );
+    const deleteRepositoryJobs = vi.fn(() => Promise.resolve());
     const embeddingProvider: EmbeddingProvider = {
         dimension: 2,
         embedDocuments: vi.fn(),
@@ -161,6 +162,7 @@ function createBaseDeps() {
         listAdminJobs(params?: { limit?: number }): Promise<TestAdminJob[]>;
     };
     const queue: IndexingQueue = {
+        deleteRepositoryJobs,
         enqueue,
     };
     const listCollectionsByPrefix = vi.fn(() => Promise.resolve([]));
@@ -173,6 +175,7 @@ function createBaseDeps() {
     return {
         deleteCollection,
         deliveryStore,
+        deleteRepositoryJobs,
         embeddingProvider,
         enqueue,
         getJobProgress,
@@ -261,6 +264,7 @@ function createPublicApiStore() {
             users.delete(String(githubUserId));
             return Promise.resolve();
         }),
+        countInstallationUsers: vi.fn(() => Promise.resolve(0)),
         deleteInstallation: vi.fn((installationId: number | string) => {
             const index = installations.findIndex(
                 (installation) =>
@@ -288,6 +292,7 @@ function createPublicApiStore() {
                 return Promise.resolve();
             }
         ),
+        deleteInstallationUser: vi.fn(() => Promise.resolve()),
         deleteSessionsForUser: vi.fn((githubUserId: number | string) => {
             for (const [sessionId, session] of sessions.entries()) {
                 if (session.githubUserId === String(githubUserId)) {
@@ -1073,16 +1078,14 @@ describe("code-indexer public API", () => {
                 collection: "gh_repo_456_pr_3",
                 userUid: "gh_installation_777",
             });
-            expect(deps.enqueue).toHaveBeenCalledWith({
+            expect(deps.deleteRepositoryJobs).toHaveBeenCalledWith({
                 installationId: 777,
-                kind: "delete-repo-index",
-                reason: "privacy-delete",
-                repository: {
-                    defaultBranch: "main",
-                    owner: "astandrik",
-                    repo: "local-ydb-toolkit",
-                    repoId: 456,
-                },
+                repoId: 456,
+            });
+            expect(deps.enqueue).not.toHaveBeenCalled();
+            expect(store.deleteInstallationUser).toHaveBeenCalledWith({
+                githubUserId: "123",
+                installationId: "777",
             });
             expect(store.deleteSessionsForUser).toHaveBeenCalledWith("123");
             expect(store.deleteApiTokensForUser).toHaveBeenCalledWith("123");
@@ -1091,6 +1094,36 @@ describe("code-indexer public API", () => {
             );
             expect(store.deleteInstallation).toHaveBeenCalledWith("777");
             expect(store.deleteGitHubUser).toHaveBeenCalledWith("123");
+        } finally {
+            await closeServer(server);
+        }
+    });
+
+    it("does not delete shared installations or repositories during privacy deletion", async () => {
+        const { baseUrl, deps, server, store } = await startPublicApiServer();
+        store.countInstallationUsers.mockResolvedValueOnce(1);
+        try {
+            const response = await request({
+                baseUrl,
+                cookie: sessionCookie(),
+                method: "POST",
+                path: "/api/privacy/delete-my-data",
+            });
+
+            expect(response.statusCode).toBe(200);
+            expect(JSON.parse(response.body)).toEqual({
+                deletedInstallations: 0,
+                deletedRepositories: 0,
+                status: "ok",
+            });
+            expect(store.deleteInstallationUser).toHaveBeenCalledWith({
+                githubUserId: "123",
+                installationId: "777",
+            });
+            expect(store.deleteRepositoriesForInstallation).not.toHaveBeenCalled();
+            expect(store.deleteInstallation).not.toHaveBeenCalled();
+            expect(deps.deleteCollection).not.toHaveBeenCalled();
+            expect(deps.deleteRepositoryJobs).not.toHaveBeenCalled();
         } finally {
             await closeServer(server);
         }

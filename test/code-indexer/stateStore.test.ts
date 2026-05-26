@@ -736,6 +736,7 @@ describe("code-indexer durable state store", () => {
             | {
                   $job_id?: { type?: unknown; value?: unknown };
                   $payload?: { type?: unknown };
+                  $repo_key?: { type?: unknown; value?: unknown };
               }
             | undefined;
         expect(params?.$job_id?.type).toBe("Utf8");
@@ -743,6 +744,10 @@ describe("code-indexer durable state store", () => {
             expect.stringMatching(/^delivery-1:[a-f0-9]{24}$/)
         );
         expect(params?.$payload?.type).toBe("JsonDocument");
+        expect(params?.$repo_key).toEqual({
+            type: "Utf8",
+            value: "7/42",
+        });
     });
 
     it("resets interrupted jobs, claims pending jobs, and marks them completed", async () => {
@@ -797,6 +802,15 @@ describe("code-indexer durable state store", () => {
                 yql.includes('SET status = Utf8("running")')
             )
         ).toBe(true);
+        const executeCalls = session.executeQuery.mock.calls as Array<
+            [string, { $repo_key?: { value?: unknown } }]
+        >;
+        const claimCall = executeCalls.find(([yql]) =>
+            yql.includes('SET status = Utf8("running")')
+        );
+        expect(claimCall?.[0]).toContain("repo_key = $repo_key");
+        expect(claimCall?.[0]).toContain("NOT EXISTS");
+        expect(claimCall?.[1].$repo_key?.value).toBe("7/42");
         expect(
             session.executeQuery.mock.calls.some(([yql]: [string]) =>
                 yql.includes('SET status = Utf8("completed")')

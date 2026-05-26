@@ -638,15 +638,24 @@ async function ensureJobsTable(): Promise<void> {
             const hasClaimId = tableDescription.columns?.some(
                 (column) => column.name === "claim_id"
             );
-            if (!hasClaimId) {
+            const hasRepoKey = tableDescription.columns?.some(
+                (column) => column.name === "repo_key"
+            );
+            const missingColumns = [
+                ...(hasClaimId
+                    ? []
+                    : [new Column("claim_id", Types.optional(Types.UTF8))]),
+                ...(hasRepoKey
+                    ? []
+                    : [new Column("repo_key", Types.optional(Types.UTF8))]),
+            ];
+            if (missingColumns.length > 0) {
                 const alter = new AlterTableDescription();
-                alter.addColumns = [
-                    new Column("claim_id", Types.optional(Types.UTF8)),
-                ];
+                alter.addColumns = missingColumns;
                 try {
                     await session.alterTable(CODE_INDEXER_JOBS_TABLE, alter);
                     logger.info(
-                        `added claim_id column to code-indexer jobs table ${CODE_INDEXER_JOBS_TABLE}`
+                        `added missing columns to code-indexer jobs table ${CODE_INDEXER_JOBS_TABLE}`
                     );
                 } catch (err: unknown) {
                     if (!isAlreadyExistsError(err)) {
@@ -666,6 +675,7 @@ async function ensureJobsTable(): Promise<void> {
                 new Column("created_at", Types.TIMESTAMP),
                 new Column("updated_at", Types.TIMESTAMP),
                 new Column("claim_id", Types.optional(Types.UTF8)),
+                new Column("repo_key", Types.optional(Types.UTF8)),
                 new Column("last_error", Types.optional(Types.UTF8))
             )
             .withPrimaryKeys("job_id");
@@ -1229,6 +1239,24 @@ export class YdbDeliveryStore implements DeliveryStore {
         });
     }
 
+    async release(deliveryId: string): Promise<void> {
+        await ensureCodeIndexerStateTables();
+        const yql = `
+            DECLARE $delivery_id AS Utf8;
+
+            DELETE FROM ${CODE_INDEXER_DELIVERIES_TABLE}
+            WHERE delivery_id = $delivery_id;
+        `;
+        await withSession(async (session) => {
+            await session.executeQuery(
+                yql,
+                { $delivery_id: TypedValues.utf8(deliveryId) },
+                undefined,
+                createExecuteQuerySettings()
+            );
+        });
+    }
+
     async reserve(deliveryId: string): Promise<boolean> {
         await ensureCodeIndexerStateTables();
         const yql = `
@@ -1422,6 +1450,41 @@ export class YdbIndexingQueue implements IndexingQueue {
         return { jobId, phase: "queued", status: "pending" };
     }
 
+    async deleteRepositoryJobs(params: {
+        installationId: number | string;
+        repoId: number | string;
+    }): Promise<void> {
+        await ensureCodeIndexerStateTables();
+        const yql = `
+            DECLARE $installation_id AS Utf8;
+            DECLARE $repo_id AS Utf8;
+            DECLARE $repo_key AS Utf8;
+
+            DELETE FROM ${CODE_INDEXER_JOBS_TABLE}
+            WHERE repo_key = $repo_key;
+
+            DELETE FROM ${CODE_INDEXER_JOB_PROGRESS_TABLE}
+            WHERE installation_id = $installation_id
+                AND repo_id = $repo_id;
+        `;
+        await withSession(async (session) => {
+            await session.executeQuery(
+                yql,
+                {
+                    $installation_id: TypedValues.utf8(
+                        String(params.installationId)
+                    ),
+                    $repo_id: TypedValues.utf8(String(params.repoId)),
+                    $repo_key: TypedValues.utf8(
+                        `${params.installationId}/${params.repoId}`
+                    ),
+                },
+                undefined,
+                createExecuteQuerySettings()
+            );
+        });
+    }
+
     start(): void {
         if (this.started) {
             return;
@@ -1585,14 +1648,25 @@ export class YdbIndexingQueue implements IndexingQueue {
         const yql = `
             DECLARE $job_id AS Utf8;
             DECLARE $payload AS JsonDocument;
+            DECLARE $repo_key AS Utf8;
 
             UPSERT INTO ${CODE_INDEXER_JOBS_TABLE}
-                (job_id, status, attempts, payload, created_at, updated_at, last_error)
+                (
+                    job_id,
+                    status,
+                    attempts,
+                    payload,
+                    repo_key,
+                    created_at,
+                    updated_at,
+                    last_error
+                )
             VALUES (
                 $job_id,
                 Utf8("pending"),
                 0u,
                 $payload,
+                $repo_key,
                 CurrentUtcTimestamp(),
                 CurrentUtcTimestamp(),
                 CAST(NULL AS Utf8?)
@@ -1604,6 +1678,7 @@ export class YdbIndexingQueue implements IndexingQueue {
                 {
                     $job_id: TypedValues.utf8(jobId),
                     $payload: TypedValues.jsonDocument(ensureJsonSerializable(job)),
+                    $repo_key: TypedValues.utf8(repoLockKeyForJob(job)),
                 },
                 undefined,
                 createExecuteQuerySettings()
@@ -1618,11 +1693,16 @@ export class YdbIndexingQueue implements IndexingQueue {
                 return null;
             }
             const claimId = randomUUID();
-            const claimed = await this.markJobRunning(storedJob.jobId, claimId);
+            const repoKey = repoLockKeyForJob(storedJob.job);
+            const claimed = await this.markJobRunning(
+                storedJob.jobId,
+                claimId,
+                repoKey
+            );
             if (!claimed) {
                 return null;
             }
-            this.runningRepoKeys.add(repoLockKeyForJob(storedJob.job));
+            this.runningRepoKeys.add(repoKey);
             return storedJob;
         });
     }
@@ -1664,23 +1744,44 @@ export class YdbIndexingQueue implements IndexingQueue {
         });
     }
 
-    private async markJobRunning(jobId: string, claimId: string): Promise<boolean> {
+    private async markJobRunning(
+        jobId: string,
+        claimId: string,
+        repoKey: string
+    ): Promise<boolean> {
         const yql = `
             DECLARE $job_id AS Utf8;
             DECLARE $claim_id AS Utf8;
+            DECLARE $repo_key AS Utf8;
+
+            $running_for_repo = (
+                SELECT job_id
+                FROM ${CODE_INDEXER_JOBS_TABLE}
+                WHERE repo_key = $repo_key
+                    AND status = Utf8("running")
+                LIMIT 1
+            );
 
             UPDATE ${CODE_INDEXER_JOBS_TABLE}
             SET status = Utf8("running"),
                 attempts = attempts + 1u,
                 claim_id = $claim_id,
+                repo_key = $repo_key,
                 updated_at = CurrentUtcTimestamp()
-            WHERE job_id = $job_id AND status = Utf8("pending");
+            WHERE job_id = $job_id
+                AND status = Utf8("pending")
+                AND (repo_key = $repo_key OR repo_key IS NULL)
+                AND NOT EXISTS (
+                    SELECT *
+                    FROM $running_for_repo
+                );
 
             SELECT job_id
             FROM ${CODE_INDEXER_JOBS_TABLE}
             WHERE job_id = $job_id
                 AND status = Utf8("running")
                 AND claim_id = $claim_id
+                AND repo_key = $repo_key
             LIMIT 1;
         `;
         const result = await withSession(async (session) => {
@@ -1689,6 +1790,7 @@ export class YdbIndexingQueue implements IndexingQueue {
                 {
                     $claim_id: TypedValues.utf8(claimId),
                     $job_id: TypedValues.utf8(jobId),
+                    $repo_key: TypedValues.utf8(repoKey),
                 },
                 undefined,
                 createExecuteQuerySettings()

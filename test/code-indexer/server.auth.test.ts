@@ -383,6 +383,55 @@ describe("code-indexer auth routes", () => {
         }
     });
 
+    it("preserves suspended installation status after a successful callback", async () => {
+        const fetchImpl: typeof fetch = (input) => {
+            const url = fetchInputUrl(input);
+            if (url.origin === "https://github.example.test") {
+                return Promise.resolve(jsonResponse({
+                    access_token: "ghu-user",
+                    token_type: "bearer",
+                }));
+            }
+            if (url.pathname === "/user") {
+                return Promise.resolve(jsonResponse({ id: 123, login: "octocat" }));
+            }
+            if (url.pathname === "/user/installations") {
+                return Promise.resolve(jsonResponse({
+                    installations: [
+                        {
+                            account: { login: "astandrik", type: "User" },
+                            id: 777,
+                            suspended_at: "2026-05-25T12:00:00Z",
+                        },
+                    ],
+                    total_count: 1,
+                }));
+            }
+            throw new Error(`unexpected GitHub URL ${url.toString()}`);
+        };
+        const { baseUrl, server, store } = await startAuthServer({ fetchImpl });
+        try {
+            const { cookie, state } = await createState(baseUrl);
+            const response = await request({
+                baseUrl,
+                headers: { Cookie: cookie },
+                path:
+                    "/github/oauth/callback?code=oauth-code&state=" +
+                    encodeURIComponent(state),
+            });
+
+            expect(response.statusCode).toBe(302);
+            expect(store.upsertInstallation).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    installationId: "777",
+                    status: "suspended",
+                })
+            );
+        } finally {
+            await closeServer(server);
+        }
+    });
+
     it("rejects GitHub install OAuth callbacks without signed state", async () => {
         const fetchImpl: typeof fetch = (input) => {
             const url = fetchInputUrl(input);

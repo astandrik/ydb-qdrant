@@ -38,6 +38,7 @@ export type GitHubUserInstallation = {
     accountLogin: string;
     accountType: string;
     id: string;
+    status: "active" | "suspended";
 };
 
 export type GitHubOAuthClientOptions = {
@@ -253,7 +254,12 @@ function parseGitHubInstallation(
     if (!accountLogin || !accountType) {
         return null;
     }
-    return { accountLogin, accountType, id };
+    return {
+        accountLogin,
+        accountType,
+        id,
+        status: value.suspended_at ? "suspended" : "active",
+    };
 }
 
 async function readJson(response: Response): Promise<unknown> {

@@ -746,6 +746,9 @@ export class YdbCodeIndexerSaasStore {
 
             DELETE FROM ${CODE_INDEXER_INSTALLATION_USERS_TABLE}
             WHERE github_user_id = $github_user_id;
+
+            DELETE FROM ${CODE_INDEXER_USAGE_DAILY_TABLE}
+            WHERE github_user_id = $github_user_id;
         `;
         await withSession(async (session) => {
             await session.executeQuery(
@@ -903,6 +906,62 @@ export class YdbCodeIndexerSaasStore {
             )) as ExecuteQueryResultLike;
         });
         return (result.resultSets?.[0]?.rows ?? []).map(parseInstallationRow);
+    }
+
+    async countInstallationUsers(
+        installationId: number | string
+    ): Promise<number> {
+        await ensureCodeIndexerSaasTables();
+        const yql = `
+            DECLARE $installation_id AS Utf8;
+
+            SELECT COUNT(*) AS user_count
+            FROM ${CODE_INDEXER_INSTALLATION_USERS_TABLE}
+            WHERE installation_id = $installation_id;
+        `;
+        const result = await withSession(async (session) => {
+            return (await session.executeQuery(
+                yql,
+                {
+                    $installation_id: TypedValues.utf8(
+                        normalizeId(installationId)
+                    ),
+                },
+                undefined,
+                createExecuteQuerySettings()
+            )) as ExecuteQueryResultLike;
+        });
+        return readUint(readFirstRow(result) ?? {}, 0) ?? 0;
+    }
+
+    async deleteInstallationUser(params: {
+        githubUserId: number | string;
+        installationId: number | string;
+    }): Promise<void> {
+        await ensureCodeIndexerSaasTables();
+        const yql = `
+            DECLARE $github_user_id AS Utf8;
+            DECLARE $installation_id AS Utf8;
+
+            DELETE FROM ${CODE_INDEXER_INSTALLATION_USERS_TABLE}
+            WHERE github_user_id = $github_user_id
+                AND installation_id = $installation_id;
+        `;
+        await withSession(async (session) => {
+            await session.executeQuery(
+                yql,
+                {
+                    $github_user_id: TypedValues.utf8(
+                        normalizeId(params.githubUserId)
+                    ),
+                    $installation_id: TypedValues.utf8(
+                        normalizeId(params.installationId)
+                    ),
+                },
+                undefined,
+                createExecuteQuerySettings()
+            );
+        });
     }
 
     async deleteInstallation(installationId: number | string): Promise<void> {

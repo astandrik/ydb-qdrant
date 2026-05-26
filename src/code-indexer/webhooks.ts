@@ -455,30 +455,38 @@ export function createWebhookHandler(deps: WebhookDependencies) {
             return;
         }
 
-        const reserved = deps.deliveryStore.reserve
-            ? await deps.deliveryStore.reserve(deliveryId)
+        const usedAtomicReservation = deps.deliveryStore.reserve !== undefined;
+        const reserved = usedAtomicReservation
+            ? await deps.deliveryStore.reserve?.(deliveryId)
             : !(await deps.deliveryStore.has(deliveryId));
         if (!reserved) {
             res.json({ enqueued: 0, status: "duplicate" });
             return;
         }
 
-        const jobs = mapWebhookToJobs({ deliveryId, event, payload });
-        if (deps.lifecycleStore) {
-            await recordWebhookLifecycle({
-                event,
-                jobs,
-                payload,
-                store: deps.lifecycleStore,
-            });
+        try {
+            const jobs = mapWebhookToJobs({ deliveryId, event, payload });
+            if (deps.lifecycleStore) {
+                await recordWebhookLifecycle({
+                    event,
+                    jobs,
+                    payload,
+                    store: deps.lifecycleStore,
+                });
+            }
+            for (const job of jobs) {
+                await deps.queue.enqueue(job);
+            }
+            if (!usedAtomicReservation) {
+                await deps.deliveryStore.mark(deliveryId);
+            }
+            res.json({ enqueued: jobs.length, status: "accepted" });
+        } catch (err: unknown) {
+            if (usedAtomicReservation) {
+                await deps.deliveryStore.release?.(deliveryId).catch(() => undefined);
+            }
+            throw err;
         }
-        for (const job of jobs) {
-            await deps.queue.enqueue(job);
-        }
-        if (!deps.deliveryStore.reserve) {
-            await deps.deliveryStore.mark(deliveryId);
-        }
-        res.json({ enqueued: jobs.length, status: "accepted" });
     };
 }
 

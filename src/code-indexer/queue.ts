@@ -22,6 +22,11 @@ export class InMemoryDeliveryStore implements DeliveryStore {
         return Promise.resolve();
     }
 
+    release(deliveryId: string): Promise<void> {
+        this.deliveryIds.delete(deliveryId);
+        return Promise.resolve();
+    }
+
     reserve(deliveryId: string): Promise<boolean> {
         if (this.deliveryIds.has(deliveryId)) {
             return Promise.resolve(false);
@@ -101,6 +106,22 @@ export class InMemoryIndexingQueue implements IndexingQueue {
         this.jobs.push({ context: { jobId }, job });
         this.drain();
         return Promise.resolve({ jobId, phase: "queued", status: "pending" });
+    }
+
+    deleteRepositoryJobs(params: {
+        installationId: number | string;
+        repoId: number | string;
+    }): Promise<number> {
+        const repoKey = `${params.installationId}/${params.repoId}`;
+        let deleted = 0;
+        for (let index = this.jobs.length - 1; index >= 0; index -= 1) {
+            const item = this.jobs[index];
+            if (item && repoKeyForJob(item.job) === repoKey) {
+                this.jobs.splice(index, 1);
+                deleted += 1;
+            }
+        }
+        return Promise.resolve(deleted);
     }
 
     private drain(): void {
