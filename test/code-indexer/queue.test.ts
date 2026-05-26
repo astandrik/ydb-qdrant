@@ -53,12 +53,13 @@ async function flushAsync(): Promise<void> {
 
 function hasProgressUpdate(
     updates: Array<{ jobId: string; update: IndexingJobProgressUpdate }>,
+    jobId: string,
     phase: IndexingJobProgressUpdate["phase"],
     status: IndexingJobProgressUpdate["status"]
 ): boolean {
     return updates.some(
         (entry) =>
-            entry.jobId === "delivery-a:memory" &&
+            entry.jobId === jobId &&
             entry.update.phase === phase &&
             entry.update.status === status
     );
@@ -77,7 +78,7 @@ describe("InMemoryIndexingQueue", () => {
                 return Promise.resolve({
                     createdAt: new Date(),
                     installationId: "7",
-                    jobId: "delivery-a:memory",
+                    jobId: params.jobId,
                     jobKind: "incremental-push",
                     owner: "octo",
                     phase: "queued",
@@ -102,32 +103,53 @@ describe("InMemoryIndexingQueue", () => {
             progressStore,
         });
 
-        await queue.enqueue(makeJob(42, "delivery-a"));
+        const enqueued = await queue.enqueue(makeJob(42, "delivery-a"));
 
         await vi.waitFor(() => {
             expect(processJob).toHaveBeenCalledTimes(1);
         });
         await vi.waitFor(() => {
-            expect(hasProgressUpdate(progressUpdates, "completed", "completed")).toBe(
-                true
-            );
+            expect(
+                hasProgressUpdate(
+                    progressUpdates,
+                    enqueued.jobId,
+                    "completed",
+                    "completed"
+                )
+            ).toBe(true);
         });
         expect(createdJobs).toContainEqual({
             job: makeJob(42, "delivery-a"),
-            jobId: "delivery-a:memory",
+            jobId: enqueued.jobId,
         });
-        expect(hasProgressUpdate(progressUpdates, "claiming", "running")).toBe(true);
+        expect(
+            hasProgressUpdate(progressUpdates, enqueued.jobId, "claiming", "running")
+        ).toBe(true);
+    });
+
+    it("generates distinct job ids for multiple memory jobs from one delivery", async () => {
+        const processJob = vi.fn(() => Promise.resolve());
+        const queue = new InMemoryIndexingQueue(processJob, {
+            concurrency: 2,
+        });
+
+        const first = await queue.enqueue(makeJob(42, "delivery-a"));
+        const second = await queue.enqueue(makeJob(43, "delivery-a"));
+
+        expect(first.jobId).not.toBe(second.jobId);
+        expect(first.jobId).toMatch(/^delivery-a:memory:/);
+        expect(second.jobId).toMatch(/^delivery-a:memory:/);
     });
 
     it("processes jobs for different repositories concurrently", async () => {
         const first = createDeferred();
         const second = createDeferred();
         const blockers = new Map([
-            ["delivery-a:memory", first],
-            ["delivery-b:memory", second],
+            [42, first],
+            [43, second],
         ]);
-        const processJob = vi.fn((_job, context: { jobId: string }) => {
-            return blockers.get(context.jobId)?.promise ?? Promise.resolve();
+        const processJob = vi.fn((job: IndexingJob) => {
+            return blockers.get(Number(job.repository.repoId))?.promise ?? Promise.resolve();
         });
         const queue = new InMemoryIndexingQueue(processJob, {
             concurrency: 2,
@@ -145,11 +167,11 @@ describe("InMemoryIndexingQueue", () => {
 
     it("serializes jobs for the same repository", async () => {
         const first = createDeferred();
-        const processJob = vi.fn((_job, context: { jobId: string }) =>
-            context.jobId === "delivery-a:memory"
-                ? first.promise
-                : Promise.resolve()
-        );
+        let callCount = 0;
+        const processJob = vi.fn(() => {
+            callCount += 1;
+            return callCount === 1 ? first.promise : Promise.resolve();
+        });
         const queue = new InMemoryIndexingQueue(processJob, {
             concurrency: 2,
         });

@@ -551,15 +551,13 @@ async function jobsForWebhook(params: {
                     repository !== null
             );
     }
-    if (
-        repositories.length === 0 &&
-        fallbackAction === "unsuspend" &&
-        params.repositorySource
-    ) {
-        repositories =
+    if (fallbackAction === "unsuspend" && params.repositorySource) {
+        repositories = mergeRepositoryRefs(
+            repositories,
             await params.repositorySource.listRepositoriesForInstallation(
                 installationId
-            );
+            )
+        );
     }
     return repositories
         .map((repository): IndexingJob => {
@@ -611,6 +609,21 @@ function storedRepositoryToRef(
         repo: repository.repo,
         repoId,
     };
+}
+
+function mergeRepositoryRefs(
+    storedRepositories: GitHubRepositoryRef[],
+    sourceRepositories: GitHubRepositoryRef[]
+): GitHubRepositoryRef[] {
+    const merged = new Map<string, GitHubRepositoryRef>();
+    for (const repository of [...storedRepositories, ...sourceRepositories]) {
+        merged.set(repositoryKey(repository), repository);
+    }
+    return [...merged.values()];
+}
+
+function repositoryKey(repository: GitHubRepositoryRef): string {
+    return String(repository.repoId);
 }
 
 async function recordWebhookLifecycle(params: {

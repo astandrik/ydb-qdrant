@@ -85,6 +85,7 @@ export class InMemoryIndexingQueue implements IndexingQueue {
         context: IndexingJobExecutionContext
     ) => Promise<void>;
     private readonly progressStore?: IndexingProgressStore;
+    private nextJobSequence = 0;
     private readonly repoIdleWaiters = new Map<string, Array<() => void>>();
     private readonly runningRepoKeys = new Set<string>();
 
@@ -106,7 +107,7 @@ export class InMemoryIndexingQueue implements IndexingQueue {
         status: "pending";
     }> {
         const jobId = job.deliveryId
-            ? `${job.deliveryId}:memory`
+            ? `${job.deliveryId}:memory:${this.nextJobSequence++}`
             : `memory:${randomUUID()}`;
         await this.progressStore?.createJobProgress({ job, jobId });
         this.jobs.push({ context: { jobId }, job });

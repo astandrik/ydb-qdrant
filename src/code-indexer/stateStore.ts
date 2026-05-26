@@ -50,6 +50,7 @@ export type YdbIndexingQueueOptions = {
     now?: () => Date;
     onFinalFailure?: (job: IndexingJob, err: unknown) => Promise<void>;
     progressStore?: IndexingProgressStore;
+    repoIdlePollMs?: number;
     retentionCleanupIntervalMs?: number;
     retentionDays?: number;
     retryBackoffMs?: number;
@@ -1414,6 +1415,7 @@ export class YdbIndexingQueue implements IndexingQueue {
         job: IndexingJob,
         context: IndexingJobExecutionContext
     ) => Promise<void>;
+    private readonly repoIdlePollMs: number;
     private readonly retentionMs: number;
     private readonly retentionCleanupIntervalMs: number;
     private readonly retryBackoffMs: number;
@@ -1445,6 +1447,10 @@ export class YdbIndexingQueue implements IndexingQueue {
             0,
             Math.floor(options.retryBackoffMs ?? 30_000)
         );
+        this.repoIdlePollMs = Math.max(
+            0,
+            Math.floor(options.repoIdlePollMs ?? 1_000)
+        );
         this.runningJobTimeoutMs = Math.max(
             1_000,
             Math.floor(options.runningJobTimeoutMs ?? 21_600_000)
@@ -1471,13 +1477,38 @@ export class YdbIndexingQueue implements IndexingQueue {
         await ensureCodeIndexerStateTables();
         const repoKey = `${params.installationId}/${params.repoId}`;
         while (true) {
-            await this.deleteStoredRepositoryJobs(params, repoKey);
+            await this.deleteNonRunningStoredRepositoryJobs(repoKey);
             await this.waitForRepoIdle(repoKey);
-            await this.deleteStoredRepositoryJobs(params, repoKey);
-            if (!this.runningRepoKeys.has(repoKey)) {
+            const hasRunningStoredJob =
+                await this.hasRunningStoredRepositoryJob(repoKey);
+            if (!hasRunningStoredJob) {
+                await this.deleteStoredRepositoryJobs(params, repoKey);
+            }
+            if (!this.runningRepoKeys.has(repoKey) && !hasRunningStoredJob) {
                 return;
             }
+            await sleep(this.repoIdlePollMs);
         }
+    }
+
+    private async deleteNonRunningStoredRepositoryJobs(
+        repoKey: string
+    ): Promise<void> {
+        const yql = `
+            DECLARE $repo_key AS Utf8;
+
+            DELETE FROM ${CODE_INDEXER_JOBS_TABLE}
+            WHERE repo_key = $repo_key
+                AND status != Utf8("running");
+        `;
+        await withSession(async (session) => {
+            await session.executeQuery(
+                yql,
+                { $repo_key: TypedValues.utf8(repoKey) },
+                undefined,
+                createExecuteQuerySettings()
+            );
+        });
     }
 
     private async deleteStoredRepositoryJobs(
@@ -1513,6 +1544,27 @@ export class YdbIndexingQueue implements IndexingQueue {
                 createExecuteQuerySettings()
             );
         });
+    }
+
+    private async hasRunningStoredRepositoryJob(repoKey: string): Promise<boolean> {
+        const yql = `
+            DECLARE $repo_key AS Utf8;
+
+            SELECT job_id
+            FROM ${CODE_INDEXER_JOBS_TABLE}
+            WHERE repo_key = $repo_key
+                AND status = Utf8("running")
+            LIMIT 1;
+        `;
+        const result = await withSession(async (session) => {
+            return (await session.executeQuery(
+                yql,
+                { $repo_key: TypedValues.utf8(repoKey) },
+                undefined,
+                createExecuteQuerySettings()
+            )) as ExecuteQueryResultLike;
+        });
+        return readFirstRow(result) !== null;
     }
 
     private waitForRepoIdle(repoKey: string): Promise<void> {
@@ -1722,6 +1774,12 @@ export class YdbIndexingQueue implements IndexingQueue {
             DECLARE $payload AS JsonDocument;
             DECLARE $repo_key AS Utf8;
 
+            $existing_job = (
+                SELECT job_id
+                FROM ${CODE_INDEXER_JOBS_TABLE}
+                WHERE job_id = $job_id
+            );
+
             UPSERT INTO ${CODE_INDEXER_JOBS_TABLE}
                 (
                     job_id,
@@ -1733,16 +1791,17 @@ export class YdbIndexingQueue implements IndexingQueue {
                     updated_at,
                     last_error
                 )
-            VALUES (
-                $job_id,
-                Utf8("pending"),
-                0u,
-                $payload,
-                $repo_key,
-                CurrentUtcTimestamp(),
-                CurrentUtcTimestamp(),
-                CAST(NULL AS Utf8?)
-            );
+            SELECT
+                $job_id AS job_id,
+                Utf8("pending") AS status,
+                0u AS attempts,
+                $payload AS payload,
+                $repo_key AS repo_key,
+                CurrentUtcTimestamp() AS created_at,
+                CurrentUtcTimestamp() AS updated_at,
+                CAST(NULL AS Utf8?) AS last_error
+            FROM (SELECT 1 AS enqueue_row)
+            WHERE NOT EXISTS (SELECT * FROM $existing_job);
         `;
         await withSession(async (session) => {
             await session.executeQuery(
@@ -1773,6 +1832,18 @@ export class YdbIndexingQueue implements IndexingQueue {
             DECLARE $job_kind AS Utf8;
             DECLARE $pr_number AS Uint32?;
 
+            $existing_job = (
+                SELECT job_id
+                FROM ${CODE_INDEXER_JOBS_TABLE}
+                WHERE job_id = $job_id
+            );
+
+            $existing_progress = (
+                SELECT job_id
+                FROM ${CODE_INDEXER_JOB_PROGRESS_TABLE}
+                WHERE job_id = $job_id
+            );
+
             UPSERT INTO ${CODE_INDEXER_JOBS_TABLE}
                 (
                     job_id,
@@ -1784,16 +1855,17 @@ export class YdbIndexingQueue implements IndexingQueue {
                     updated_at,
                     last_error
                 )
-            VALUES (
-                $job_id,
-                Utf8("pending"),
-                0u,
-                $payload,
-                $repo_key,
-                CurrentUtcTimestamp(),
-                CurrentUtcTimestamp(),
-                CAST(NULL AS Utf8?)
-            );
+            SELECT
+                $job_id AS job_id,
+                Utf8("pending") AS status,
+                0u AS attempts,
+                $payload AS payload,
+                $repo_key AS repo_key,
+                CurrentUtcTimestamp() AS created_at,
+                CurrentUtcTimestamp() AS updated_at,
+                CAST(NULL AS Utf8?) AS last_error
+            FROM (SELECT 1 AS enqueue_row)
+            WHERE NOT EXISTS (SELECT * FROM $existing_job);
 
             UPSERT INTO ${CODE_INDEXER_JOB_PROGRESS_TABLE}
                 (
@@ -1818,28 +1890,29 @@ export class YdbIndexingQueue implements IndexingQueue {
                     finished_at,
                     pr_number
                 )
-            VALUES (
-                $job_id,
-                $installation_id,
-                $repo_id,
-                $owner,
-                $repo,
-                $job_kind,
-                Utf8("pending"),
-                Utf8("queued"),
-                CAST(NULL AS Utf8?),
-                CAST(NULL AS Uint32?),
-                0u,
-                CAST(NULL AS Uint32?),
-                0u,
-                CAST(NULL AS Utf8?),
-                CAST(NULL AS Utf8?),
-                CurrentUtcTimestamp(),
-                CAST(NULL AS Timestamp?),
-                CurrentUtcTimestamp(),
-                CAST(NULL AS Timestamp?),
-                $pr_number
-            );
+            SELECT
+                $job_id AS job_id,
+                $installation_id AS installation_id,
+                $repo_id AS repo_id,
+                $owner AS owner,
+                $repo AS repo,
+                $job_kind AS job_kind,
+                Utf8("pending") AS status,
+                Utf8("queued") AS phase,
+                CAST(NULL AS Utf8?) AS message,
+                CAST(NULL AS Uint32?) AS total_files,
+                0u AS processed_files,
+                CAST(NULL AS Uint32?) AS total_chunks,
+                0u AS processed_chunks,
+                CAST(NULL AS Utf8?) AS current_path,
+                CAST(NULL AS Utf8?) AS last_error,
+                CurrentUtcTimestamp() AS created_at,
+                CAST(NULL AS Timestamp?) AS started_at,
+                CurrentUtcTimestamp() AS updated_at,
+                CAST(NULL AS Timestamp?) AS finished_at,
+                $pr_number AS pr_number
+            FROM (SELECT 1 AS enqueue_row)
+            WHERE NOT EXISTS (SELECT * FROM $existing_progress);
         `;
         await withSession(async (session) => {
             await session.executeQuery(

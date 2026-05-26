@@ -791,6 +791,19 @@ describe("code-indexer webhook handler", () => {
             upsertInstallation: vi.fn(() => Promise.resolve()),
             upsertRepository: vi.fn(() => Promise.resolve()),
         };
+        const repositorySource = {
+            listRepositoriesForInstallation: vi.fn(() =>
+                Promise.resolve([
+                    repository(),
+                    {
+                        defaultBranch: "trunk",
+                        owner: "octo",
+                        repo: "source-only",
+                        repoId: 44,
+                    },
+                ])
+            ),
+        };
         const handler = createWebhookHandler({
             deliveryStore: {
                 has: vi.fn(() => Promise.resolve(false)),
@@ -798,6 +811,7 @@ describe("code-indexer webhook handler", () => {
             },
             lifecycleStore,
             queue: { enqueue },
+            repositorySource,
             webhookSecret: "secret",
         });
         const req = {
@@ -824,6 +838,9 @@ describe("code-indexer webhook handler", () => {
         expect(lifecycleStore.listRepositoriesForInstallation).toHaveBeenCalledWith(
             7
         );
+        expect(repositorySource.listRepositoriesForInstallation).toHaveBeenCalledWith(
+            7
+        );
         expect(lifecycleStore.upsertInstallation).toHaveBeenCalledWith({
             accountLogin: "octo",
             accountType: "User",
@@ -846,8 +863,21 @@ describe("code-indexer webhook handler", () => {
             ref: "main",
             repository: repository(),
         });
-        expect(enqueue).toHaveBeenCalledTimes(1);
-        expect(res.json).toHaveBeenCalledWith({ enqueued: 1, status: "accepted" });
+        expect(enqueue).toHaveBeenCalledWith({
+            deliveryId: "delivery-unsuspend",
+            installationId: 7,
+            kind: "full-index",
+            reason: "installation-unsuspended",
+            ref: "trunk",
+            repository: {
+                defaultBranch: "trunk",
+                owner: "octo",
+                repo: "source-only",
+                repoId: 44,
+            },
+        });
+        expect(enqueue).toHaveBeenCalledTimes(2);
+        expect(res.json).toHaveBeenCalledWith({ enqueued: 2, status: "accepted" });
     });
 
     it("loads GitHub repositories for unsuspend reindex when lifecycle state is unavailable", async () => {

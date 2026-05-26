@@ -438,6 +438,28 @@ describe("code-indexer durable state store", () => {
         expect(stateStore.jobIdForJob(job)).toMatch(/^delivery-1:[a-f0-9]{24}$/);
     });
 
+    it("does not reset deterministic delivery jobs when webhook retries enqueue them", async () => {
+        const { stateStore, withSessionMock } = await importStateStore();
+        const session = makeSession();
+        useSession(withSessionMock, session);
+        const queue = new stateStore.YdbIndexingQueue(vi.fn(), {
+            retryBackoffMs: 0,
+        });
+
+        await queue.enqueue(makeJob());
+
+        const enqueueQuery = session.executeQuery.mock.calls.find(([yql]: [string]) =>
+            yql.includes(`UPSERT INTO ${stateStore.CODE_INDEXER_JOBS_TABLE}`) &&
+            yql.includes(
+                `UPSERT INTO ${stateStore.CODE_INDEXER_JOB_PROGRESS_TABLE}`
+            )
+        )?.[0] as string | undefined;
+        expect(enqueueQuery).toBeDefined();
+        expect(enqueueQuery).toContain("$existing_job");
+        expect(enqueueQuery).toContain("$existing_progress");
+        expect(enqueueQuery).toContain("WHERE NOT EXISTS");
+    });
+
     it("persists and reads job progress in YDB", async () => {
         const { stateStore, withSessionMock } = await importStateStore();
         const createdAt = new Date("2026-05-25T12:00:00.000Z");
@@ -1157,6 +1179,51 @@ describe("code-indexer durable state store", () => {
                 yql.includes("WHERE repo_key = $repo_key")
             )
         ).toHaveLength(2);
+    });
+
+    it("waits for globally running durable repository jobs before deleting progress", async () => {
+        const { stateStore, withSessionMock } = await importStateStore();
+        let runningPolls = 0;
+        const session = makeSession({
+            executeQuery: vi.fn((yql: string) => {
+                if (
+                    yql.includes("SELECT job_id") &&
+                    yql.includes('status = Utf8("running")') &&
+                    yql.includes("LIMIT 1")
+                ) {
+                    runningPolls += 1;
+                    return Promise.resolve({
+                        resultSets: [
+                            {
+                                rows:
+                                    runningPolls === 1
+                                        ? [makeClaimVerificationRow("remote-job")]
+                                        : [],
+                            },
+                        ],
+                    });
+                }
+                return Promise.resolve({ resultSets: [] });
+            }),
+        });
+        useSession(withSessionMock, session);
+        const queue = new stateStore.YdbIndexingQueue(vi.fn(), {
+            repoIdlePollMs: 0,
+            retryBackoffMs: 0,
+        });
+
+        await queue.deleteRepositoryJobs({ installationId: 7, repoId: 42 });
+
+        expect(runningPolls).toBe(2);
+        const deleteQueries = session.executeQuery.mock.calls
+            .map(([yql]: [string]) => yql)
+            .filter((yql: string) =>
+                yql.includes(`DELETE FROM ${stateStore.CODE_INDEXER_JOBS_TABLE}`)
+            );
+        expect(deleteQueries[0]).toContain('status != Utf8("running")');
+        expect(deleteQueries.at(-1)).toContain(
+            `DELETE FROM ${stateStore.CODE_INDEXER_JOB_PROGRESS_TABLE}`
+        );
     });
 
     it("scans past locked same-repository pending jobs to claim other repositories", async () => {
