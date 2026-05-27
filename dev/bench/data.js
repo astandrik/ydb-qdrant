@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779890936359,
+  "lastUpdate": 1779890939792,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (one_table, 768D)": [
@@ -14277,6 +14277,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Soak: Throughput",
             "value": 66.33418626354607,
+            "unit": "ops/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "41287c748547e126a6196a274c259b87bd5ebfde",
+          "message": "Add structured JSON API errors (#200)\n\n* Add structured JSON API errors\n\n* Preserve validation error details",
+          "timestamp": "2026-05-27T17:04:34+03:00",
+          "tree_id": "a98a08fc5ef92a5e6ed9d40c974c6090835093b1",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/41287c748547e126a6196a274c259b87bd5ebfde"
+        },
+        "date": 1779890939136,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Soak: Throughput",
+            "value": 58.67091462232581,
             "unit": "ops/s"
           }
         ]
