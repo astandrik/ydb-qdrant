@@ -282,6 +282,29 @@ describe("ydb/client: destroyDriver, refreshDriver, and session error handling",
             await vi.runAllTimersAsync();
             expect(destroyMock).toHaveBeenCalledTimes(1);
         });
+
+        it("triggers refresh for expired YDB auth token transport errors", async () => {
+            __setDriverForTests(createMockDriver());
+            __setDriverFactoryForTests(() => createMockDriver());
+            __resetRefreshStateForTests();
+
+            withSessionRetryMock.mockImplementationOnce(() => {
+                throw new Error(
+                    'Unexpected transport error code 16! Error itself: {"code":16,"details":"unauthenticated, unauthenticated: { <main>: Error: token verification failed: token expired }","metadata":{"content-type":["application/grpc"]}}'
+                );
+            });
+
+            await expect(
+                withSession(async () => {
+                    await Promise.resolve();
+                    return 101;
+                })
+            ).rejects.toThrow(/token expired/);
+
+            expect(readyMock).toHaveBeenCalledTimes(1);
+            await vi.runAllTimersAsync();
+            expect(destroyMock).toHaveBeenCalledTimes(1);
+        });
     });
 
     describe("withStartupProbeSession error handling", () => {

@@ -165,6 +165,12 @@ function shouldTriggerDriverRefresh(error: unknown): boolean {
     if (/SessionExpired|SESSION_EXPIRED|session.*expired/i.test(msg)) {
         return true;
     }
+    if (
+        /transport error code 16/i.test(msg) &&
+        /token verification failed: token expired/i.test(msg)
+    ) {
+        return true;
+    }
     // YDB query compilation timeout (TIMEOUT code 400090) – treat as a signal
     // to refresh the driver/session pool so that subsequent attempts use a
     // fresh connection state.
