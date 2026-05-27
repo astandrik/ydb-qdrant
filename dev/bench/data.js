@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779873885051,
+  "lastUpdate": 1779873887537,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (one_table, 768D)": [
@@ -14204,6 +14204,35 @@ window.BENCHMARK_DATA = {
           {
             "name": "Soak: Throughput",
             "value": 67.0167760891544,
+            "unit": "ops/s"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "astandrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "astandrik",
+            "username": "astandrik"
+          },
+          "distinct": true,
+          "id": "7de2cd6569a01d6cb162706f0e8091a45fe3f0c7",
+          "message": "Refresh YDB driver on expired auth token",
+          "timestamp": "2026-05-27T12:20:35+03:00",
+          "tree_id": "3f123d9fbc139e7d8e30ba3749ff106549645a58",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/7de2cd6569a01d6cb162706f0e8091a45fe3f0c7"
+        },
+        "date": 1779873887190,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Soak: Throughput",
+            "value": 66.33418626354607,
             "unit": "ops/s"
           }
         ]
