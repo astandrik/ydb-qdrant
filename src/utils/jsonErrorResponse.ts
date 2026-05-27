@@ -18,6 +18,7 @@ export type JsonErrorResponse = {
     status: "error";
     error: string;
     code: JsonErrorCode;
+    details?: unknown;
     message: string;
     resolution: string;
     request_id: string;
@@ -25,12 +26,24 @@ export type JsonErrorResponse = {
 
 type JsonErrorInput = {
     code?: JsonErrorCode;
+    details?: unknown;
     error: unknown;
     message?: string;
     requestId?: string;
     resolution?: string;
     statusCode: number;
 };
+
+function isFlattenedValidationError(
+    error: unknown
+): error is Record<string, unknown> {
+    return (
+        !!error &&
+        typeof error === "object" &&
+        ("fieldErrors" in error || "formErrors" in error) &&
+        Object.keys(error).length <= 2
+    );
+}
 
 function stringifyError(error: unknown): string {
     if (typeof error === "string") {
@@ -40,10 +53,7 @@ function stringifyError(error: unknown): string {
         return error.message;
     }
     if (error && typeof error === "object") {
-        if (
-            ("fieldErrors" in error || "formErrors" in error) &&
-            Object.keys(error).length <= 2
-        ) {
+        if (isFlattenedValidationError(error)) {
             return "validation failed";
         }
         try {
@@ -53,6 +63,10 @@ function stringifyError(error: unknown): string {
         }
     }
     return String(error);
+}
+
+function getErrorDetails(error: unknown): Record<string, unknown> | undefined {
+    return isFlattenedValidationError(error) ? error : undefined;
 }
 
 function inferErrorCode(args: {
@@ -156,8 +170,9 @@ export function createJsonErrorResponse(
             message,
             statusCode: args.statusCode,
         });
+    const details = args.details ?? getErrorDetails(args.error);
 
-    return {
+    const response: JsonErrorResponse = {
         status: "error",
         error: message,
         code,
@@ -165,6 +180,10 @@ export function createJsonErrorResponse(
         resolution: args.resolution ?? defaultResolution(code),
         request_id: args.requestId ?? getRequestId(res),
     };
+    if (details !== undefined) {
+        response.details = details;
+    }
+    return response;
 }
 
 export function sendJsonError(res: Response, args: JsonErrorInput): void {

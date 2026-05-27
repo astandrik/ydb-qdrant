@@ -30,6 +30,7 @@ export function findHandler(
 export type MockBody = {
     status: string;
     code?: string;
+    details?: unknown;
     result?: unknown;
     error?: unknown;
     message?: string;
