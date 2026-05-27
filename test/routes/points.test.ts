@@ -411,7 +411,14 @@ describe("pointsRouter (HTTP, mocked service)", () => {
         await searchHandler(req, res);
 
         expect(res.statusCode).toBe(400);
-        expect(res.body).toEqual({ status: "error", error: "bad search" });
+        expect(res.body).toMatchObject({
+            status: "error",
+            error: "bad search",
+            code: "BAD_REQUEST",
+            message: "bad search",
+            request_id: "unknown",
+        });
+        expect(typeof res.body?.resolution).toBe("string");
     });
 
     it("returns 400 and payload for vector dimension mismatch on upsert", async () => {
@@ -443,10 +450,14 @@ describe("pointsRouter (HTTP, mocked service)", () => {
         await putHandler(req, res);
 
         expect(res.statusCode).toBe(400);
-        expect(res.body).toEqual({
+        expect(res.body).toMatchObject({
             status: "error",
             error: "Vector dimension mismatch for id=p1: got 4096, expected 3072",
+            code: "VECTOR_DIMENSION_MISMATCH",
+            message: "Vector dimension mismatch for id=p1: got 4096, expected 3072",
+            request_id: "unknown",
         });
+        expect(typeof res.body?.resolution).toBe("string");
     });
 
     it("logs unexpected errors and returns 500 for delete points", async () => {
@@ -470,10 +481,14 @@ describe("pointsRouter (HTTP, mocked service)", () => {
 
         expect(loggerErrorMock).toHaveBeenCalled();
         expect(res.statusCode).toBe(500);
-        expect(res.body).toEqual({
+        expect(res.body).toMatchObject({
             status: "error",
             error: "boom",
+            code: "INTERNAL_ERROR",
+            message: "boom",
+            request_id: "unknown",
         });
+        expect(typeof res.body?.resolution).toBe("string");
     });
 
     it("returns 500 and schedules exit on compilation timeout during upsert (PUT)", async () => {
@@ -499,10 +514,14 @@ describe("pointsRouter (HTTP, mocked service)", () => {
         await putHandler(req, res);
 
         expect(res.statusCode).toBe(500);
-        expect(res.body).toEqual({
+        expect(res.body).toMatchObject({
             status: "error",
             error: "compilation timeout",
+            code: "INTERNAL_ERROR",
+            message: "compilation timeout",
+            request_id: "unknown",
         });
+        expect(typeof res.body?.resolution).toBe("string");
         expect(scheduleExitMock).toHaveBeenCalledWith(1);
     });
 
@@ -558,10 +577,14 @@ describe("pointsRouter (HTTP, mocked service)", () => {
         await postUpsertHandler(req, res);
 
         expect(res.statusCode).toBe(500);
-        expect(res.body).toEqual({
+        expect(res.body).toMatchObject({
             status: "error",
             error: "compilation timeout",
+            code: "INTERNAL_ERROR",
+            message: "compilation timeout",
+            request_id: "unknown",
         });
+        expect(typeof res.body?.resolution).toBe("string");
         expect(loggerErrorMock).toHaveBeenCalled();
         expect(scheduleExitMock).toHaveBeenCalledWith(1);
     });
@@ -619,10 +642,14 @@ describe("pointsRouter (HTTP, mocked service)", () => {
         await searchHandler(req, res);
 
         expect(res.statusCode).toBe(500);
-        expect(res.body).toEqual({
+        expect(res.body).toMatchObject({
             status: "error",
             error: "compilation timeout",
+            code: "INTERNAL_ERROR",
+            message: "compilation timeout",
+            request_id: "unknown",
         });
+        expect(typeof res.body?.resolution).toBe("string");
         expect(scheduleExitMock).toHaveBeenCalledWith(1);
     });
 
@@ -650,10 +677,14 @@ describe("pointsRouter (HTTP, mocked service)", () => {
         await queryHandler(req, res);
 
         expect(res.statusCode).toBe(500);
-        expect(res.body).toEqual({
+        expect(res.body).toMatchObject({
             status: "error",
             error: "compilation timeout",
+            code: "INTERNAL_ERROR",
+            message: "compilation timeout",
+            request_id: "unknown",
         });
+        expect(typeof res.body?.resolution).toBe("string");
         expect(loggerErrorMock).toHaveBeenCalled();
         expect(scheduleExitMock).toHaveBeenCalledWith(1);
     });
@@ -729,10 +760,14 @@ describe("pointsRouter (HTTP, mocked service)", () => {
         await retrieveHandler(req, res);
 
         expect(res.statusCode).toBe(404);
-        expect(res.body).toEqual({
+        expect(res.body).toMatchObject({
             status: "error",
             error: "collection not found",
+            code: "COLLECTION_NOT_FOUND",
+            message: "collection not found",
+            request_id: "unknown",
         });
+        expect(typeof res.body?.resolution).toBe("string");
     });
 
     it("returns validation error when anonymous identity cannot be resolved", async () => {
@@ -762,9 +797,14 @@ describe("pointsRouter (HTTP, mocked service)", () => {
 
         expect(pointsService.retrievePoints).not.toHaveBeenCalled();
         expect(res.statusCode).toBe(400);
-        expect(res.body).toEqual({
+        expect(res.body).toMatchObject({
             status: "error",
             error: "Anonymous requests require api-key or identifiable client metadata.",
+            code: "AUTHENTICATION_REQUIRED",
+            message:
+                "Anonymous requests require api-key or identifiable client metadata.",
+            request_id: "unknown",
         });
+        expect(typeof res.body?.resolution).toBe("string");
     });
 });

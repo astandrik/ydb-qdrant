@@ -149,7 +149,50 @@ describe("collectionsRouter (HTTP, mocked service)", () => {
 
         await handler(req, res);
         expect(res.statusCode).toBe(422);
-        expect(res.body).toMatchObject({ status: "error", error: "invalid" });
+        expect(res.body).toMatchObject({
+            status: "error",
+            error: "invalid",
+            code: "VALIDATION_ERROR",
+            message: "invalid",
+            request_id: "unknown",
+        });
+        expect(typeof res.body?.resolution).toBe("string");
+    });
+
+    it("preserves flattened validation details on collection errors", async () => {
+        const handler = findHandler(collectionsRouter, "put", "/:collection");
+        const req = createRequest({
+            method: "PUT",
+            collection: "col",
+            body: {},
+        });
+        const res = createMockRes({ authUserUid: "1120000000101690" });
+        const details = {
+            fieldErrors: {
+                vectors: ["Required"],
+            },
+            formErrors: [],
+        };
+
+        const error = new QdrantServiceError(400, {
+            status: "error",
+            error: details,
+        });
+
+        vi.mocked(collectionService.createCollection).mockRejectedValueOnce(
+            error
+        );
+
+        await handler(req, res);
+
+        expect(res.statusCode).toBe(400);
+        expect(res.body).toMatchObject({
+            status: "error",
+            error: "validation failed",
+            code: "VALIDATION_ERROR",
+            message: "validation failed",
+            details,
+        });
     });
 
     it("handles get and delete collection through service", async () => {
@@ -295,9 +338,14 @@ describe("collectionsRouter (HTTP, mocked service)", () => {
 
         expect(collectionService.getCollection).not.toHaveBeenCalled();
         expect(res.statusCode).toBe(400);
-        expect(res.body).toEqual({
+        expect(res.body).toMatchObject({
             status: "error",
             error: "Anonymous requests require api-key or identifiable client metadata.",
+            code: "AUTHENTICATION_REQUIRED",
+            message:
+                "Anonymous requests require api-key or identifiable client metadata.",
+            request_id: "unknown",
         });
+        expect(typeof res.body?.resolution).toBe("string");
     });
 });

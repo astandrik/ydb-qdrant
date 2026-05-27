@@ -8,6 +8,7 @@ import {
 import { QdrantServiceError } from "../services/errors.js";
 import { logger } from "../logging/logger.js";
 import { qdrantResponse } from "../utils/qdrantResponse.js";
+import { sendJsonError } from "../utils/jsonErrorResponse.js";
 import {
     isAnonymousIdentityError,
     resolveRequestNamespaceUserUid,
@@ -33,11 +34,18 @@ function buildCollectionContext(req: Request): {
 
 function sendKnownRouteError(res: Response, err: unknown): boolean {
     if (err instanceof QdrantServiceError) {
-        res.status(err.statusCode).json(err.payload);
+        sendJsonError(res, {
+            statusCode: err.statusCode,
+            error: err.payload.error,
+        });
         return true;
     }
     if (isAnonymousIdentityError(err)) {
-        res.status(400).json({ status: "error", error: err.message });
+        sendJsonError(res, {
+            statusCode: 400,
+            code: "AUTHENTICATION_REQUIRED",
+            error: err.message,
+        });
         return true;
     }
     return false;
@@ -58,7 +66,7 @@ collectionsRouter.put(
             logger.error({ err }, "build index failed");
             const errorMessage =
                 err instanceof Error ? err.message : String(err);
-            res.status(500).json({ status: "error", error: errorMessage });
+            sendJsonError(res, { statusCode: 500, error: errorMessage });
         }
     }
 );
@@ -78,7 +86,7 @@ collectionsRouter.put(
             logger.error({ err }, "create collection failed");
             const errorMessage =
                 err instanceof Error ? err.message : String(err);
-            res.status(500).json({ status: "error", error: errorMessage });
+            sendJsonError(res, { statusCode: 500, error: errorMessage });
         }
     }
 );
@@ -97,7 +105,7 @@ collectionsRouter.get(
             logger.error({ err }, "get collection failed");
             const errorMessage =
                 err instanceof Error ? err.message : String(err);
-            res.status(500).json({ status: "error", error: errorMessage });
+            sendJsonError(res, { statusCode: 500, error: errorMessage });
         }
     }
 );
@@ -117,7 +125,7 @@ collectionsRouter.delete(
             logger.error({ err }, "delete collection failed");
             const errorMessage =
                 err instanceof Error ? err.message : String(err);
-            res.status(500).json({ status: "error", error: errorMessage });
+            sendJsonError(res, { statusCode: 500, error: errorMessage });
         }
     }
 );

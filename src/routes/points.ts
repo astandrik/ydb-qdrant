@@ -26,6 +26,7 @@ import {
     resolveRequestNamespaceUserUid,
     resolveRequestSigningKey,
 } from "../utils/requestIdentity.js";
+import { sendJsonError } from "../utils/jsonErrorResponse.js";
 
 export const pointsRouter = Router();
 
@@ -50,11 +51,18 @@ function shouldSkipResponse(req: Request, res: Response): boolean {
 
 function sendKnownRouteError(res: Response, err: unknown): boolean {
     if (err instanceof QdrantServiceError) {
-        res.status(err.statusCode).json(err.payload);
+        sendJsonError(res, {
+            statusCode: err.statusCode,
+            error: err.payload.error,
+        });
         return true;
     }
     if (isAnonymousIdentityError(err)) {
-        res.status(400).json({ status: "error", error: err.message });
+        sendJsonError(res, {
+            statusCode: 400,
+            code: "AUTHENTICATION_REQUIRED",
+            error: err.message,
+        });
         return true;
     }
     return false;
@@ -134,7 +142,7 @@ pointsRouter.post(
             logger.error({ err }, "retrieve points failed");
             const errorMessage =
                 err instanceof Error ? err.message : String(err);
-            res.status(500).json({ status: "error", error: errorMessage });
+            sendJsonError(res, { statusCode: 500, error: errorMessage });
         }
     }
 );
@@ -170,7 +178,7 @@ pointsRouter.put(
                 if (shouldSkipResponse(req, res)) {
                     return;
                 }
-                res.status(500).json({ status: "error", error: errorMessage });
+                sendJsonError(res, { statusCode: 500, error: errorMessage });
                 return;
             }
             if (shouldSkipResponse(req, res)) {
@@ -180,7 +188,7 @@ pointsRouter.put(
                 return;
             }
             logger.error({ err }, "upsert points (PUT) failed");
-            res.status(500).json({ status: "error", error: errorMessage });
+            sendJsonError(res, { statusCode: 500, error: errorMessage });
         }
     }
 );
@@ -215,7 +223,7 @@ pointsRouter.post(
                 if (shouldSkipResponse(req, res)) {
                     return;
                 }
-                res.status(500).json({ status: "error", error: errorMessage });
+                sendJsonError(res, { statusCode: 500, error: errorMessage });
                 return;
             }
             if (shouldSkipResponse(req, res)) {
@@ -225,7 +233,7 @@ pointsRouter.post(
                 return;
             }
             logger.error({ err }, "upsert points failed");
-            res.status(500).json({ status: "error", error: errorMessage });
+            sendJsonError(res, { statusCode: 500, error: errorMessage });
         }
     }
 );
@@ -248,12 +256,12 @@ pointsRouter.post(
                     { err },
                     "YDB compilation timeout during search points; scheduling process exit"
                 );
-                res.status(500).json({ status: "error", error: errorMessage });
+                sendJsonError(res, { statusCode: 500, error: errorMessage });
                 scheduleExit(1);
                 return;
             }
             logger.error({ err }, "search points failed");
-            res.status(500).json({ status: "error", error: errorMessage });
+            sendJsonError(res, { statusCode: 500, error: errorMessage });
         }
     }
 );
@@ -278,12 +286,12 @@ pointsRouter.post(
                     { err },
                     "YDB compilation timeout during search points (query); scheduling process exit"
                 );
-                res.status(500).json({ status: "error", error: errorMessage });
+                sendJsonError(res, { statusCode: 500, error: errorMessage });
                 scheduleExit(1);
                 return;
             }
             logger.error({ err }, "search points (query) failed");
-            res.status(500).json({ status: "error", error: errorMessage });
+            sendJsonError(res, { statusCode: 500, error: errorMessage });
         }
     }
 );
@@ -303,7 +311,7 @@ pointsRouter.post(
             logger.error({ err }, "delete points failed");
             const errorMessage =
                 err instanceof Error ? err.message : String(err);
-            res.status(500).json({ status: "error", error: errorMessage });
+            sendJsonError(res, { statusCode: 500, error: errorMessage });
         }
     }
 );
