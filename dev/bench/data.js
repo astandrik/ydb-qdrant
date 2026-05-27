@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779891163385,
+  "lastUpdate": 1779891166769,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (one_table, 768D)": [
@@ -15581,6 +15581,45 @@ window.BENCHMARK_DATA = {
           {
             "name": "Stress: Throughput",
             "value": 155.51501203715515,
+            "unit": "ops/s"
+          },
+          {
+            "name": "Stress: Max VUs",
+            "value": 600,
+            "unit": "VUs"
+          },
+          {
+            "name": "Stress: Breaking Point VUs",
+            "value": 600,
+            "unit": "VUs"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "41287c748547e126a6196a274c259b87bd5ebfde",
+          "message": "Add structured JSON API errors (#200)\n\n* Add structured JSON API errors\n\n* Preserve validation error details",
+          "timestamp": "2026-05-27T17:04:34+03:00",
+          "tree_id": "a98a08fc5ef92a5e6ed9d40c974c6090835093b1",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/41287c748547e126a6196a274c259b87bd5ebfde"
+        },
+        "date": 1779891166061,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Stress: Throughput",
+            "value": 159.45658758616065,
             "unit": "ops/s"
           },
           {
