@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779810755610,
+  "lastUpdate": 1779873885051,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (one_table, 768D)": [
@@ -13781,6 +13781,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Soak: Error Rate",
             "value": 0.0092,
+            "unit": "%"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "astandrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "astandrik",
+            "username": "astandrik"
+          },
+          "distinct": true,
+          "id": "7de2cd6569a01d6cb162706f0e8091a45fe3f0c7",
+          "message": "Refresh YDB driver on expired auth token",
+          "timestamp": "2026-05-27T12:20:35+03:00",
+          "tree_id": "3f123d9fbc139e7d8e30ba3749ff106549645a58",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/7de2cd6569a01d6cb162706f0e8091a45fe3f0c7"
+        },
+        "date": 1779873884217,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Soak: Search Latency p95",
+            "value": 69,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Search Latency p99",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Upsert Latency p95",
+            "value": 22,
+            "unit": "ms"
+          },
+          {
+            "name": "Soak: Error Rate",
+            "value": 0.028,
             "unit": "%"
           }
         ]
