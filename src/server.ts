@@ -18,6 +18,7 @@ import { isYdbAvailable, isCompilationTimeoutError } from "./ydb/client.js";
 import { verifyCollectionsQueryCompilationForStartup } from "./repositories/collectionsRepo.js";
 import { logger } from "./logging/logger.js";
 import { scheduleExit } from "./utils/exit.js";
+import { sendJsonError } from "./utils/jsonErrorResponse.js";
 
 export async function healthHandler(
     _req: Request,
@@ -26,7 +27,11 @@ export async function healthHandler(
     const ok = await isYdbAvailable();
     if (!ok) {
         logger.error("YDB unavailable during health check");
-        res.status(503).json({ status: "error", error: "YDB unavailable" });
+        sendJsonError(res, {
+            statusCode: 503,
+            code: "HEALTH_CHECK_FAILED",
+            error: "YDB unavailable",
+        });
         scheduleExit(1);
         return;
     }
@@ -41,8 +46,9 @@ export async function healthHandler(
                 ? "YDB compilation timeout during health probe"
                 : "YDB health probe failed"
         );
-        res.status(503).json({
-            status: "error",
+        sendJsonError(res, {
+            statusCode: 503,
+            code: "HEALTH_CHECK_FAILED",
             error: "YDB health probe failed",
         });
         scheduleExit(1);
@@ -93,9 +99,21 @@ export function buildServer() {
             if (res.headersSent || res.writableEnded) {
                 return;
             }
-            res.status(400).json({ status: "error", error: "request aborted" });
+            sendJsonError(res, {
+                statusCode: 400,
+                code: "REQUEST_ABORTED",
+                error: "request aborted",
+            });
         }
     );
+
+    app.use((_req: Request, res: Response): void => {
+        sendJsonError(res, {
+            statusCode: 404,
+            code: "NOT_FOUND",
+            error: "route not found",
+        });
+    });
 
     // Catch-all error handler: avoid Express default handler printing stacktraces to stderr
     // and provide consistent JSON error responses.
@@ -121,8 +139,13 @@ export function buildServer() {
             const statusCode = extractHttpStatusCode(err) ?? 500;
             const errorMessage =
                 err instanceof Error ? err.message : String(err);
-            res.status(statusCode).json({
-                status: "error",
+            sendJsonError(res, {
+                statusCode,
+                code: isBodyParserRequestReadError(err)
+                    ? statusCode === 413
+                        ? "PAYLOAD_TOO_LARGE"
+                        : "VALIDATION_ERROR"
+                    : undefined,
                 error: errorMessage,
             });
         }

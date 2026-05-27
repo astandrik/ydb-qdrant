@@ -118,4 +118,35 @@ describe("upsertRequestTimeout", () => {
 
         expect(next).not.toHaveBeenCalled();
     });
+
+    it("returns structured JSON when an upsert request times out", async () => {
+        const { respondUpsertRequestTimedOut } = await import(
+            "../../src/middleware/upsertRequestTimeout.js"
+        );
+        const req = createUpsertRequest();
+        const res = createResponse();
+
+        const didRespond = respondUpsertRequestTimedOut({
+            req,
+            res,
+            timeoutMs: 1000,
+            timeoutPhase: "processing",
+        });
+
+        expect(didRespond).toBe(true);
+        expect(
+            (res as unknown as { status: ReturnType<typeof vi.fn> }).status
+        ).toHaveBeenCalledWith(503);
+        expect(
+            (res as unknown as { json: ReturnType<typeof vi.fn> }).json
+        ).toHaveBeenCalledWith(
+            expect.objectContaining({
+                status: "error",
+                error: "upsert request timed out",
+                code: "REQUEST_TIMEOUT",
+                message: "upsert request timed out",
+                request_id: "unknown",
+            })
+        );
+    });
 });

@@ -3,6 +3,7 @@ import {
     UPSERT_BODY_TIMEOUT_MS,
     UPSERT_HTTP_TIMEOUT_MS,
 } from "../config/env.js";
+import { sendJsonError } from "../utils/jsonErrorResponse.js";
 
 const UPSERT_REQUEST_TIMEOUT_STATE = Symbol("upsertRequestTimeoutState");
 const RETRY_AFTER_SECONDS = "1";
@@ -142,8 +143,9 @@ export function respondUpsertRequestTimedOut(args: {
     markUpsertRequestTimedOut(args.req, args.timeoutMs, args.timeoutPhase);
     args.res.setHeader("Retry-After", RETRY_AFTER_SECONDS);
     args.res.setHeader("Connection", "close");
-    args.res.status(503).json({
-        status: "error",
+    sendJsonError(args.res, {
+        statusCode: 503,
+        code: "REQUEST_TIMEOUT",
         error: TIMEOUT_ERROR_MESSAGE,
     });
     args.res.once("finish", () => {

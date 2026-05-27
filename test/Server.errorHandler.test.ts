@@ -76,7 +76,7 @@ async function startServer(): Promise<{
 
 async function httpRequest(params: {
     baseUrl: string;
-    method: "POST";
+    method: "GET" | "POST";
     path: string;
     headers?: Record<string, string>;
     body?: string;
@@ -120,6 +120,7 @@ describe("buildServer() error handling", () => {
     it(
         "returns JSON error response for invalid JSON bodies (and preserves 400)",
         async () => {
+            vi.doUnmock("../src/middleware/requestLogger.js");
             const { server, baseUrl } = await startServer();
             try {
                 const res = await httpRequest({
@@ -128,6 +129,7 @@ describe("buildServer() error handling", () => {
                     path: "/collections/col/points/search",
                     headers: {
                         "content-type": "application/json",
+                        "x-request-id": "parse-error-test",
                     },
                     body: "{",
                 });
@@ -139,10 +141,18 @@ describe("buildServer() error handling", () => {
 
                 const parsed = JSON.parse(res.body) as {
                     status?: unknown;
+                    code?: unknown;
                     error?: unknown;
+                    message?: unknown;
+                    resolution?: unknown;
+                    request_id?: unknown;
                 };
                 expect(parsed.status).toBe("error");
                 expect(typeof parsed.error).toBe("string");
+                expect(parsed.code).toBe("VALIDATION_ERROR");
+                expect(parsed.message).toBe(parsed.error);
+                expect(typeof parsed.resolution).toBe("string");
+                expect(parsed.request_id).toBe("parse-error-test");
 
                 expect(loggerErrorMock).toHaveBeenCalled();
             } finally {
@@ -153,6 +163,37 @@ describe("buildServer() error handling", () => {
         },
         15_000
     );
+
+    it("returns structured JSON for unmatched API routes", async () => {
+        vi.doUnmock("../src/middleware/requestLogger.js");
+        const { server, baseUrl } = await startServer();
+        try {
+            const res = await httpRequest({
+                baseUrl,
+                method: "GET",
+                path: "/not-an-api-route",
+                headers: {
+                    "x-request-id": "missing-route-test",
+                },
+            });
+
+            expect(res.statusCode).toBe(404);
+            expect(String(res.headers["content-type"])).toContain(
+                "application/json"
+            );
+            expect(JSON.parse(res.body)).toMatchObject({
+                status: "error",
+                error: "route not found",
+                code: "NOT_FOUND",
+                message: "route not found",
+                request_id: "missing-route-test",
+            });
+        } finally {
+            await new Promise<void>((resolve, reject) => {
+                server.close((err) => (err ? reject(err) : resolve()));
+            });
+        }
+    });
 
     it(
         "logs upsert body-phase failure for malformed JSON without changing the 400 response",
