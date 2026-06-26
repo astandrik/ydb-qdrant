@@ -127,4 +127,19 @@ describe("YDB Qdrant MCP config", () => {
             model: "custom-openai-model",
         });
     });
+
+    it("rejects invalid explicit MCP embedding dimensions", () => {
+        for (const value of ["", " ", "abc", "0", "-1", "1.5"]) {
+            expect(() =>
+                loadYdbQdrantMcpConfig({
+                    OPENAI_API_KEY: "openai-key",
+                    YDB_QDRANT_MCP_EMBEDDING_DIMENSION: value,
+                    YDB_QDRANT_MCP_EMBEDDING_PROVIDER: "openai",
+                    YDB_QDRANT_MCP_USER_UID: "tenant_a",
+                })
+            ).toThrow(
+                "YDB_QDRANT_MCP_EMBEDDING_DIMENSION must be a positive integer"
+            );
+        }
+    });
 });

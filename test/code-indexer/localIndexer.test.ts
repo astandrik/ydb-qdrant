@@ -120,9 +120,11 @@ describe("local repository file listing", () => {
         await writeFile(join(root, ".envrc"), "export TOKEN=secret\n");
         await writeFile(join(root, ".git-credentials"), "https://token\n");
         await writeFile(join(root, ".kube", "config"), "secret\n");
+        await writeFile(join(root, ".netrc"), "machine example.com login token\n");
         await writeFile(join(root, ".npmrc"), "//registry/token\n");
         await writeFile(join(root, ".pypirc"), "[distutils]\n");
         await writeFile(join(root, ".ssh", "config"), "secret\n");
+        await writeFile(join(root, "_netrc"), "machine example.com login token\n");
         await writeFile(join(root, "cache", "data.ts"), "export const cached = 1;\n");
         await writeFile(join(root, "local.key"), "secret\n");
         await writeFile(join(root, "local.pem"), "secret\n");
@@ -144,9 +146,11 @@ describe("local repository file listing", () => {
         expect(paths).not.toContain(".envrc");
         expect(paths).not.toContain(".git-credentials");
         expect(paths).not.toContain(".kube/config");
+        expect(paths).not.toContain(".netrc");
         expect(paths).not.toContain(".npmrc");
         expect(paths).not.toContain(".pypirc");
         expect(paths).not.toContain(".ssh/config");
+        expect(paths).not.toContain("_netrc");
         expect(paths).not.toContain("cache/data.ts");
         expect(paths).not.toContain("local.key");
         expect(paths).not.toContain("local.pem");
@@ -442,6 +446,77 @@ describe("local code indexer status", () => {
         });
     });
 
+    it("returns failed persisted status when manifest lacks indexing fingerprint", async () => {
+        const root = await makeTempDir("missing-fingerprint-repo");
+        await mkdir(join(root, "src"), { recursive: true });
+        await writeFile(join(root, "src", "app.ts"), "export const app = 1;\n");
+        const manifestStore = new MemoryManifestStore();
+        const store = new MemoryIndexStore();
+        const indexed = await new LocalCodeIndexer({
+            embeddingProvider: passingEmbeddingProvider,
+            manifestStore,
+            store,
+            workspaceRoot: root,
+        }).indexRepository({});
+        const userUid = userUidForInstallation(indexed.installationId);
+        const manifest = await manifestStore.get({
+            collection: indexed.collection,
+            userUid,
+        });
+        expect(manifest).not.toBeNull();
+        const legacyManifest = { ...(manifest as RepoIndexManifest) };
+        delete legacyManifest.indexingFingerprint;
+        await manifestStore.save(legacyManifest);
+        const restartedIndexer = new LocalCodeIndexer({
+            embeddingProvider: passingEmbeddingProvider,
+            manifestStore,
+            store,
+            workspaceRoot: root,
+        });
+
+        await expect(restartedIndexer.getIndexStatus({})).resolves.toEqual({
+            indexes: [
+                expect.objectContaining({
+                    collection: indexed.collection,
+                    lastError:
+                        "persisted index verification failed: manifest is missing indexing fingerprint; reindex required",
+                    status: "failed",
+                }),
+            ],
+        });
+    });
+
+    it("returns failed persisted status when indexing fingerprint changed", async () => {
+        const root = await makeTempDir("changed-fingerprint-repo");
+        await mkdir(join(root, "src"), { recursive: true });
+        await writeFile(join(root, "src", "app.ts"), "export const app = 1;\n");
+        const manifestStore = new MemoryManifestStore();
+        const store = new MemoryIndexStore();
+        const indexed = await new LocalCodeIndexer({
+            embeddingProvider: passingEmbeddingProvider,
+            manifestStore,
+            store,
+            workspaceRoot: root,
+        }).indexRepository({});
+        const restartedIndexer = new LocalCodeIndexer({
+            embeddingProvider: differentDimensionEmbeddingProvider,
+            manifestStore,
+            store,
+            workspaceRoot: root,
+        });
+
+        await expect(restartedIndexer.getIndexStatus({})).resolves.toEqual({
+            indexes: [
+                expect.objectContaining({
+                    collection: indexed.collection,
+                    lastError:
+                        "persisted index verification failed: indexing fingerprint changed; reindex required",
+                    status: "failed",
+                }),
+            ],
+        });
+    });
+
     it("uses local namespace to isolate local repository ids", async () => {
         const root = await makeTempDir("namespaced-repo");
         await mkdir(join(root, "src"), { recursive: true });
@@ -660,6 +735,13 @@ const failingEmbeddingProvider: EmbeddingProvider = {
     dimension: 64,
     embedDocuments: () => Promise.reject(new Error("embedding failed")),
     embedQuery: () => Promise.resolve(Array.from({ length: 64 }, () => 0)),
+};
+
+const differentDimensionEmbeddingProvider: EmbeddingProvider = {
+    dimension: 128,
+    embedDocuments: (texts) =>
+        Promise.resolve(texts.map(() => Array.from({ length: 128 }, () => 0.1))),
+    embedQuery: () => Promise.resolve(Array.from({ length: 128 }, () => 0.1)),
 };
 
 class MemoryManifestStore implements RepoManifestStore {

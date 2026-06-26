@@ -89,6 +89,26 @@ function openAiDefaultDimension(model: string): number {
     }
 }
 
+function readExplicitEmbeddingDimension(env: EnvLike): number | undefined {
+    const raw = env.YDB_QDRANT_MCP_EMBEDDING_DIMENSION;
+    if (raw === undefined) {
+        return undefined;
+    }
+    const value = raw.trim();
+    if (!/^\d+$/.test(value)) {
+        throw new Error(
+            "YDB_QDRANT_MCP_EMBEDDING_DIMENSION must be a positive integer"
+        );
+    }
+    const parsed = Number(value);
+    if (!Number.isSafeInteger(parsed) || parsed < 1) {
+        throw new Error(
+            "YDB_QDRANT_MCP_EMBEDDING_DIMENSION must be a positive integer"
+        );
+    }
+    return parsed;
+}
+
 function readIdentity(env: EnvLike): YdbQdrantMcpIdentity {
     const apiKey = env.YDB_QDRANT_MCP_API_KEY?.trim();
     const userUid = env.YDB_QDRANT_MCP_USER_UID?.trim();
@@ -124,8 +144,8 @@ function readEmbeddingConfig(
             "YDB_QDRANT_MCP_EMBEDDING_URL is required when YDB_QDRANT_MCP_EMBEDDING_PROVIDER=http"
         );
     }
-    const dimensionExplicit =
-        env.YDB_QDRANT_MCP_EMBEDDING_DIMENSION !== undefined;
+    const explicitDimension = readExplicitEmbeddingDimension(env);
+    const dimensionExplicit = explicitDimension !== undefined;
     const model =
         env.YDB_QDRANT_MCP_EMBEDDING_MODEL?.trim() ||
         (provider === "openai" ? "text-embedding-3-small" : undefined);
@@ -146,11 +166,7 @@ function readEmbeddingConfig(
             env.YDB_QDRANT_MCP_EMBEDDING_AUTH_HEADER?.trim() ||
             "Authorization",
         authScheme: readEmbeddingAuthScheme(env),
-        dimension: parseIntegerEnv(
-            env.YDB_QDRANT_MCP_EMBEDDING_DIMENSION,
-            defaultDimension,
-            { min: 1 }
-        ),
+        dimension: explicitDimension ?? defaultDimension,
         dimensionExplicit,
         model,
         provider,

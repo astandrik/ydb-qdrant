@@ -1,13 +1,21 @@
 process.env.YDB_QDRANT_LOG_TARGET = "stderr";
 
-import { loadCodeIndexerSearchConfig } from "./config.js";
-import { YdbQdrantIndexStore } from "./indexStore.js";
-import { LocalCodeIndexer } from "./localIndexer.js";
-import { startMcpStdioServer } from "./mcp.js";
-import { createEmbeddingProviderFromConfig } from "./runtime.js";
-import { YdbRepoManifestStore } from "./stateStore.js";
-
-export function startCodeIndexerLocalMcpServer(): void {
+export async function startCodeIndexerLocalMcpServer(): Promise<void> {
+    const [
+        { loadCodeIndexerSearchConfig },
+        { YdbQdrantIndexStore },
+        { LocalCodeIndexer },
+        { startMcpStdioServer },
+        { createEmbeddingProviderFromConfig },
+        { YdbRepoManifestStore },
+    ] = await Promise.all([
+        import("./config.js"),
+        import("./indexStore.js"),
+        import("./localIndexer.js"),
+        import("./mcp.js"),
+        import("./runtime.js"),
+        import("./stateStore.js"),
+    ]);
     const config = loadCodeIndexerSearchConfig();
     const embeddingProvider = createEmbeddingProviderFromConfig(config);
     const store = new YdbQdrantIndexStore({

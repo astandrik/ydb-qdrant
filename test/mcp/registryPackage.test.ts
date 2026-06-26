@@ -127,4 +127,27 @@ describe("YDB Qdrant MCP npm package and registry metadata", () => {
             /^\s*npm publish \.\/packages\/ydb-qdrant-mcp$/m
         );
     });
+
+    it("keeps the local MCP package server stdio-safe on import", async () => {
+        const packageServer = await readFile(
+            join(root, "src/code-indexer/mcpPackageServer.ts"),
+            "utf8"
+        );
+        const wrapperCli = await readFile(
+            join(root, "packages/ydb-qdrant-mcp/src/cli.ts"),
+            "utf8"
+        );
+
+        const staticRuntimeImports = packageServer
+            .split("\n")
+            .filter((line) => /^import\s/.test(line.trimStart()))
+            .filter((line) => !/^import\s+type\s/.test(line.trimStart()));
+
+        expect(packageServer.trimStart()).toMatch(
+            /^process\.env\.YDB_QDRANT_LOG_TARGET = "stderr";/
+        );
+        expect(staticRuntimeImports).toEqual([]);
+        expect(packageServer).toContain('await Promise.all([\n        import("./config.js")');
+        expect(wrapperCli).toContain("await startCodeIndexerLocalMcpServer()");
+    });
 });

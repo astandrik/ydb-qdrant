@@ -6,11 +6,20 @@ import { basename, dirname, join, relative, sep } from "node:path";
 import { promisify } from "node:util";
 
 import {
+    defaultCodeChunker,
+    type ChunkingOptions,
+} from "./chunker.js";
+import {
     defaultBranchCollectionForRepo,
     pointIdForChunkIdentity,
     userUidForInstallation,
 } from "./naming.js";
-import { RepoIndexer } from "./repoIndexer.js";
+import { loadRepoIndexingConfig } from "./repoConfig.js";
+import {
+    indexingFingerprintForOptions,
+    mergeChunkingOptions,
+    RepoIndexer,
+} from "./repoIndexer.js";
 import type {
     CodeIndexStore,
     EmbeddingProvider,
@@ -54,8 +63,10 @@ const HARD_EXCLUDED_DIRECTORIES = new Set([
 const HARD_EXCLUDED_PATH_PREFIXES = [[".config", "gcloud"]];
 const HARD_EXCLUDED_FILENAMES = new Set([
     ".git-credentials",
+    ".netrc",
     ".npmrc",
     ".pypirc",
+    "_netrc",
     "application_default_credentials.json",
     "id_dsa",
     "id_ecdsa",
@@ -142,6 +153,7 @@ export async function resolveLocalRepositoryRoot(
 export class LocalCodeIndexer {
     private readonly allowedRoots: string[];
     private readonly clientFactory = new LocalGitHubContentClientFactory();
+    private readonly embeddingProvider: EmbeddingProvider;
     private readonly indexer: RepoIndexer;
     private readonly localNamespace: string;
     private readonly manifestStore: RepoManifestStore;
@@ -158,6 +170,7 @@ export class LocalCodeIndexer {
         workspaceRoot?: string;
     }) {
         this.allowedRoots = params.allowedRoots ?? [];
+        this.embeddingProvider = params.embeddingProvider;
         this.localNamespace = resolveLocalIndexNamespace(params.localNamespace);
         this.manifestStore = params.manifestStore;
         this.store = params.store;
@@ -345,6 +358,14 @@ export class LocalCodeIndexer {
         if (!manifest) {
             return null;
         }
+        const fingerprintStatus = await this.verifyPersistedIndexingFingerprint({
+            identity,
+            manifest,
+            root,
+        });
+        if (fingerprintStatus) {
+            return fingerprintStatus;
+        }
         const manifestChunkCount = chunkCountFromManifest(manifest);
         const expectedPointIds =
             manifestChunkCount === null ? null : pointIdsFromManifest(manifest);
@@ -430,6 +451,82 @@ export class LocalCodeIndexer {
             status: "ready",
         });
         this.statuses.set(String(identity.repoId), status);
+        return status;
+    }
+
+    private async verifyPersistedIndexingFingerprint(params: {
+        identity: LocalRepositoryIdentity;
+        manifest: RepoIndexManifest;
+        root: string;
+    }): Promise<LocalRepositoryIndexSummary | null> {
+        let currentFingerprint: string;
+        try {
+            currentFingerprint = await this.currentIndexingFingerprint(params);
+        } catch (err: unknown) {
+            return this.cachePersistedFailure({
+                identity: params.identity,
+                lastError: `persisted index verification failed: ${errorMessage(err)}`,
+                manifest: params.manifest,
+                root: params.root,
+            });
+        }
+        if (!params.manifest.indexingFingerprint) {
+            return this.cachePersistedFailure({
+                identity: params.identity,
+                lastError:
+                    "persisted index verification failed: manifest is missing indexing fingerprint; reindex required",
+                manifest: params.manifest,
+                root: params.root,
+            });
+        }
+        if (params.manifest.indexingFingerprint !== currentFingerprint) {
+            return this.cachePersistedFailure({
+                identity: params.identity,
+                lastError:
+                    "persisted index verification failed: indexing fingerprint changed; reindex required",
+                manifest: params.manifest,
+                root: params.root,
+            });
+        }
+        return null;
+    }
+
+    private async currentIndexingFingerprint(params: {
+        identity: LocalRepositoryIdentity;
+        manifest: RepoIndexManifest;
+        root: string;
+    }): Promise<string> {
+        const repoConfig = await loadRepoIndexingConfig({
+            client: new LocalGitHubContentClient(params.root),
+            ref: params.manifest.sha || params.manifest.ref,
+            repository: params.identity.repository,
+        });
+        const baseChunkingOptions: ChunkingOptions = {};
+        return indexingFingerprintForOptions({
+            chunker: defaultCodeChunker,
+            chunkingOptions: mergeChunkingOptions(
+                baseChunkingOptions,
+                repoConfig
+            ),
+            embeddingProvider: this.embeddingProvider,
+        });
+    }
+
+    private cachePersistedFailure(params: {
+        identity: LocalRepositoryIdentity;
+        lastError: string;
+        manifest: RepoIndexManifest;
+        root: string;
+    }): LocalRepositoryIndexSummary {
+        const status = persistedStatusFromManifest({
+            chunkCount: chunkCountFromManifest(params.manifest) ?? undefined,
+            identity: params.identity,
+            lastError: params.lastError,
+            manifest: params.manifest,
+            root: params.root,
+            status: "failed",
+        });
+        this.statuses.set(String(params.identity.repoId), status);
         return status;
     }
 }
