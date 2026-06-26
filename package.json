@@ -1,6 +1,6 @@
 {
   "name": "ydb-qdrant",
-  "version": "9.1.1",
+  "version": "9.2.0",
   "main": "dist/package/api.js",
   "types": "dist/package/api.d.ts",
   "exports": {
@@ -35,7 +35,7 @@
     "start:code-indexer": "node --experimental-specifier-resolution=node --enable-source-maps dist/code-indexer/index.js",
     "mcp:code-indexer": "node --experimental-specifier-resolution=node --enable-source-maps dist/code-indexer/mcpServer.js",
     "mcp:ydb-qdrant": "node --experimental-specifier-resolution=node --enable-source-maps dist/mcp/stdioServer.js",
-    "start:mcp:ydb-qdrant": "node --experimental-specifier-resolution=node --enable-source-maps dist/mcp/httpServer.js",
+    "start:mcp:ydb-qdrant": "node --experimental-specifier-resolution=node --enable-source-maps dist/mcp/httpServerCli.js",
     "smoke": "npm run build && node --experimental-specifier-resolution=node --enable-source-maps dist/SmokeTest.js",
     "test:code-indexer": "vitest run test/code-indexer",
     "test:integration:code-indexer": "vitest run test/integration/CodeIndexerSmoke.test.ts",

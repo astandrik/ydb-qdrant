@@ -1,7 +1,8 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { createHash } from "node:crypto";
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
-import { basename, join, relative, sep } from "node:path";
+import { hostname, userInfo } from "node:os";
+import { basename, dirname, join, relative, sep } from "node:path";
 import { promisify } from "node:util";
 
 import {
@@ -44,6 +45,9 @@ const HARD_EXCLUDED_DIRECTORIES = new Set([
     "test-results",
 ]);
 const HARD_EXCLUDED_FILENAMES = new Set([
+    ".git-credentials",
+    ".npmrc",
+    ".pypirc",
     "id_dsa",
     "id_ecdsa",
     "id_ed25519",
@@ -93,6 +97,8 @@ type LocalRepositoryIdentity = {
     userUid: string;
 };
 
+const LEGACY_LOCAL_INDEX_NAMESPACE = "";
+
 export async function resolveLocalRepositoryRoot(
     options: LocalRepositoryRootOptions
 ): Promise<string> {
@@ -128,6 +134,7 @@ export class LocalCodeIndexer {
     private readonly allowedRoots: string[];
     private readonly clientFactory = new LocalGitHubContentClientFactory();
     private readonly indexer: RepoIndexer;
+    private readonly localNamespace: string;
     private readonly manifestStore: RepoManifestStore;
     private readonly statuses = new Map<string, LocalRepositoryIndexSummary>();
     private readonly store: CodeIndexStore;
@@ -136,11 +143,13 @@ export class LocalCodeIndexer {
     constructor(params: {
         allowedRoots?: string[];
         embeddingProvider: EmbeddingProvider;
+        localNamespace?: string;
         manifestStore: RepoManifestStore;
         store: CodeIndexStore;
         workspaceRoot?: string;
     }) {
         this.allowedRoots = params.allowedRoots ?? [];
+        this.localNamespace = resolveLocalIndexNamespace(params.localNamespace);
         this.manifestStore = params.manifestStore;
         this.store = params.store;
         this.workspaceRoot = params.workspaceRoot;
@@ -194,7 +203,7 @@ export class LocalCodeIndexer {
         root?: string;
     }): Promise<LocalRepositoryIndexSummary> {
         const root = await this.resolveRoot(params.root);
-        const identity = localRepositoryIdentity(root);
+        const identity = localRepositoryIdentity(root, this.localNamespace);
         const initialStatus: LocalRepositoryIndexSummary = {
             collection: identity.collection,
             installationId: identity.installationId,
@@ -235,7 +244,7 @@ export class LocalCodeIndexer {
             return { indexes: [...this.statuses.values()] };
         }
         const root = await this.resolveRoot(params.root);
-        const identity = localRepositoryIdentity(root);
+        const identity = localRepositoryIdentity(root, this.localNamespace);
         const index =
             this.statuses.get(String(identity.repoId)) ??
             (await this.loadPersistedStatusForRoot(root));
@@ -302,7 +311,24 @@ export class LocalCodeIndexer {
     private async loadPersistedStatusForRoot(
         root: string
     ): Promise<LocalRepositoryIndexSummary | null> {
-        const identity = localRepositoryIdentity(root);
+        const identity = localRepositoryIdentity(root, this.localNamespace);
+        const currentStatus = await this.loadPersistedStatusForIdentity(
+            root,
+            identity
+        );
+        if (currentStatus || this.localNamespace === LEGACY_LOCAL_INDEX_NAMESPACE) {
+            return currentStatus;
+        }
+        return await this.loadPersistedStatusForIdentity(
+            root,
+            localRepositoryIdentity(root, LEGACY_LOCAL_INDEX_NAMESPACE)
+        );
+    }
+
+    private async loadPersistedStatusForIdentity(
+        root: string,
+        identity: LocalRepositoryIdentity
+    ): Promise<LocalRepositoryIndexSummary | null> {
         const manifest = await this.manifestStore.get({
             collection: identity.collection,
             userUid: identity.userUid,
@@ -311,26 +337,73 @@ export class LocalCodeIndexer {
             return null;
         }
         const manifestChunkCount = chunkCountFromManifest(manifest);
-        const chunkCount =
-            manifestChunkCount ??
-            (await this.store.countCollection({
+        let pointCount: number;
+        try {
+            pointCount = await this.store.countCollection({
                 collection: identity.collection,
                 userUid: identity.userUid,
-            }));
-        const status: LocalRepositoryIndexSummary = {
-            chunkCount,
-            collection: identity.collection,
-            installationId: identity.installationId,
-            lastIndexedSha: manifest.sha,
-            owner: manifest.repository.owner,
-            repo: manifest.repository.repo,
-            repoId: identity.repoId,
+            });
+        } catch (err: unknown) {
+            const status = persistedStatusFromManifest({
+                chunkCount: manifestChunkCount ?? undefined,
+                identity,
+                lastError: `persisted index verification failed: ${errorMessage(err)}`,
+                manifest,
+                root,
+                status: "failed",
+            });
+            this.statuses.set(String(identity.repoId), status);
+            return status;
+        }
+        if (manifestChunkCount !== null && pointCount !== manifestChunkCount) {
+            const status = persistedStatusFromManifest({
+                chunkCount: manifestChunkCount,
+                identity,
+                lastError: `persisted index verification failed: point count ${pointCount} does not match manifest chunk count ${manifestChunkCount}`,
+                manifest,
+                root,
+                status: "failed",
+            });
+            this.statuses.set(String(identity.repoId), status);
+            return status;
+        }
+        const status = persistedStatusFromManifest({
+            chunkCount: manifestChunkCount ?? pointCount,
+            identity,
+            manifest,
             root,
             status: "ready",
-        };
+        });
         this.statuses.set(String(identity.repoId), status);
         return status;
     }
+}
+
+function persistedStatusFromManifest(params: {
+    chunkCount?: number;
+    identity: LocalRepositoryIdentity;
+    lastError?: string;
+    manifest: RepoIndexManifest;
+    root: string;
+    status: "failed" | "ready";
+}): LocalRepositoryIndexSummary {
+    const status: LocalRepositoryIndexSummary = {
+        collection: params.identity.collection,
+        installationId: params.identity.installationId,
+        lastIndexedSha: params.manifest.sha,
+        owner: params.manifest.repository.owner,
+        repo: params.manifest.repository.repo,
+        repoId: params.identity.repoId,
+        root: params.root,
+        status: params.status,
+    };
+    if (params.chunkCount !== undefined) {
+        status.chunkCount = params.chunkCount;
+    }
+    if (params.lastError !== undefined) {
+        status.lastError = params.lastError;
+    }
+    return status;
 }
 
 class LocalGitHubContentClientFactory implements GitHubContentClientFactory {
@@ -421,6 +494,9 @@ export async function listLocalRepositoryFiles(
 async function listGitRepositoryFiles(
     root: string
 ): Promise<GitHubRepositorySnapshotFile[] | null> {
+    if (!(await isGitWorkTree(root))) {
+        return null;
+    }
     try {
         const { stdout } = await execFile(
             "git",
@@ -470,8 +546,46 @@ async function listGitRepositoryFiles(
         return files.filter(
             (file): file is GitHubRepositorySnapshotFile => file !== null
         );
-    } catch {
-        return null;
+    } catch (err: unknown) {
+        throw new Error(`git ls-files failed for ${root}: ${errorMessage(err)}`);
+    }
+}
+
+async function isGitWorkTree(root: string): Promise<boolean> {
+    try {
+        const { stdout } = await execFile(
+            "git",
+            ["-C", root, "rev-parse", "--is-inside-work-tree"],
+            {
+                encoding: "utf8",
+                maxBuffer: 1024,
+            }
+        );
+        return String(stdout).trim() === "true";
+    } catch (err: unknown) {
+        if (
+            isNotGitRepositoryError(err) &&
+            !(await hasGitMetadataInAncestors(root))
+        ) {
+            return false;
+        }
+        throw new Error(`git rev-parse failed for ${root}: ${errorMessage(err)}`);
+    }
+}
+
+async function hasGitMetadataInAncestors(root: string): Promise<boolean> {
+    let current = root;
+    while (true) {
+        try {
+            await lstat(join(current, ".git"));
+            return true;
+        } catch {
+            const parent = dirname(current);
+            if (parent === current) {
+                return false;
+            }
+            current = parent;
+        }
     }
 }
 
@@ -538,18 +652,28 @@ function isSafeLocalRepositoryPath(path: string): boolean {
     return !HARD_EXCLUDED_EXTENSIONS.has(extension);
 }
 
-function localRepositoryIds(root: string): {
+function localRepositoryIds(
+    root: string,
+    localNamespace: string
+): {
     installationId: number;
     repoId: number;
 } {
+    const scopedRoot =
+        localNamespace === LEGACY_LOCAL_INDEX_NAMESPACE
+            ? root
+            : `${localNamespace}:${root}`;
     return {
-        installationId: stablePositiveInt(`installation:${root}`),
-        repoId: stablePositiveInt(`repo:${root}`),
+        installationId: stablePositiveInt(`installation:${scopedRoot}`),
+        repoId: stablePositiveInt(`repo:${scopedRoot}`),
     };
 }
 
-function localRepositoryIdentity(root: string): LocalRepositoryIdentity {
-    const ids = localRepositoryIds(root);
+function localRepositoryIdentity(
+    root: string,
+    localNamespace: string
+): LocalRepositoryIdentity {
+    const ids = localRepositoryIds(root, localNamespace);
     const repository: GitHubRepositoryRef = {
         defaultBranch: "local",
         owner: "local",
@@ -573,6 +697,23 @@ function chunkCountFromManifest(manifest: RepoIndexManifest): number | null {
     return manifest.files.reduce((sum, file) => sum + (file.chunkCount ?? 0), 0);
 }
 
+function resolveLocalIndexNamespace(localNamespace: string | undefined): string {
+    if (localNamespace !== undefined) {
+        return localNamespace.trim();
+    }
+    return `auto:${sha1Text(defaultLocalIndexNamespaceInput()).slice(0, 16)}`;
+}
+
+function defaultLocalIndexNamespaceInput(): string {
+    let username = process.env.USER || process.env.USERNAME || "unknown";
+    try {
+        username = userInfo().username || username;
+    } catch {
+        // Keep the environment-derived fallback.
+    }
+    return `${username}@${hostname() || "unknown"}`;
+}
+
 function numericId(value: number | string, label: string): number {
     if (typeof value === "number" && Number.isSafeInteger(value)) {
         return value;
@@ -591,6 +732,30 @@ function stablePositiveInt(value: string): number {
 
 function contentFingerprint(root: string): string {
     return createHash("sha256").update(root).digest("hex").slice(0, 16);
+}
+
+function errorMessage(err: unknown): string {
+    return err instanceof Error ? err.message : String(err);
+}
+
+function errorStderr(err: unknown): string {
+    if (!err || typeof err !== "object" || !("stderr" in err)) {
+        return "";
+    }
+    const stderr = (err as { stderr?: unknown }).stderr;
+    return typeof stderr === "string" ? stderr : "";
+}
+
+function isNotGitRepositoryError(err: unknown): boolean {
+    const stderr = errorStderr(err).toLowerCase();
+    return (
+        stderr.includes("not a git repository") ||
+        stderr.includes("not a gitdir")
+    );
+}
+
+function sha1Text(value: string): string {
+    return createHash("sha1").update(value).digest("hex");
 }
 
 function sha1(value: Buffer): string {

@@ -24,7 +24,9 @@ export async function run(args: string[]): Promise<void> {
             return;
         }
         case "core-http":
-            await import("ydb-qdrant/mcp/http-server");
+            await (
+                await import("ydb-qdrant/mcp/http-server")
+            ).startYdbQdrantMcpHttpServer();
             return;
     }
 }

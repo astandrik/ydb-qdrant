@@ -42,17 +42,22 @@ export YDB_QDRANT_ENDPOINT=grpc://localhost:2136
 export YDB_QDRANT_DATABASE=/local
 export YDB_QDRANT_MCP_WORKSPACE_ROOT=/path/to/repo
 export YDB_QDRANT_MCP_ALLOWED_ROOTS=/path/to/repo,/path/to/other
+export YDB_QDRANT_MCP_LOCAL_NAMESPACE=my-laptop
 export CODE_INDEXER_EMBEDDING_PROVIDER=hash
 ```
 
 `YDB_QDRANT_MCP_ALLOWED_ROOTS` is optional. When it is not set, explicit tool
 `root` values must still resolve inside `YDB_QDRANT_MCP_WORKSPACE_ROOT`. When it
 is set, explicit roots must resolve inside one of the allowed roots.
+`YDB_QDRANT_MCP_LOCAL_NAMESPACE` is optional. When it is not set, the local
+index namespace is derived from the current OS user and hostname, which avoids
+collisions when multiple machines share one YDB database.
 
 Local file selection is git-aware for Git checkouts: ignored files are skipped
 with `git ls-files --cached --others --exclude-standard`. Hard excludes also
-skip local secret/private paths such as `.env*`, `private/`, key/certificate
-files, logs, caches, and build output.
+skip local secret/private paths such as `.env*`, `.npmrc`, `.pypirc`,
+`.git-credentials`, `private/`, key/certificate files, logs, caches, and build
+output.
 
 Use core modes from the same package when you want direct collection/point tools:
 
@@ -372,7 +377,7 @@ settings used by the GitHub App code indexer.
 | `YDB_QDRANT_MCP_ENABLE_WRITES` | `false` | Enables `create_collection` and `upsert_points`. |
 | `YDB_QDRANT_MCP_ENABLE_DESTRUCTIVE` | `false` | Enables `delete_points` and `delete_collection`. |
 | `YDB_QDRANT_MCP_EMBEDDING_PROVIDER` | none | Enables `search_text`; one of `hash`, `http`, or `openai`. |
-| `YDB_QDRANT_MCP_EMBEDDING_DIMENSION` | `384` or `1536` | Embedding vector size. Default is `1536` for OpenAI and `384` for hash/http. |
+| `YDB_QDRANT_MCP_EMBEDDING_DIMENSION` | provider/model default | Embedding vector size. Defaults are `384` for hash/http, `1536` for OpenAI `text-embedding-3-small`/`text-embedding-ada-002`, and `3072` for `text-embedding-3-large`. Unknown OpenAI models require this variable. |
 | `YDB_QDRANT_MCP_EMBEDDING_URL` | none | Required for `http`; optional override for `openai`. |
 | `YDB_QDRANT_MCP_EMBEDDING_API_KEY` | none | API key for `http`, or OpenAI key fallback. |
 | `OPENAI_API_KEY` | none | OpenAI provider key fallback when `YDB_QDRANT_MCP_EMBEDDING_PROVIDER=openai`. |

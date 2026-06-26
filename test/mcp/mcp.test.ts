@@ -189,11 +189,46 @@ describe("YDB Qdrant MCP server", () => {
             tools?.result as {
                 tools: Array<{
                     annotations?: { destructiveHint?: boolean };
+                    inputSchema?: {
+                        properties?: Record<string, unknown>;
+                    };
                     name: string;
                 }>;
             }
         ).tools.find((tool) => tool.name === "delete_collection");
         expect(deleteTool?.annotations?.destructiveHint).toBe(true);
+        const toolSchemas = (
+            tools?.result as {
+                tools: Array<{
+                    inputSchema?: {
+                        properties?: Record<string, unknown>;
+                    };
+                    name: string;
+                }>;
+            }
+        ).tools;
+        expect(
+            (
+                toolSchemas.find((tool) => tool.name === "search_points")
+                    ?.inputSchema?.properties?.top as { type?: string }
+            ).type
+        ).toBe("integer");
+        expect(
+            (
+                toolSchemas.find((tool) => tool.name === "search_text")
+                    ?.inputSchema?.properties?.top as { type?: string }
+            ).type
+        ).toBe("integer");
+        expect(
+            (
+                (
+                    toolSchemas.find((tool) => tool.name === "create_collection")
+                        ?.inputSchema?.properties?.vectors as {
+                        properties?: Record<string, unknown>;
+                    }
+                ).properties?.size as { type?: string }
+            ).type
+        ).toBe("integer");
     });
 
     it("searches by raw vector and returns MCP content plus structuredContent", async () => {

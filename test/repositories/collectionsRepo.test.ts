@@ -209,6 +209,38 @@ describe("collectionsRepo (with mocked YDB)", () => {
         expect(params).toBeTypeOf("function");
     });
 
+    it("omits invalid last_accessed_at values from collection listings", async () => {
+        withSessionMock.mockResolvedValueOnce({
+            resultSets: [
+                {
+                    rows: [
+                        {
+                            items: [
+                                { textValue: "test_user/docs" },
+                                { uint32Value: 128 },
+                                { textValue: "Cosine" },
+                                { textValue: "float" },
+                                { textValue: "not-a-date" },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        } as unknown as never);
+
+        const collections = await listCollectionsForUser("test_user");
+
+        expect(collections).toEqual([
+            {
+                distance: "Cosine",
+                metaKey: "test_user/docs",
+                name: "docs",
+                vectorSize: 128,
+                vectorType: "float",
+            },
+        ]);
+    });
+
     it("lists legacy null-user metadata by collection prefix range", async () => {
         const sessionMock = {
             executeQuery: vi.fn().mockResolvedValue({

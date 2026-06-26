@@ -30,9 +30,3 @@ export async function startYdbQdrantMcpHttpServer(): Promise<void> {
         logger.info({ port: config.port }, "ydb-qdrant MCP HTTP listening");
     });
 }
-
-void startYdbQdrantMcpHttpServer().catch((err: unknown) => {
-    const message = err instanceof Error ? err.stack ?? err.message : String(err);
-    process.stderr.write(`${message}\n`);
-    process.exitCode = 1;
-});

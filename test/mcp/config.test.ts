@@ -84,4 +84,47 @@ describe("YDB Qdrant MCP config", () => {
         expect(provider.dimension).toBe(8);
         expect(embedding).toHaveLength(8);
     });
+
+    it("infers OpenAI embedding dimensions from known model defaults", () => {
+        const config = loadYdbQdrantMcpConfig({
+            OPENAI_API_KEY: "openai-key",
+            YDB_QDRANT_MCP_EMBEDDING_MODEL: "text-embedding-3-large",
+            YDB_QDRANT_MCP_EMBEDDING_PROVIDER: "openai",
+            YDB_QDRANT_MCP_USER_UID: "tenant_a",
+        });
+
+        expect(config.embedding).toMatchObject({
+            dimension: 3072,
+            dimensionExplicit: false,
+            model: "text-embedding-3-large",
+            provider: "openai",
+        });
+    });
+
+    it("requires explicit dimension for unknown OpenAI embedding models", () => {
+        expect(() =>
+            loadYdbQdrantMcpConfig({
+                OPENAI_API_KEY: "openai-key",
+                YDB_QDRANT_MCP_EMBEDDING_MODEL: "custom-openai-model",
+                YDB_QDRANT_MCP_EMBEDDING_PROVIDER: "openai",
+                YDB_QDRANT_MCP_USER_UID: "tenant_a",
+            })
+        ).toThrow(
+            "YDB_QDRANT_MCP_EMBEDDING_DIMENSION is required for unknown OpenAI embedding model custom-openai-model"
+        );
+
+        expect(
+            loadYdbQdrantMcpConfig({
+                OPENAI_API_KEY: "openai-key",
+                YDB_QDRANT_MCP_EMBEDDING_DIMENSION: "2048",
+                YDB_QDRANT_MCP_EMBEDDING_MODEL: "custom-openai-model",
+                YDB_QDRANT_MCP_EMBEDDING_PROVIDER: "openai",
+                YDB_QDRANT_MCP_USER_UID: "tenant_a",
+            }).embedding
+        ).toMatchObject({
+            dimension: 2048,
+            dimensionExplicit: true,
+            model: "custom-openai-model",
+        });
+    });
 });

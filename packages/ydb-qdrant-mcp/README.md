@@ -22,16 +22,19 @@ Required YDB configuration is the same as `ydb-qdrant`:
 export YDB_QDRANT_ENDPOINT=grpc://localhost:2136
 export YDB_QDRANT_DATABASE=/local
 export YDB_QDRANT_MCP_WORKSPACE_ROOT=/path/to/repo
+export YDB_QDRANT_MCP_LOCAL_NAMESPACE=my-laptop
 export CODE_INDEXER_EMBEDDING_PROVIDER=hash
 ```
 
 Explicit `root` values are constrained to `YDB_QDRANT_MCP_WORKSPACE_ROOT` by
 default. Use `YDB_QDRANT_MCP_ALLOWED_ROOTS` as a comma-separated allowlist when
 agents may index multiple local roots.
+`YDB_QDRANT_MCP_LOCAL_NAMESPACE` is optional; by default the local namespace is
+derived from the current OS user and hostname.
 
 Local indexing uses git-aware file selection for Git checkouts and always skips
-ignored files, `.env*`, `private/`, key/certificate files, logs, caches, and
-build output.
+ignored files, `.env*`, `.npmrc`, `.pypirc`, `.git-credentials`, `private/`,
+key/certificate files, logs, caches, and build output.
 
 Tools in default mode:
 

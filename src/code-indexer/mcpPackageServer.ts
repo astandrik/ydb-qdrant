@@ -19,6 +19,8 @@ export function startCodeIndexerLocalMcpServer(): void {
             process.env.YDB_QDRANT_MCP_ALLOWED_ROOTS
         ),
         embeddingProvider,
+        localNamespace:
+            process.env.YDB_QDRANT_MCP_LOCAL_NAMESPACE?.trim() || undefined,
         manifestStore,
         store,
         workspaceRoot: process.env.YDB_QDRANT_MCP_WORKSPACE_ROOT?.trim() || undefined,

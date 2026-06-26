@@ -11,6 +11,7 @@ import {
     LocalCodeIndexer,
     resolveLocalRepositoryRoot,
 } from "../../src/code-indexer/localIndexer.js";
+import { userUidForInstallation } from "../../src/code-indexer/naming.js";
 import type {
     CodeIndexStore,
     EmbeddingProvider,
@@ -97,6 +98,9 @@ describe("local repository file listing", () => {
         await writeFile(join(root, "src", "app.ts"), "export const app = 1;\n");
         await writeFile(join(root, ".env"), "TOKEN=secret\n");
         await writeFile(join(root, ".envrc"), "export TOKEN=secret\n");
+        await writeFile(join(root, ".git-credentials"), "https://token\n");
+        await writeFile(join(root, ".npmrc"), "//registry/token\n");
+        await writeFile(join(root, ".pypirc"), "[distutils]\n");
         await writeFile(join(root, "cache", "data.ts"), "export const cached = 1;\n");
         await writeFile(join(root, "local.key"), "secret\n");
         await writeFile(join(root, "local.pem"), "secret\n");
@@ -111,12 +115,43 @@ describe("local repository file listing", () => {
         expect(paths).toContain("src/app.ts");
         expect(paths).not.toContain(".env");
         expect(paths).not.toContain(".envrc");
+        expect(paths).not.toContain(".git-credentials");
+        expect(paths).not.toContain(".npmrc");
+        expect(paths).not.toContain(".pypirc");
         expect(paths).not.toContain("cache/data.ts");
         expect(paths).not.toContain("local.key");
         expect(paths).not.toContain("local.pem");
         expect(paths).not.toContain("private/secret.ts");
         expect(paths).not.toContain("logs/app.log");
         expect(paths).not.toContain("ignored.txt");
+    });
+
+    it("uses raw recursive listing for non-git roots", async () => {
+        const root = await makeTempDir("plain-repo");
+        await mkdir(join(root, "src"), { recursive: true });
+        await writeFile(join(root, ".gitignore"), "ignored.txt\n");
+        await writeFile(join(root, "ignored.txt"), "not git ignored\n");
+        await writeFile(join(root, "src", "app.ts"), "export const app = 1;\n");
+
+        const paths = (await listLocalRepositoryFiles(root)).map(
+            (file) => file.path
+        );
+
+        expect(paths).toEqual([".gitignore", "ignored.txt", "src/app.ts"]);
+    });
+
+    it("does not fall back to raw recursion when git listing fails", async () => {
+        const root = await makeTempDir("broken-git-repo");
+        await execFile("git", ["init"], { cwd: root });
+        await mkdir(join(root, "src"), { recursive: true });
+        await writeFile(join(root, ".gitignore"), "ignored.txt\n");
+        await writeFile(join(root, "ignored.txt"), "secret\n");
+        await writeFile(join(root, "src", "app.ts"), "export const app = 1;\n");
+        await writeFile(join(root, ".git", "index"), "not a valid git index\n");
+
+        await expect(listLocalRepositoryFiles(root)).rejects.toThrow(
+            /git .* failed/
+        );
     });
 });
 
@@ -166,15 +201,16 @@ describe("local code indexer status", () => {
         });
     });
 
-    it("does not count persisted points when manifest contains chunk counts", async () => {
+    it("verifies persisted point count when manifest contains chunk counts", async () => {
         const root = await makeTempDir("manifest-count-repo");
         await mkdir(join(root, "src"), { recursive: true });
         await writeFile(join(root, "src", "app.ts"), "export const app = 1;\n");
         const manifestStore = new MemoryManifestStore();
+        const store = new MemoryIndexStore();
         const firstIndexer = new LocalCodeIndexer({
             embeddingProvider: passingEmbeddingProvider,
             manifestStore,
-            store: new MemoryIndexStore(),
+            store,
             workspaceRoot: root,
         });
 
@@ -182,7 +218,7 @@ describe("local code indexer status", () => {
         const restartedIndexer = new LocalCodeIndexer({
             embeddingProvider: passingEmbeddingProvider,
             manifestStore,
-            store: new ThrowingCountIndexStore(),
+            store,
             workspaceRoot: root,
         });
 
@@ -197,13 +233,14 @@ describe("local code indexer status", () => {
         });
     });
 
-    it("does not count persisted points when manifest has no files", async () => {
+    it("verifies persisted point count when manifest has no files", async () => {
         const root = await makeTempDir("empty-manifest-repo");
         const manifestStore = new MemoryManifestStore();
+        const store = new MemoryIndexStore();
         const firstIndexer = new LocalCodeIndexer({
             embeddingProvider: passingEmbeddingProvider,
             manifestStore,
-            store: new MemoryIndexStore(),
+            store,
             workspaceRoot: root,
         });
 
@@ -211,7 +248,7 @@ describe("local code indexer status", () => {
         const restartedIndexer = new LocalCodeIndexer({
             embeddingProvider: passingEmbeddingProvider,
             manifestStore,
-            store: new ThrowingCountIndexStore(),
+            store,
             workspaceRoot: root,
         });
 
@@ -223,6 +260,137 @@ describe("local code indexer status", () => {
                     status: "ready",
                 }),
             ],
+        });
+    });
+
+    it("returns failed persisted status when collection count is stale", async () => {
+        const root = await makeTempDir("stale-persisted-repo");
+        await mkdir(join(root, "src"), { recursive: true });
+        await writeFile(join(root, "src", "app.ts"), "export const app = 1;\n");
+        const manifestStore = new MemoryManifestStore();
+        const store = new MemoryIndexStore();
+        const firstIndexer = new LocalCodeIndexer({
+            embeddingProvider: passingEmbeddingProvider,
+            manifestStore,
+            store,
+            workspaceRoot: root,
+        });
+
+        const indexed = await firstIndexer.indexRepository({});
+        await store.deleteCollection({
+            collection: indexed.collection,
+            userUid: userUidForInstallation(indexed.installationId),
+        });
+        const restartedIndexer = new LocalCodeIndexer({
+            embeddingProvider: passingEmbeddingProvider,
+            manifestStore,
+            store,
+            workspaceRoot: root,
+        });
+
+        await expect(restartedIndexer.getIndexStatus({})).resolves.toEqual({
+            indexes: [
+                expect.objectContaining({
+                    collection: indexed.collection,
+                    lastError:
+                        "persisted index verification failed: point count 0 does not match manifest chunk count 1",
+                    status: "failed",
+                }),
+            ],
+        });
+    });
+
+    it("returns failed persisted status when collection count fails", async () => {
+        const root = await makeTempDir("count-fails-repo");
+        await mkdir(join(root, "src"), { recursive: true });
+        await writeFile(join(root, "src", "app.ts"), "export const app = 1;\n");
+        const manifestStore = new MemoryManifestStore();
+        await new LocalCodeIndexer({
+            embeddingProvider: passingEmbeddingProvider,
+            manifestStore,
+            store: new MemoryIndexStore(),
+            workspaceRoot: root,
+        }).indexRepository({});
+        const restartedIndexer = new LocalCodeIndexer({
+            embeddingProvider: passingEmbeddingProvider,
+            manifestStore,
+            store: new ThrowingCountIndexStore(),
+            workspaceRoot: root,
+        });
+
+        await expect(restartedIndexer.getIndexStatus({})).resolves.toEqual({
+            indexes: [
+                expect.objectContaining({
+                    lastError:
+                        "persisted index verification failed: countCollection failed",
+                    status: "failed",
+                }),
+            ],
+        });
+    });
+
+    it("uses local namespace to isolate local repository ids", async () => {
+        const root = await makeTempDir("namespaced-repo");
+        await mkdir(join(root, "src"), { recursive: true });
+        await writeFile(join(root, "src", "app.ts"), "export const app = 1;\n");
+        const first = await new LocalCodeIndexer({
+            embeddingProvider: passingEmbeddingProvider,
+            localNamespace: "first-machine",
+            manifestStore: new MemoryManifestStore(),
+            store: new MemoryIndexStore(),
+            workspaceRoot: root,
+        }).indexRepository({});
+        const second = await new LocalCodeIndexer({
+            embeddingProvider: passingEmbeddingProvider,
+            localNamespace: "second-machine",
+            manifestStore: new MemoryManifestStore(),
+            store: new MemoryIndexStore(),
+            workspaceRoot: root,
+        }).indexRepository({});
+
+        expect(first.installationId).not.toBe(second.installationId);
+        expect(first.repoId).not.toBe(second.repoId);
+        expect(first.collection).not.toBe(second.collection);
+    });
+
+    it("falls back to legacy root-only manifest when namespaced manifest is missing", async () => {
+        const root = await makeTempDir("legacy-root-repo");
+        await mkdir(join(root, "src"), { recursive: true });
+        await writeFile(join(root, "src", "app.ts"), "export const app = 1;\n");
+        const manifestStore = new MemoryManifestStore();
+        const store = new MemoryIndexStore();
+        const legacyIndexed = await new LocalCodeIndexer({
+            embeddingProvider: passingEmbeddingProvider,
+            localNamespace: "",
+            manifestStore,
+            store,
+            workspaceRoot: root,
+        }).indexRepository({});
+        const restartedIndexer = new LocalCodeIndexer({
+            embeddingProvider: passingEmbeddingProvider,
+            localNamespace: "new-machine",
+            manifestStore,
+            store,
+            workspaceRoot: root,
+        });
+
+        await expect(restartedIndexer.getIndexStatus({})).resolves.toEqual({
+            indexes: [
+                expect.objectContaining({
+                    collection: legacyIndexed.collection,
+                    installationId: legacyIndexed.installationId,
+                    repoId: legacyIndexed.repoId,
+                    status: "ready",
+                }),
+            ],
+        });
+        await expect(restartedIndexer.listRepositoryIndexes({})).resolves.toMatchObject({
+            defaultBranch: {
+                collection: legacyIndexed.collection,
+                status: "ready",
+            },
+            installationId: legacyIndexed.installationId,
+            repoId: legacyIndexed.repoId,
         });
     });
 
@@ -461,6 +629,6 @@ class MemoryIndexStore implements CodeIndexStore {
 
 class ThrowingCountIndexStore extends MemoryIndexStore {
     override countCollection(): Promise<number> {
-        return Promise.reject(new Error("countCollection should not be called"));
+        return Promise.reject(new Error("countCollection failed"));
     }
 }

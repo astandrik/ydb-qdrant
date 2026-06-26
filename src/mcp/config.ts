@@ -75,6 +75,20 @@ function readEmbeddingAuthScheme(env: EnvLike): string | undefined {
     return env.YDB_QDRANT_MCP_EMBEDDING_AUTH_SCHEME.trim() || undefined;
 }
 
+function openAiDefaultDimension(model: string): number {
+    switch (model) {
+        case "text-embedding-3-small":
+        case "text-embedding-ada-002":
+            return 1536;
+        case "text-embedding-3-large":
+            return 3072;
+        default:
+            throw new Error(
+                `YDB_QDRANT_MCP_EMBEDDING_DIMENSION is required for unknown OpenAI embedding model ${model}`
+            );
+    }
+}
+
 function readIdentity(env: EnvLike): YdbQdrantMcpIdentity {
     const apiKey = env.YDB_QDRANT_MCP_API_KEY?.trim();
     const userUid = env.YDB_QDRANT_MCP_USER_UID?.trim();
@@ -110,6 +124,17 @@ function readEmbeddingConfig(
             "YDB_QDRANT_MCP_EMBEDDING_URL is required when YDB_QDRANT_MCP_EMBEDDING_PROVIDER=http"
         );
     }
+    const dimensionExplicit =
+        env.YDB_QDRANT_MCP_EMBEDDING_DIMENSION !== undefined;
+    const model =
+        env.YDB_QDRANT_MCP_EMBEDDING_MODEL?.trim() ||
+        (provider === "openai" ? "text-embedding-3-small" : undefined);
+    const defaultDimension =
+        provider === "openai" && model && !dimensionExplicit
+            ? openAiDefaultDimension(model)
+            : provider === "openai"
+              ? 1536
+              : 384;
     return {
         apiKey:
             provider === "openai"
@@ -123,14 +148,11 @@ function readEmbeddingConfig(
         authScheme: readEmbeddingAuthScheme(env),
         dimension: parseIntegerEnv(
             env.YDB_QDRANT_MCP_EMBEDDING_DIMENSION,
-            provider === "openai" ? 1536 : 384,
+            defaultDimension,
             { min: 1 }
         ),
-        dimensionExplicit:
-            env.YDB_QDRANT_MCP_EMBEDDING_DIMENSION !== undefined,
-        model:
-            env.YDB_QDRANT_MCP_EMBEDDING_MODEL?.trim() ||
-            (provider === "openai" ? "text-embedding-3-small" : undefined),
+        dimensionExplicit,
+        model,
         provider,
         url: embeddingUrl || undefined,
     };

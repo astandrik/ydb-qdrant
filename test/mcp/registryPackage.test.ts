@@ -13,13 +13,16 @@ describe("YDB Qdrant MCP npm package and registry metadata", () => {
     it("declares an MCP package with a single CLI bin and root exports", async () => {
         const rootPackage = await readJson<{
             exports?: Record<string, string>;
+            version?: string;
         }>("package.json");
         const mcpPackage = await readJson<{
             bin?: Record<string, string>;
+            dependencies?: Record<string, string>;
             files?: string[];
             mcpName?: string;
             name?: string;
             scripts?: Record<string, string>;
+            version?: string;
         }>("packages/ydb-qdrant-mcp/package.json");
 
         expect(rootPackage.exports).toMatchObject({
@@ -30,6 +33,9 @@ describe("YDB Qdrant MCP npm package and registry metadata", () => {
             "./mcp/stdio": "./dist/mcp/stdio.js",
         });
         expect(mcpPackage.name).toBe("@astandrik/ydb-qdrant-mcp");
+        expect(rootPackage.version).toBe("9.2.0");
+        expect(mcpPackage.version).toBe("9.2.0");
+        expect(mcpPackage.dependencies?.["ydb-qdrant"]).toBe("^9.2.0");
         expect(mcpPackage.mcpName).toBe("io.github.astandrik/ydb-qdrant-mcp");
         expect(mcpPackage.bin).toEqual({
             "ydb-qdrant-mcp": "./dist/index.js",
@@ -66,12 +72,13 @@ describe("YDB Qdrant MCP npm package and registry metadata", () => {
             "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json"
         );
         expect(server.name).toBe("io.github.astandrik/ydb-qdrant-mcp");
-        expect(server.version).toMatch(/^\d+\.\d+\.\d+/);
+        expect(server.version).toBe("9.2.0");
         expect(server.packages?.[0]).toMatchObject({
             identifier: "@astandrik/ydb-qdrant-mcp",
             registryType: "npm",
             runtimeHint: "npx",
             transport: { type: "stdio" },
+            version: "9.2.0",
         });
         expect(server.packages?.[0]?.runtimeArguments).toEqual([
             { name: "-y", type: "named" },
@@ -84,6 +91,7 @@ describe("YDB Qdrant MCP npm package and registry metadata", () => {
                 "YDB_QDRANT_ENDPOINT",
                 "YDB_QDRANT_DATABASE",
                 "YDB_QDRANT_MCP_WORKSPACE_ROOT",
+                "YDB_QDRANT_MCP_LOCAL_NAMESPACE",
                 "CODE_INDEXER_EMBEDDING_PROVIDER",
             ])
         );

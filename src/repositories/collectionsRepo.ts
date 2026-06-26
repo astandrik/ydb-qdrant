@@ -158,7 +158,8 @@ function parseLastAccessedAt(value: unknown): Date | undefined {
     if (typeof value !== "string" || value.length === 0) {
         return undefined;
     }
-    return new Date(value);
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
 function stringPrefixUpperBound(prefix: string): string {

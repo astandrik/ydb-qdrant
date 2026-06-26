@@ -3,7 +3,7 @@
   "name": "io.github.astandrik/ydb-qdrant-mcp",
   "title": "YDB Qdrant MCP",
   "description": "Index local code into YDB Qdrant and search indexed code memory.",
-  "version": "9.1.1",
+  "version": "9.2.0",
   "websiteUrl": "https://ydb-qdrant.tech/docs/mcp/",
   "repository": {
     "url": "https://github.com/astandrik/ydb-qdrant",
@@ -15,7 +15,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@astandrik/ydb-qdrant-mcp",
-      "version": "9.1.1",
+      "version": "9.2.0",
       "runtimeHint": "npx",
       "runtimeArguments": [
         {
@@ -56,6 +56,13 @@
           "format": "string",
           "isRequired": false,
           "placeholder": "/path/to/repo,/path/to/other"
+        },
+        {
+          "name": "YDB_QDRANT_MCP_LOCAL_NAMESPACE",
+          "description": "Optional namespace component for local index IDs when multiple machines share one YDB database.",
+          "format": "string",
+          "isRequired": false,
+          "placeholder": "my-laptop"
         },
         {
           "name": "YDB_QDRANT_MCP_API_KEY",

@@ -1,6 +1,6 @@
 {
   "name": "@astandrik/ydb-qdrant-mcp",
-  "version": "9.1.1",
+  "version": "9.2.0",
   "mcpName": "io.github.astandrik/ydb-qdrant-mcp",
   "description": "MCP server package for local YDB Qdrant code memory and core vector search.",
   "type": "module",
@@ -39,6 +39,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "ydb-qdrant": "^9.1.1"
+    "ydb-qdrant": "^9.2.0"
   }
 }

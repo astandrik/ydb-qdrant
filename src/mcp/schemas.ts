@@ -29,7 +29,7 @@ export function searchPointsSchema() {
                 default: 10,
                 maximum: 1000,
                 minimum: 1,
-                type: "number",
+                type: "integer",
             },
             vector: {
                 items: { type: "number" },
@@ -56,7 +56,7 @@ export function searchTextSchema() {
                 default: 10,
                 maximum: 1000,
                 minimum: 1,
-                type: "number",
+                type: "integer",
             },
             with_payload: { type: "boolean" },
         },
@@ -103,7 +103,7 @@ export function createCollectionSchema() {
                     },
                     size: {
                         minimum: 1,
-                        type: "number",
+                        type: "integer",
                     },
                 },
                 required: ["size", "distance"],
