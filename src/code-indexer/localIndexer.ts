@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 
 import {
     defaultBranchCollectionForRepo,
+    pointIdForChunkIdentity,
     userUidForInstallation,
 } from "./naming.js";
 import { RepoIndexer } from "./repoIndexer.js";
@@ -29,10 +30,16 @@ import type {
 const execFile = promisify(execFileCallback);
 const GIT_LS_FILES_MAX_BUFFER = 10 * 1024 * 1024;
 const HARD_EXCLUDED_DIRECTORIES = new Set([
+    ".aws",
+    ".azure",
     ".cache",
+    ".docker",
     ".git",
+    ".gnupg",
     ".idea",
+    ".kube",
     ".npm-cache",
+    ".ssh",
     ".vscode",
     "build",
     "cache",
@@ -44,10 +51,12 @@ const HARD_EXCLUDED_DIRECTORIES = new Set([
     "private",
     "test-results",
 ]);
+const HARD_EXCLUDED_PATH_PREFIXES = [[".config", "gcloud"]];
 const HARD_EXCLUDED_FILENAMES = new Set([
     ".git-credentials",
     ".npmrc",
     ".pypirc",
+    "application_default_credentials.json",
     "id_dsa",
     "id_ecdsa",
     "id_ed25519",
@@ -337,6 +346,8 @@ export class LocalCodeIndexer {
             return null;
         }
         const manifestChunkCount = chunkCountFromManifest(manifest);
+        const expectedPointIds =
+            manifestChunkCount === null ? null : pointIdsFromManifest(manifest);
         let pointCount: number;
         try {
             pointCount = await this.store.countCollection({
@@ -355,7 +366,20 @@ export class LocalCodeIndexer {
             this.statuses.set(String(identity.repoId), status);
             return status;
         }
-        if (manifestChunkCount !== null && pointCount !== manifestChunkCount) {
+        if (manifestChunkCount === null || expectedPointIds === null) {
+            const status = persistedStatusFromManifest({
+                chunkCount: undefined,
+                identity,
+                lastError:
+                    "persisted index verification failed: manifest files are missing chunk counts",
+                manifest,
+                root,
+                status: "failed",
+            });
+            this.statuses.set(String(identity.repoId), status);
+            return status;
+        }
+        if (pointCount !== manifestChunkCount) {
             const status = persistedStatusFromManifest({
                 chunkCount: manifestChunkCount,
                 identity,
@@ -367,8 +391,39 @@ export class LocalCodeIndexer {
             this.statuses.set(String(identity.repoId), status);
             return status;
         }
+        let existingPointIdCount: number;
+        try {
+            existingPointIdCount = await this.store.countExistingPointIds({
+                collection: identity.collection,
+                pointIds: expectedPointIds,
+                userUid: identity.userUid,
+            });
+        } catch (err: unknown) {
+            const status = persistedStatusFromManifest({
+                chunkCount: manifestChunkCount,
+                identity,
+                lastError: `persisted index verification failed: ${errorMessage(err)}`,
+                manifest,
+                root,
+                status: "failed",
+            });
+            this.statuses.set(String(identity.repoId), status);
+            return status;
+        }
+        if (existingPointIdCount !== manifestChunkCount) {
+            const status = persistedStatusFromManifest({
+                chunkCount: manifestChunkCount,
+                identity,
+                lastError: `persisted index verification failed: expected point id count ${existingPointIdCount} does not match manifest chunk count ${manifestChunkCount}`,
+                manifest,
+                root,
+                status: "failed",
+            });
+            this.statuses.set(String(identity.repoId), status);
+            return status;
+        }
         const status = persistedStatusFromManifest({
-            chunkCount: manifestChunkCount ?? pointCount,
+            chunkCount: manifestChunkCount,
             identity,
             manifest,
             root,
@@ -636,11 +691,11 @@ function isSafeLocalRepositoryPath(path: string): boolean {
     if (segments.includes("..")) {
         return false;
     }
-    if (
-        segments.some((segment) =>
-            HARD_EXCLUDED_DIRECTORIES.has(segment.toLowerCase())
-        )
-    ) {
+    const lowerSegments = segments.map((segment) => segment.toLowerCase());
+    if (lowerSegments.some((segment) => HARD_EXCLUDED_DIRECTORIES.has(segment))) {
+        return false;
+    }
+    if (hasHardExcludedPathPrefix(lowerSegments)) {
         return false;
     }
     const filename = segments.at(-1)?.toLowerCase() ?? "";
@@ -691,10 +746,54 @@ function localRepositoryIdentity(
 }
 
 function chunkCountFromManifest(manifest: RepoIndexManifest): number | null {
-    if (!manifest.files.every((file) => typeof file.chunkCount === "number")) {
+    if (
+        !manifest.files.every(
+            (file) =>
+                Number.isSafeInteger(file.chunkCount) &&
+                (file.chunkCount ?? -1) >= 0
+        )
+    ) {
         return null;
     }
     return manifest.files.reduce((sum, file) => sum + (file.chunkCount ?? 0), 0);
+}
+
+function pointIdsFromManifest(manifest: RepoIndexManifest): string[] | null {
+    const ids: string[] = [];
+    const indexedRef = manifest.sha || manifest.ref;
+    for (const file of manifest.files) {
+        if (
+            !Number.isSafeInteger(file.chunkCount) ||
+            (file.chunkCount ?? -1) < 0
+        ) {
+            return null;
+        }
+        for (
+            let chunkIndex = 0;
+            chunkIndex < (file.chunkCount ?? 0);
+            chunkIndex += 1
+        ) {
+            ids.push(
+                pointIdForChunkIdentity({
+                    blobSha: file.blobSha,
+                    chunkIndex,
+                    path: file.path,
+                    ref: indexedRef,
+                    repoId: manifest.repository.repoId,
+                })
+            );
+        }
+    }
+    return ids;
+}
+
+function hasHardExcludedPathPrefix(segments: string[]): boolean {
+    return HARD_EXCLUDED_PATH_PREFIXES.some((prefix) => {
+        if (segments.length < prefix.length) {
+            return false;
+        }
+        return prefix.every((segment, index) => segments[index] === segment);
+    });
 }
 
 function resolveLocalIndexNamespace(localNamespace: string | undefined): string {

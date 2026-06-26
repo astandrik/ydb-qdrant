@@ -201,6 +201,10 @@ class FakeStore implements CodeIndexStore {
         return Promise.resolve(this.collectionCount);
     }
 
+    countExistingPointIds(): Promise<number> {
+        return Promise.resolve(this.collectionCount);
+    }
+
     deleteCollection(params: {
         collection: string;
         userUid: string;

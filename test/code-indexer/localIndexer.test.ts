@@ -11,10 +11,14 @@ import {
     LocalCodeIndexer,
     resolveLocalRepositoryRoot,
 } from "../../src/code-indexer/localIndexer.js";
-import { userUidForInstallation } from "../../src/code-indexer/naming.js";
+import {
+    pointIdForChunk,
+    userUidForInstallation,
+} from "../../src/code-indexer/naming.js";
 import type {
     CodeIndexStore,
     EmbeddingProvider,
+    IndexedCodeChunk,
     RepoIndexManifest,
     RepoManifestStore,
 } from "../../src/code-indexer/types.js";
@@ -92,15 +96,33 @@ describe("local repository file listing", () => {
         await execFile("git", ["init"], { cwd: root });
         await mkdir(join(root, "src"), { recursive: true });
         await mkdir(join(root, "cache"), { recursive: true });
+        await mkdir(join(root, ".aws"), { recursive: true });
+        await mkdir(join(root, ".config", "gcloud"), { recursive: true });
+        await mkdir(join(root, ".docker"), { recursive: true });
+        await mkdir(join(root, ".kube"), { recursive: true });
+        await mkdir(join(root, ".ssh"), { recursive: true });
         await mkdir(join(root, "private"), { recursive: true });
         await mkdir(join(root, "logs"), { recursive: true });
         await writeFile(join(root, ".gitignore"), "ignored.txt\n");
         await writeFile(join(root, "src", "app.ts"), "export const app = 1;\n");
+        await writeFile(join(root, ".aws", "credentials"), "secret\n");
+        await writeFile(
+            join(
+                root,
+                ".config",
+                "gcloud",
+                "application_default_credentials.json"
+            ),
+            "secret\n"
+        );
+        await writeFile(join(root, ".docker", "config.json"), "secret\n");
         await writeFile(join(root, ".env"), "TOKEN=secret\n");
         await writeFile(join(root, ".envrc"), "export TOKEN=secret\n");
         await writeFile(join(root, ".git-credentials"), "https://token\n");
+        await writeFile(join(root, ".kube", "config"), "secret\n");
         await writeFile(join(root, ".npmrc"), "//registry/token\n");
         await writeFile(join(root, ".pypirc"), "[distutils]\n");
+        await writeFile(join(root, ".ssh", "config"), "secret\n");
         await writeFile(join(root, "cache", "data.ts"), "export const cached = 1;\n");
         await writeFile(join(root, "local.key"), "secret\n");
         await writeFile(join(root, "local.pem"), "secret\n");
@@ -113,11 +135,18 @@ describe("local repository file listing", () => {
         );
 
         expect(paths).toContain("src/app.ts");
+        expect(paths).not.toContain(".aws/credentials");
+        expect(paths).not.toContain(
+            ".config/gcloud/application_default_credentials.json"
+        );
+        expect(paths).not.toContain(".docker/config.json");
         expect(paths).not.toContain(".env");
         expect(paths).not.toContain(".envrc");
         expect(paths).not.toContain(".git-credentials");
+        expect(paths).not.toContain(".kube/config");
         expect(paths).not.toContain(".npmrc");
         expect(paths).not.toContain(".pypirc");
+        expect(paths).not.toContain(".ssh/config");
         expect(paths).not.toContain("cache/data.ts");
         expect(paths).not.toContain("local.key");
         expect(paths).not.toContain("local.pem");
@@ -294,6 +323,90 @@ describe("local code indexer status", () => {
                     collection: indexed.collection,
                     lastError:
                         "persisted index verification failed: point count 0 does not match manifest chunk count 1",
+                    status: "failed",
+                }),
+            ],
+        });
+    });
+
+    it("returns failed persisted status when matching count has different point ids", async () => {
+        const root = await makeTempDir("wrong-ids-repo");
+        await mkdir(join(root, "src"), { recursive: true });
+        await writeFile(join(root, "src", "app.ts"), "export const app = 1;\n");
+        const manifestStore = new MemoryManifestStore();
+        const store = new MemoryIndexStore();
+        const firstIndexer = new LocalCodeIndexer({
+            embeddingProvider: passingEmbeddingProvider,
+            manifestStore,
+            store,
+            workspaceRoot: root,
+        });
+
+        const indexed = await firstIndexer.indexRepository({});
+        store.replacePointIds({
+            collection: indexed.collection,
+            pointIds: ["not-the-manifest-point-id"],
+            userUid: userUidForInstallation(indexed.installationId),
+        });
+        const restartedIndexer = new LocalCodeIndexer({
+            embeddingProvider: passingEmbeddingProvider,
+            manifestStore,
+            store,
+            workspaceRoot: root,
+        });
+
+        await expect(restartedIndexer.getIndexStatus({})).resolves.toEqual({
+            indexes: [
+                expect.objectContaining({
+                    collection: indexed.collection,
+                    lastError:
+                        "persisted index verification failed: expected point id count 0 does not match manifest chunk count 1",
+                    status: "failed",
+                }),
+            ],
+        });
+    });
+
+    it("returns failed persisted status when manifest files lack chunk counts", async () => {
+        const root = await makeTempDir("missing-chunk-count-repo");
+        await mkdir(join(root, "src"), { recursive: true });
+        await writeFile(join(root, "src", "app.ts"), "export const app = 1;\n");
+        const manifestStore = new MemoryManifestStore();
+        const store = new MemoryIndexStore();
+        const firstIndexer = new LocalCodeIndexer({
+            embeddingProvider: passingEmbeddingProvider,
+            manifestStore,
+            store,
+            workspaceRoot: root,
+        });
+
+        const indexed = await firstIndexer.indexRepository({});
+        const userUid = userUidForInstallation(indexed.installationId);
+        const manifest = await manifestStore.get({
+            collection: indexed.collection,
+            userUid,
+        });
+        expect(manifest).not.toBeNull();
+        await manifestStore.save({
+            ...(manifest as RepoIndexManifest),
+            files: (manifest as RepoIndexManifest).files.map((file) => ({
+                blobSha: file.blobSha,
+                path: file.path,
+            })),
+        });
+        const restartedIndexer = new LocalCodeIndexer({
+            embeddingProvider: passingEmbeddingProvider,
+            manifestStore,
+            store,
+            workspaceRoot: root,
+        });
+
+        await expect(restartedIndexer.getIndexStatus({})).resolves.toEqual({
+            indexes: [
+                expect.objectContaining({
+                    collection: indexed.collection,
+                    lastError:
+                        "persisted index verification failed: manifest files are missing chunk counts",
                     status: "failed",
                 }),
             ],
@@ -586,13 +699,26 @@ class MemoryManifestStore implements RepoManifestStore {
 
 class MemoryIndexStore implements CodeIndexStore {
     private readonly pointCounts = new Map<string, number>();
+    private readonly pointIds = new Map<string, Set<string>>();
 
     countCollection(params: { collection: string; userUid: string }): Promise<number> {
         return Promise.resolve(this.pointCounts.get(this.key(params)) ?? 0);
     }
 
+    countExistingPointIds(params: {
+        collection: string;
+        pointIds: string[];
+        userUid: string;
+    }): Promise<number> {
+        const existing = this.pointIds.get(this.key(params)) ?? new Set<string>();
+        return Promise.resolve(
+            params.pointIds.filter((pointId) => existing.has(pointId)).length
+        );
+    }
+
     deleteCollection(params: { collection: string; userUid: string }): Promise<void> {
         this.pointCounts.delete(this.key(params));
+        this.pointIds.delete(this.key(params));
         return Promise.resolve();
     }
 
@@ -606,6 +732,7 @@ class MemoryIndexStore implements CodeIndexStore {
 
     resetCollection(params: { collection: string; userUid: string }): Promise<void> {
         this.pointCounts.delete(this.key(params));
+        this.pointIds.delete(this.key(params));
         return Promise.resolve();
     }
 
@@ -614,12 +741,25 @@ class MemoryIndexStore implements CodeIndexStore {
     }
 
     upsertChunks(params: {
-        chunks: unknown[];
+        chunks: IndexedCodeChunk[];
         collection: string;
         userUid: string;
     }): Promise<void> {
         this.pointCounts.set(this.key(params), params.chunks.length);
+        this.pointIds.set(
+            this.key(params),
+            new Set(params.chunks.map((chunk) => pointIdForChunk(chunk)))
+        );
         return Promise.resolve();
+    }
+
+    replacePointIds(params: {
+        collection: string;
+        pointIds: string[];
+        userUid: string;
+    }): void {
+        this.pointCounts.set(this.key(params), params.pointIds.length);
+        this.pointIds.set(this.key(params), new Set(params.pointIds));
     }
 
     private key(params: { collection: string; userUid: string }): string {

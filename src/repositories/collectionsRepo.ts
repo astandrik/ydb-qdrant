@@ -207,11 +207,21 @@ function collectionListItemFromRow(row: unknown): CollectionListItem {
     return result;
 }
 
+export type ListCollectionsForUserParams = {
+    collectionUserUid?: string;
+    userUid: string;
+};
+
 export async function listCollectionsForUser(
-    userUid: string
+    params: ListCollectionsForUserParams
 ): Promise<CollectionListItem[]> {
+    const collectionUserUid = params.collectionUserUid ?? params.userUid;
+    const collectionPrefix = `${collectionUserUid}/`;
+    const collectionPrefixEnd = stringPrefixUpperBound(collectionPrefix);
     const qry = `
     DECLARE $user_uid AS Utf8;
+    DECLARE $collection_prefix AS Utf8;
+    DECLARE $collection_prefix_end AS Utf8;
     SELECT
       collection,
       vector_dimension,
@@ -219,7 +229,9 @@ export async function listCollectionsForUser(
       vector_type,
       CAST(last_accessed_at AS Utf8) AS last_accessed_at
     FROM qdr__collections
-    WHERE user_uid = $user_uid
+    WHERE collection >= $collection_prefix
+      AND collection < $collection_prefix_end
+      AND user_uid = $user_uid
     ORDER BY collection;
   `;
     const res = await withSession(async (s) => {
@@ -227,7 +239,9 @@ export async function listCollectionsForUser(
         return await s.executeQuery(
             qry,
             {
-                $user_uid: TypedValues.utf8(userUid),
+                $collection_prefix: TypedValues.utf8(collectionPrefix),
+                $collection_prefix_end: TypedValues.utf8(collectionPrefixEnd),
+                $user_uid: TypedValues.utf8(params.userUid),
             },
             undefined,
             settings

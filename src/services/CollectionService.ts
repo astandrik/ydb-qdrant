@@ -172,16 +172,30 @@ export async function listCollections(
     await ensureMetaTable();
     const normalizedUserUid = normalizeUserUidShared(ctx.userUid);
     const rawUserUid = ctx.userUid.trim();
-    const userUids =
-        rawUserUid !== normalizedUserUid
-            ? [normalizedUserUid, rawUserUid]
-            : [normalizedUserUid];
     const collectionsByMetaKey = new Map<
         string,
         Awaited<ReturnType<typeof listCollectionsForUser>>[number]
     >();
-    for (const userUid of userUids) {
-        const collections = await listCollectionsForUser(userUid);
+    const collectionLookups =
+        rawUserUid !== normalizedUserUid
+            ? [
+                  {
+                      collectionUserUid: normalizedUserUid,
+                      userUid: normalizedUserUid,
+                  },
+                  {
+                      collectionUserUid: normalizedUserUid,
+                      userUid: rawUserUid,
+                  },
+              ]
+            : [
+                  {
+                      collectionUserUid: normalizedUserUid,
+                      userUid: normalizedUserUid,
+                  },
+              ];
+    for (const lookup of collectionLookups) {
+        const collections = await listCollectionsForUser(lookup);
         for (const collection of collections) {
             if (!collectionsByMetaKey.has(collection.metaKey)) {
                 collectionsByMetaKey.set(collection.metaKey, collection);

@@ -97,6 +97,7 @@ function createBaseDeps() {
     };
     const indexStore: CodeIndexStore = {
         countCollection: vi.fn(),
+        countExistingPointIds: vi.fn(),
         deleteCollection,
         deletePath: vi.fn(),
         ensureCollection: vi.fn(),

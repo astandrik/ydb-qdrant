@@ -3,6 +3,7 @@ import {
     QdrantServiceError,
     type YdbQdrantClient,
 } from "../package/api.js";
+import { RETRIEVE_POINTS_IDS_MAX } from "../qdrant/Requests.js";
 import type { Payload } from "../qdrant/QdrantRestTypes.js";
 import type {
     CodeIndexStore,
@@ -87,6 +88,42 @@ export class YdbQdrantIndexStore implements CodeIndexStore {
             }
             return 0;
         }
+    }
+
+    async countExistingPointIds(params: {
+        collection: string;
+        pointIds: string[];
+        userUid: string;
+    }): Promise<number> {
+        if (params.pointIds.length === 0) {
+            return 0;
+        }
+        const client = await this.clientForUser(params.userUid);
+        let count = 0;
+        for (
+            let offset = 0;
+            offset < params.pointIds.length;
+            offset += RETRIEVE_POINTS_IDS_MAX
+        ) {
+            const ids = params.pointIds.slice(
+                offset,
+                offset + RETRIEVE_POINTS_IDS_MAX
+            );
+            try {
+                const result = await client.retrievePoints(params.collection, {
+                    ids,
+                    with_payload: false,
+                    with_vector: false,
+                });
+                count += result.points.length;
+            } catch (err: unknown) {
+                if (!isCollectionMissingError(err)) {
+                    throw err;
+                }
+                return 0;
+            }
+        }
+        return count;
     }
 
     async deleteCollection(params: {

@@ -112,4 +112,19 @@ describe("YDB Qdrant MCP npm package and registry metadata", () => {
             }),
         ]);
     });
+
+    it("publishes both root and MCP wrapper packages in the release workflow", async () => {
+        const workflow = await readFile(
+            join(root, ".github/workflows/publish-ydb-qdrant.yml"),
+            "utf8"
+        );
+
+        expect(workflow).toMatch(
+            /^\s*run: npm pack --dry-run \.\/packages\/ydb-qdrant-mcp$/m
+        );
+        expect(workflow).toMatch(/^\s*npm publish$/m);
+        expect(workflow).toMatch(
+            /^\s*npm publish \.\/packages\/ydb-qdrant-mcp$/m
+        );
+    });
 });

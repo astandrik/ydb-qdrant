@@ -301,6 +301,11 @@ export interface CodeIndexStore {
         collection: string;
         userUid: string;
     }): Promise<number>;
+    countExistingPointIds(params: {
+        collection: string;
+        pointIds: string[];
+        userUid: string;
+    }): Promise<number>;
     deleteCollection(params: {
         collection: string;
         userUid: string;

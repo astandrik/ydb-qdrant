@@ -2,6 +2,14 @@ import { createHash } from "node:crypto";
 
 import type { IndexedCodeChunk } from "./types.js";
 
+export type CodeChunkPointIdentity = {
+    blobSha: string;
+    chunkIndex: number;
+    path: string;
+    ref: string;
+    repoId: number;
+};
+
 function sanitizeIdentifier(value: string): string {
     const cleaned = value.replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_");
     const lowered = cleaned.toLowerCase().replace(/^_+|_+$/g, "");
@@ -31,18 +39,22 @@ export function pathSegmentsForPath(path: string): string[] {
     return path.split("/").filter((segment) => segment.length > 0);
 }
 
-export function pointIdForChunk(chunk: IndexedCodeChunk): string {
+export function pointIdForChunkIdentity(identity: CodeChunkPointIdentity): string {
     return createHash("sha256")
-        .update(String(chunk.repoId))
+        .update(String(identity.repoId))
         .update("\0")
-        .update(chunk.ref)
+        .update(identity.ref)
         .update("\0")
-        .update(chunk.path)
+        .update(identity.path)
         .update("\0")
-        .update(chunk.blobSha)
+        .update(identity.blobSha)
         .update("\0")
-        .update(String(chunk.chunkIndex))
+        .update(String(identity.chunkIndex))
         .digest("hex");
+}
+
+export function pointIdForChunk(chunk: IndexedCodeChunk): string {
+    return pointIdForChunkIdentity(chunk);
 }
 
 export function branchNameFromRef(ref: string): string | null {

@@ -241,7 +241,10 @@ describe("QdrantService (with mocked YDB)", () => {
             ],
         });
         expect(collectionsRepo.listCollectionsForUser).toHaveBeenCalledWith(
-            "test_user"
+            {
+                collectionUserUid: "test_user",
+                userUid: "test_user",
+            }
         );
         expect(collectionsRepo.countPointsForCollections).toHaveBeenCalledWith(
             ["test_user/my_collection"]
@@ -272,11 +275,17 @@ describe("QdrantService (with mocked YDB)", () => {
         expect(result.collections[0]?.points_count).toBe(3);
         expect(collectionsRepo.listCollectionsForUser).toHaveBeenNthCalledWith(
             1,
-            "user_name"
+            {
+                collectionUserUid: "user_name",
+                userUid: "user_name",
+            }
         );
         expect(collectionsRepo.listCollectionsForUser).toHaveBeenNthCalledWith(
             2,
-            "User-Name"
+            {
+                collectionUserUid: "user_name",
+                userUid: "User-Name",
+            }
         );
         expect(
             collectionsRepo.listCollectionsForLegacyUserPrefix
@@ -315,11 +324,17 @@ describe("QdrantService (with mocked YDB)", () => {
         ]);
         expect(collectionsRepo.listCollectionsForUser).toHaveBeenNthCalledWith(
             1,
-            "user_name"
+            {
+                collectionUserUid: "user_name",
+                userUid: "user_name",
+            }
         );
         expect(collectionsRepo.listCollectionsForUser).toHaveBeenNthCalledWith(
             2,
-            "User-Name"
+            {
+                collectionUserUid: "user_name",
+                userUid: "User-Name",
+            }
         );
         expect(
             collectionsRepo.listCollectionsForLegacyUserPrefix
@@ -449,6 +464,10 @@ describe("QdrantService (with mocked YDB)", () => {
             expectedMetaKeys
         );
         expect(collectionsRepo.countPointsForCollection).not.toHaveBeenCalled();
+        expect(collectionsRepo.listCollectionsForUser).toHaveBeenCalledWith({
+            collectionUserUid: "test_user",
+            userUid: "test_user",
+        });
     });
 
     it("throws when getting collection that does not exist", async () => {

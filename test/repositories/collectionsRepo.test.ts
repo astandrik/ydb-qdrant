@@ -189,7 +189,9 @@ describe("collectionsRepo (with mocked YDB)", () => {
             ],
         } as unknown as never);
 
-        const collections = await listCollectionsForUser("test_user");
+        const collections = await listCollectionsForUser({
+            userUid: "test_user",
+        });
 
         expect(collections).toEqual([
             {
@@ -207,6 +209,37 @@ describe("collectionsRepo (with mocked YDB)", () => {
             }) => unknown
         );
         expect(params).toBeTypeOf("function");
+    });
+
+    it("uses collection primary-key range when listing metadata by user_uid", async () => {
+        const sessionMock = {
+            executeQuery: vi.fn().mockResolvedValue({
+                resultSets: [{ rows: [] }],
+            }),
+        };
+        withSessionMock.mockImplementation(
+            async (fn: (s: unknown) => unknown) => await fn(sessionMock)
+        );
+
+        await listCollectionsForUser({
+            collectionUserUid: "user_name",
+            userUid: "User-Name",
+        });
+
+        const firstCall = sessionMock.executeQuery.mock.calls[0] as
+            | [string, Record<string, unknown>]
+            | undefined;
+        expect(firstCall).toBeDefined();
+        const query = firstCall?.[0] ?? "";
+        const params = firstCall?.[1];
+        expect(query).toContain("collection >= $collection_prefix");
+        expect(query).toContain("collection < $collection_prefix_end");
+        expect(query).toContain("user_uid = $user_uid");
+        expect(params).toMatchObject({
+            $collection_prefix: { type: "utf8", v: "user_name/" },
+            $collection_prefix_end: { type: "utf8" },
+            $user_uid: { type: "utf8", v: "User-Name" },
+        });
     });
 
     it("omits invalid last_accessed_at values from collection listings", async () => {
@@ -228,7 +261,9 @@ describe("collectionsRepo (with mocked YDB)", () => {
             ],
         } as unknown as never);
 
-        const collections = await listCollectionsForUser("test_user");
+        const collections = await listCollectionsForUser({
+            userUid: "test_user",
+        });
 
         expect(collections).toEqual([
             {
