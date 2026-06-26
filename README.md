@@ -21,6 +21,7 @@ Qdrant-compatible Node.js/TypeScript **service and npm library** that stores and
 Modes:
 - **HTTP server**: Qdrant-compatible REST API (`/collections`, `/points/*`) on top of YDB.
 - **Node.js package**: programmatic client via `createYdbQdrantClient` for direct YDB-backed vector search without running a separate service.
+- **Core MCP server**: stdio or hosted HTTP `/mcp` server for agents that need direct read/search access to one configured YDB Qdrant namespace.
 - **GitHub App code indexer**: public hosted beta and self-hostable service that indexes repository chunks into YDB-backed Qdrant-compatible storage for MCP/IDE/coding-agent search, with OpenAI or custom HTTP embeddings.
 
 Promo site: [ydb-qdrant.tech](http://ydb-qdrant.tech)  
@@ -36,6 +37,7 @@ Architecture diagrams: [docs page](http://ydb-qdrant.tech/docs/)
 - **Deployment and Docker options**: [docs/deployment-and-docker.md](docs/deployment-and-docker.md)
 - **Architecture, storage layout, and search modes**: [docs/architecture-and-storage.md](docs/architecture-and-storage.md)
 - **Evaluation, CI, and release process**: [docs/evaluation-and-ci.md](docs/evaluation-and-ci.md)
+- **YDB Qdrant Core MCP server**: [docs/ydb-qdrant-mcp.md](docs/ydb-qdrant-mcp.md)
 - **GitHub App code indexer**: [docs/github-app-code-indexer.md](docs/github-app-code-indexer.md)
 
 ## Requirements
@@ -142,7 +144,10 @@ The package entrypoint exports a programmatic API that mirrors the Qdrant HTTP s
       with_payload: true,
     });
 
+    const collections = await client.listCollections();
+
     console.log(result.points);
+    console.log(collections.collections);
   }
   ```
 
@@ -159,7 +164,7 @@ The package entrypoint exports a programmatic API that mirrors the Qdrant HTTP s
   });
   ```
 
-The request/response shapes follow the same schemas as the HTTP API (`CreateCollectionReq`, `UpsertPointsReq`, `SearchReq`, `DeletePointsReq`, `RetrievePointsReq`), so code written against the REST API can usually be translated directly to the library calls. `createYdbQdrantClient` requires exactly one of `apiKey` or `userUid`.
+The request/response shapes follow the same schemas as the HTTP API (`CreateCollectionReq`, `UpsertPointsReq`, `SearchReq`, `DeletePointsReq`, `RetrievePointsReq`), so code written against the REST API can usually be translated directly to the library calls. The package also exposes `listCollections()` for namespace-scoped collection discovery. Explicit `userUid` values are normalized consistently across create/get/search/delete/list operations. `createYdbQdrantClient` requires exactly one of `apiKey` or `userUid`.
 
 ### Example: in-process points search with a shared client
 
@@ -277,6 +282,20 @@ Health check:
 ```bash
 curl -s http://localhost:8080/health
 ```
+
+## MCP Server
+
+YDB Qdrant ships MCP servers for coding agents and IDE agents. The registry
+package is `@astandrik/ydb-qdrant-mcp`: by default it runs a local code-indexer
+stdio server for `index_repository` and `search_code`, and the same package can
+run the core vector MCP through `--mode core` or `--mode core-http`.
+
+The core MCP supports stdio and hosted HTTP `/mcp`, raw vector search, optional
+text search through MCP-specific embedding configuration, and gated write/delete
+tools.
+
+See [docs/ydb-qdrant-mcp.md](docs/ydb-qdrant-mcp.md) for setup, environment
+variables, tool names, and MCP client examples.
 
 ### Docker (self-hosted HTTP server)
 

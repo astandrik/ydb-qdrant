@@ -26,6 +26,7 @@ vi.mock("../../src/services/errors.js", () => ({
 
 vi.mock("../../src/services/CollectionService.js", () => ({
     createCollection: vi.fn().mockResolvedValue({ name: "col" }),
+    listCollections: vi.fn().mockResolvedValue({ collections: [] }),
     getCollection: vi.fn().mockResolvedValue({
         name: "col",
         vectors: { size: 4, distance: "Cosine", data_type: "float" },
@@ -63,6 +64,7 @@ describe("YdbQdrantClient (programmatic API, mocked YDB)", () => {
         await client.createCollection("col_all", {
             vectors: { size: 4, distance: "Cosine", data_type: "float" },
         });
+        await client.listCollections();
         await client.getCollection("col_all");
         await client.deleteCollection("col_all");
         await client.putCollectionIndex("col_all");
@@ -87,6 +89,10 @@ describe("YdbQdrantClient (programmatic API, mocked YDB)", () => {
             { userUid, collection: "col_all", apiKey },
             expect.anything()
         );
+        expect(collectionService.listCollections).toHaveBeenCalledWith({
+            userUid,
+            apiKey,
+        });
         expect(collectionService.getCollection).toHaveBeenCalledWith({
             userUid,
             collection: "col_all",

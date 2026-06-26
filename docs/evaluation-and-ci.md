@@ -9,11 +9,24 @@ GitHub Actions workflows cover:
 - Build and typecheck.
 - Unit and integration tests.
 - Integration tests against local YDB using the integration suite.
-- Code-indexer smoke tests against local YDB.
+- Core `listCollections()` and MCP `list_collections` smoke tests against local
+  YDB.
+- Short real HTTP API smoke tests against local YDB.
+- Short hosted MCP HTTP `/mcp` smoke tests against local YDB.
+- Code-indexer smoke tests against local YDB, including local MCP
+  `index_repository` -> `search_code`.
+- MCP Registry package metadata and local package mode parsing.
 - Recall and F1 evaluation for the one-table global layout in exact-only mode.
 - Soak and stress load tests against local YDB.
 
 Workflows that need YDB start it through `astandrik/setup-local-ydb@v1` instead of open-coding a local-ydb service container and readiness loop. Host-side Node/YDB SDK jobs also map the action-created static and dynamic Docker hostnames to `127.0.0.1`, because local YDB discovery can advertise container hostnames while the action exposes gRPC through loopback-bound host ports.
+
+The main integration workflow runs the core programmatic API tests with
+`YDB_QDRANT_ENDPOINT`, `YDB_QDRANT_DATABASE`, and anonymous YDB credentials from
+`setup-local-ydb`. That suite includes real database checks for
+`listCollections()` point counts, normalized explicit `userUid` aliases, legacy
+null-user metadata rows, JSON-RPC `list_collections`, the Express HTTP route
+stack, and the hosted MCP HTTP `/mcp` wrapper.
 
 Badges in the root README link to:
 
@@ -95,6 +108,17 @@ npm publish
 ```
 
 This will run tests and build via the `prepublishOnly` script before uploading the tarball.
+
+The MCP Registry wrapper is a separate npm package in
+`packages/ydb-qdrant-mcp`. Before publishing it, verify the package contents:
+
+```bash
+npm pack --dry-run ./packages/ydb-qdrant-mcp
+```
+
+The wrapper package has one CLI bin, `ydb-qdrant-mcp`. Its default mode is the
+local code-indexer MCP; `--mode core` and `--mode core-http` run the core vector
+MCP from the same package.
 
 CI publish:
 

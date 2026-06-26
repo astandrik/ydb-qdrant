@@ -1,5 +1,6 @@
 import {
     TypedValues,
+    Types,
     withSession,
     createExecuteQuerySettings,
     withStartupProbeSession,
@@ -32,6 +33,15 @@ export interface CollectionMeta {
     distance: DistanceKind;
     vectorType: VectorType;
     lastAccessedAt?: Date | null;
+}
+
+export interface CollectionListItem {
+    metaKey: string;
+    name: string;
+    vectorSize: number;
+    distance: DistanceKind;
+    vectorType: VectorType;
+    lastAccessedAt?: Date;
 }
 
 const lastAccessWriteCache = new Map<string, number>();
@@ -133,6 +143,148 @@ export async function getCollectionMeta(
     }
 
     return result;
+}
+
+function collectionNameFromMetaKey(metaKey: string): string {
+    const separatorIndex = metaKey.indexOf("/");
+    if (separatorIndex === -1) {
+        return metaKey;
+    }
+    const name = metaKey.slice(separatorIndex + 1);
+    return name.length > 0 ? name : metaKey;
+}
+
+function parseLastAccessedAt(value: unknown): Date | undefined {
+    if (typeof value !== "string" || value.length === 0) {
+        return undefined;
+    }
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+function stringPrefixUpperBound(prefix: string): string {
+    if (prefix.length === 0) {
+        return "\u{10ffff}";
+    }
+    const chars = [...prefix];
+    const last = chars.pop();
+    const codePoint = last?.codePointAt(0);
+    if (last === undefined || codePoint === undefined) {
+        return "\u{10ffff}";
+    }
+    return `${chars.join("")}${String.fromCodePoint(codePoint + 1)}`;
+}
+
+function collectionListItemFromRow(row: unknown): CollectionListItem {
+    const typedRow = row as {
+        items?: Array<
+            | {
+                  textValue?: string;
+                  uint32Value?: number;
+              }
+            | undefined
+        >;
+    };
+    const metaKey = typedRow.items?.[0]?.textValue ?? "";
+    const vectorSize = Number(
+        typedRow.items?.[1]?.uint32Value ?? typedRow.items?.[1]?.textValue
+    );
+    const distance =
+        (typedRow.items?.[2]?.textValue as DistanceKind) ??
+        ("Cosine" as DistanceKind);
+    const vectorType = (typedRow.items?.[3]?.textValue as VectorType) ?? "float";
+    const lastAccessedAt = parseLastAccessedAt(typedRow.items?.[4]?.textValue);
+    const result: CollectionListItem = {
+        metaKey,
+        name: collectionNameFromMetaKey(metaKey),
+        vectorSize,
+        distance,
+        vectorType,
+    };
+    if (lastAccessedAt) {
+        result.lastAccessedAt = lastAccessedAt;
+    }
+    return result;
+}
+
+export type ListCollectionsForUserParams = {
+    collectionUserUid?: string;
+    userUid: string;
+};
+
+export async function listCollectionsForUser(
+    params: ListCollectionsForUserParams
+): Promise<CollectionListItem[]> {
+    const collectionUserUid = params.collectionUserUid ?? params.userUid;
+    const collectionPrefix = `${collectionUserUid}/`;
+    const collectionPrefixEnd = stringPrefixUpperBound(collectionPrefix);
+    const qry = `
+    DECLARE $user_uid AS Utf8;
+    DECLARE $collection_prefix AS Utf8;
+    DECLARE $collection_prefix_end AS Utf8;
+    SELECT
+      collection,
+      vector_dimension,
+      distance,
+      vector_type,
+      CAST(last_accessed_at AS Utf8) AS last_accessed_at
+    FROM qdr__collections
+    WHERE collection >= $collection_prefix
+      AND collection < $collection_prefix_end
+      AND user_uid = $user_uid
+    ORDER BY collection;
+  `;
+    const res = await withSession(async (s) => {
+        const settings = createExecuteQuerySettings();
+        return await s.executeQuery(
+            qry,
+            {
+                $collection_prefix: TypedValues.utf8(collectionPrefix),
+                $collection_prefix_end: TypedValues.utf8(collectionPrefixEnd),
+                $user_uid: TypedValues.utf8(params.userUid),
+            },
+            undefined,
+            settings
+        );
+    });
+    const rows = res.resultSets?.[0]?.rows ?? [];
+    return rows.map(collectionListItemFromRow);
+}
+
+export async function listCollectionsForLegacyUserPrefix(
+    userUid: string
+): Promise<CollectionListItem[]> {
+    const collectionPrefix = `${userUid}/`;
+    const collectionPrefixEnd = stringPrefixUpperBound(collectionPrefix);
+    const qry = `
+    DECLARE $collection_prefix AS Utf8;
+    DECLARE $collection_prefix_end AS Utf8;
+    SELECT
+      collection,
+      vector_dimension,
+      distance,
+      vector_type,
+      CAST(last_accessed_at AS Utf8) AS last_accessed_at
+    FROM qdr__collections
+    WHERE user_uid IS NULL
+      AND collection >= $collection_prefix
+      AND collection < $collection_prefix_end
+    ORDER BY collection;
+  `;
+    const res = await withSession(async (s) => {
+        const settings = createExecuteQuerySettings();
+        return await s.executeQuery(
+            qry,
+            {
+                $collection_prefix: TypedValues.utf8(collectionPrefix),
+                $collection_prefix_end: TypedValues.utf8(collectionPrefixEnd),
+            },
+            undefined,
+            settings
+        );
+    });
+    const rows = res.resultSets?.[0]?.rows ?? [];
+    return rows.map(collectionListItemFromRow);
 }
 
 export async function verifyCollectionsQueryCompilationForStartup(): Promise<void> {
@@ -337,6 +489,71 @@ export async function countPointsForCollection(
             cell.int32Value ??
             cell.textValue
     );
+}
+
+export async function countPointsForCollections(
+    uids: string[]
+): Promise<Map<string, number>> {
+    const uniqueUids = Array.from(new Set(uids)).filter(
+        (uid) => uid.length > 0
+    );
+    if (uniqueUids.length === 0) {
+        return new Map();
+    }
+
+    const qry = `
+    DECLARE $collections AS List<Utf8>;
+    SELECT collection, CAST(COUNT(*) AS Uint64) AS points_count
+    FROM ${GLOBAL_POINTS_TABLE}
+    WHERE collection IN $collections
+    GROUP BY collection;
+  `;
+    const res = await withSession(async (s) => {
+        const settings = createExecuteQuerySettings();
+        return await s.executeQuery(
+            qry,
+            {
+                $collections: TypedValues.list(Types.UTF8, uniqueUids),
+            },
+            undefined,
+            settings
+        );
+    });
+
+    const rows =
+        (res.resultSets?.[0]?.rows as
+            | Array<{
+                  items?: Array<
+                      | {
+                            textValue?: string;
+                            uint64Value?: unknown;
+                            int64Value?: unknown;
+                            uint32Value?: unknown;
+                            int32Value?: unknown;
+                        }
+                      | undefined
+                  >;
+              }>
+            | undefined) ?? [];
+    const counts = new Map<string, number>();
+    for (const row of rows) {
+        const collection = row.items?.[0]?.textValue;
+        const countCell = row.items?.[1];
+        if (collection === undefined || countCell === undefined) {
+            continue;
+        }
+        counts.set(
+            collection,
+            parsePointCountValue(
+                countCell.uint64Value ??
+                    countCell.int64Value ??
+                    countCell.uint32Value ??
+                    countCell.int32Value ??
+                    countCell.textValue
+            )
+        );
+    }
+    return counts;
 }
 
 /**

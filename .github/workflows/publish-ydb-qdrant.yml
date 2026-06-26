@@ -71,7 +71,15 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Verify MCP wrapper package
+        run: npm pack --dry-run ./packages/ydb-qdrant-mcp
+
       - name: Publish to npm
         run: |
           unset NODE_AUTH_TOKEN
           npm publish
+
+      - name: Publish MCP wrapper to npm
+        run: |
+          unset NODE_AUTH_TOKEN
+          npm publish ./packages/ydb-qdrant-mcp

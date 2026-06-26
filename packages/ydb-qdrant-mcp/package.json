@@ -1,0 +1,44 @@
+{
+  "name": "@astandrik/ydb-qdrant-mcp",
+  "version": "9.2.0",
+  "mcpName": "io.github.astandrik/ydb-qdrant-mcp",
+  "description": "MCP server package for local YDB Qdrant code memory and core vector search.",
+  "type": "module",
+  "bin": {
+    "ydb-qdrant-mcp": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/astandrik/ydb-qdrant.git",
+    "directory": "packages/ydb-qdrant-mcp"
+  },
+  "homepage": "https://ydb-qdrant.tech/docs/mcp/",
+  "keywords": [
+    "ydb",
+    "qdrant",
+    "mcp",
+    "model-context-protocol",
+    "code-search"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "npm run build --prefix ../.. && tsc -p tsconfig.json",
+    "prepack": "npm run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "ydb-qdrant": "^9.2.0"
+  }
+}

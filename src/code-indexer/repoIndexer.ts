@@ -81,7 +81,7 @@ type RepositoryIndexFile = {
     size?: number;
 };
 
-function mergeChunkingOptions(
+export function mergeChunkingOptions(
     base: ChunkingOptions,
     repoConfig: RepoIndexingConfig
 ): ChunkingOptions {
@@ -89,6 +89,21 @@ function mergeChunkingOptions(
         ...base,
         ...repoConfig,
     };
+}
+
+export function indexingFingerprintForOptions(params: {
+    chunker: CodeChunker;
+    chunkingOptions: ChunkingOptions;
+    embeddingProvider: EmbeddingProvider;
+}): string {
+    const chunkerFingerprint = indexingFingerprintForChunker(
+        params.chunker,
+        params.chunkingOptions
+    );
+    const embeddingFingerprint =
+        params.embeddingProvider.fingerprint ??
+        `custom:v1:dimension=${params.embeddingProvider.dimension}`;
+    return `chunker:${chunkerFingerprint}|embedding:${embeddingFingerprint}`;
 }
 
 function positiveIntegerOption(
@@ -1038,14 +1053,11 @@ export class RepoIndexer {
     }
 
     private indexingFingerprint(options: ChunkingOptions): string {
-        const chunkerFingerprint = indexingFingerprintForChunker(
-            this.chunker,
-            options
-        );
-        const embeddingFingerprint =
-            this.embeddingProvider.fingerprint ??
-            `custom:v1:dimension=${this.embeddingProvider.dimension}`;
-        return `chunker:${chunkerFingerprint}|embedding:${embeddingFingerprint}`;
+        return indexingFingerprintForOptions({
+            chunker: this.chunker,
+            chunkingOptions: options,
+            embeddingProvider: this.embeddingProvider,
+        });
     }
 
     private async assertRepositoryQuota(job: IndexingJob): Promise<void> {

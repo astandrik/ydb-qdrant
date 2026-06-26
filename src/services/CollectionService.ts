@@ -3,13 +3,19 @@ import type { DistanceKind } from "../qdrant/QdrantRestTypes.js";
 import { ensureMetaTable } from "../ydb/schema.js";
 import {
     createCollection as repoCreateCollection,
+    countPointsForCollections,
     countPointsForCollection,
     deleteCollection as repoDeleteCollection,
     getCollectionMeta,
+    listCollectionsForLegacyUserPrefix,
+    listCollectionsForUser,
     touchCollectionLastAccess,
 } from "../repositories/collectionsRepo.js";
 import { QdrantServiceError } from "./errors.js";
-import { normalizeCollectionContextShared } from "./CollectionService.shared.js";
+import {
+    normalizeCollectionContextShared,
+    normalizeUserUidShared,
+} from "./CollectionService.shared.js";
 
 export interface CollectionContextInput {
     userUid: string;
@@ -24,6 +30,20 @@ export interface NormalizedCollectionContext {
     metaKey: string;
     uid: string;
 }
+
+export interface ListCollectionsContextInput {
+    userUid: string;
+    apiKey: string;
+}
+
+export type ListCollectionsResult = {
+    collections: Array<{
+        last_accessed_at?: string;
+        name: string;
+        points_count: number;
+        vectors: { size: number; distance: DistanceKind; data_type: string };
+    }>;
+};
 
 export async function putCollectionIndex(
     ctx: CollectionContextInput
@@ -90,7 +110,7 @@ export async function createCollection(
         dim,
         distance,
         vectorType,
-        ctx.userUid
+        normalized.userUid
     );
     return { name: normalized.collection };
 }
@@ -143,6 +163,75 @@ export async function getCollection(ctx: CollectionContextInput): Promise<{
                 },
             },
         },
+    };
+}
+
+export async function listCollections(
+    ctx: ListCollectionsContextInput
+): Promise<ListCollectionsResult> {
+    await ensureMetaTable();
+    const normalizedUserUid = normalizeUserUidShared(ctx.userUid);
+    const rawUserUid = ctx.userUid.trim();
+    const collectionsByMetaKey = new Map<
+        string,
+        Awaited<ReturnType<typeof listCollectionsForUser>>[number]
+    >();
+    const collectionLookups =
+        rawUserUid !== normalizedUserUid
+            ? [
+                  {
+                      collectionUserUid: normalizedUserUid,
+                      userUid: normalizedUserUid,
+                  },
+                  {
+                      collectionUserUid: normalizedUserUid,
+                      userUid: rawUserUid,
+                  },
+              ]
+            : [
+                  {
+                      collectionUserUid: normalizedUserUid,
+                      userUid: normalizedUserUid,
+                  },
+              ];
+    for (const lookup of collectionLookups) {
+        const collections = await listCollectionsForUser(lookup);
+        for (const collection of collections) {
+            if (!collectionsByMetaKey.has(collection.metaKey)) {
+                collectionsByMetaKey.set(collection.metaKey, collection);
+            }
+        }
+    }
+    const legacyCollections =
+        await listCollectionsForLegacyUserPrefix(normalizedUserUid);
+    for (const collection of legacyCollections) {
+        if (!collectionsByMetaKey.has(collection.metaKey)) {
+            collectionsByMetaKey.set(collection.metaKey, collection);
+        }
+    }
+    const collections = Array.from(collectionsByMetaKey.values()).sort((a, b) =>
+        a.metaKey.localeCompare(b.metaKey)
+    );
+    const pointsCounts = await countPointsForCollections(
+        collections.map((collection) => collection.metaKey)
+    );
+    return {
+        collections: collections.map((collection) => {
+            const result: ListCollectionsResult["collections"][number] = {
+                name: collection.name,
+                points_count: pointsCounts.get(collection.metaKey) ?? 0,
+                vectors: {
+                    size: collection.vectorSize,
+                    distance: collection.distance,
+                    data_type: collection.vectorType,
+                },
+            };
+            if (collection.lastAccessedAt) {
+                result.last_accessed_at =
+                    collection.lastAccessedAt.toISOString();
+            }
+            return result;
+        }),
     };
 }
 

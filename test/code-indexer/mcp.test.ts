@@ -28,6 +28,7 @@ function makeServer() {
     };
     const store: CodeIndexStore = {
         countCollection: vi.fn(),
+        countExistingPointIds: vi.fn(),
         deleteCollection: vi.fn(),
         deletePath: vi.fn(),
         ensureCollection: vi.fn(),
@@ -289,6 +290,138 @@ describe("code-indexer MCP server", () => {
                     points: [
                         {
                             id: "point-1",
+                        },
+                    ],
+                },
+            },
+        });
+    });
+
+    it("exposes local repository indexing tools when local indexing is configured", async () => {
+        const { embeddingProvider, store } = makeServer();
+        const localIndexer = {
+            getIndexStatus: vi.fn(() =>
+                Promise.resolve({
+                    indexes: [
+                        {
+                            collection: "gh_repo_4242_default",
+                            installationId: 9001,
+                            owner: "local",
+                            repo: "demo",
+                            repoId: 4242,
+                            root: "/workspace/demo",
+                            status: "ready",
+                        },
+                    ],
+                })
+            ),
+            indexRepository: vi.fn(() =>
+                Promise.resolve({
+                    chunkCount: 3,
+                    collection: "gh_repo_4242_default",
+                    installationId: 9001,
+                    owner: "local",
+                    repo: "demo",
+                    repoId: 4242,
+                    root: "/workspace/demo",
+                    status: "ready",
+                })
+            ),
+            listRepositoryIndexes: vi.fn(() =>
+                Promise.resolve({
+                    defaultBranch: {
+                        branch: "local",
+                        chunkCount: 3,
+                        collection: "gh_repo_4242_default",
+                        status: "ready",
+                    },
+                    installationId: 9001,
+                    owner: "local",
+                    pullRequests: [],
+                    repo: "demo",
+                    repoId: 4242,
+                })
+            ),
+        };
+        const server = new CodeIndexerMcpServer({
+            embeddingProvider,
+            localIndexer,
+            store,
+        } as never);
+
+        const tools = await server.handleJsonRpcMessage(
+            JSON.stringify({
+                id: "tools",
+                jsonrpc: "2.0",
+                method: "tools/list",
+            })
+        );
+
+        expect(
+            (tools?.result as { tools: Array<{ name: string }> }).tools.map(
+                (tool) => tool.name
+            )
+        ).toEqual([
+            "index_repository",
+            "get_index_status",
+            "list_repository_indexes",
+            "search_code",
+        ]);
+
+        const indexed = await server.handleJsonRpcMessage(
+            JSON.stringify({
+                id: "index",
+                jsonrpc: "2.0",
+                method: "tools/call",
+                params: {
+                    arguments: {
+                        root: "/workspace/demo",
+                    },
+                    name: "index_repository",
+                },
+            })
+        );
+
+        expect(localIndexer.indexRepository).toHaveBeenCalledWith({
+            root: "/workspace/demo",
+        });
+        expect(indexed).toMatchObject({
+            id: "index",
+            result: {
+                structuredContent: {
+                    index: {
+                        collection: "gh_repo_4242_default",
+                        status: "ready",
+                    },
+                },
+            },
+        });
+
+        const status = await server.handleJsonRpcMessage(
+            JSON.stringify({
+                id: "status",
+                jsonrpc: "2.0",
+                method: "tools/call",
+                params: {
+                    arguments: {
+                        root: "/workspace/demo",
+                    },
+                    name: "get_index_status",
+                },
+            })
+        );
+
+        expect(localIndexer.getIndexStatus).toHaveBeenCalledWith({
+            root: "/workspace/demo",
+        });
+        expect(status).toMatchObject({
+            id: "status",
+            result: {
+                structuredContent: {
+                    indexes: [
+                        {
+                            collection: "gh_repo_4242_default",
+                            status: "ready",
                         },
                     ],
                 },

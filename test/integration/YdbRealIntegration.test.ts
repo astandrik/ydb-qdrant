@@ -1,6 +1,7 @@
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import { createYdbQdrantClient } from "../../src/package/api.js";
 import { createMetaTableIfMissing } from "./helpers/bootstrap-meta-table.js";
+import { forceLocalYdbEndpointForSdkDiscovery } from "./helpers/local-ydb-discovery.js";
 
 describe("YDB integration (real database via programmatic API)", () => {
   const apiKey =
@@ -12,6 +13,7 @@ describe("YDB integration (real database via programmatic API)", () => {
   let client: Awaited<ReturnType<typeof createYdbQdrantClient>>;
 
   beforeAll(async () => {
+    forceLocalYdbEndpointForSdkDiscovery();
     await createMetaTableIfMissing();
     client = await createYdbQdrantClient({ apiKey });
   });

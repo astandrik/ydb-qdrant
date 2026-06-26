@@ -1,0 +1,121 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.astandrik/ydb-qdrant-mcp",
+  "title": "YDB Qdrant MCP",
+  "description": "Index local code into YDB Qdrant and search indexed code memory.",
+  "version": "9.2.0",
+  "websiteUrl": "https://ydb-qdrant.tech/docs/mcp/",
+  "repository": {
+    "url": "https://github.com/astandrik/ydb-qdrant",
+    "source": "github",
+    "subfolder": "packages/ydb-qdrant-mcp"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@astandrik/ydb-qdrant-mcp",
+      "version": "9.2.0",
+      "runtimeHint": "npx",
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "-y"
+        },
+        {
+          "type": "named",
+          "name": "--prefer-online"
+        }
+      ],
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "YDB_QDRANT_ENDPOINT",
+          "description": "YDB endpoint used by ydb-qdrant.",
+          "isRequired": true,
+          "placeholder": "grpc://localhost:2136"
+        },
+        {
+          "name": "YDB_QDRANT_DATABASE",
+          "description": "YDB database path used by ydb-qdrant.",
+          "isRequired": true,
+          "placeholder": "/local"
+        },
+        {
+          "name": "YDB_QDRANT_MCP_WORKSPACE_ROOT",
+          "description": "Default local repository root for index_repository.",
+          "format": "filepath",
+          "isRequired": true,
+          "placeholder": "/path/to/repo"
+        },
+        {
+          "name": "YDB_QDRANT_MCP_ALLOWED_ROOTS",
+          "description": "Optional comma-separated allowlist for explicit root arguments. Defaults to YDB_QDRANT_MCP_WORKSPACE_ROOT.",
+          "format": "string",
+          "isRequired": false,
+          "placeholder": "/path/to/repo,/path/to/other"
+        },
+        {
+          "name": "YDB_QDRANT_MCP_LOCAL_NAMESPACE",
+          "description": "Optional namespace component for local index IDs when multiple machines share one YDB database.",
+          "format": "string",
+          "isRequired": false,
+          "placeholder": "my-laptop"
+        },
+        {
+          "name": "YDB_QDRANT_MCP_API_KEY",
+          "description": "Optional core vector MCP API-key identity. Mutually exclusive with YDB_QDRANT_MCP_USER_UID.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "YDB_QDRANT_MCP_USER_UID",
+          "description": "Optional core vector MCP explicit user namespace. Mutually exclusive with YDB_QDRANT_MCP_API_KEY.",
+          "isRequired": false
+        },
+        {
+          "name": "CODE_INDEXER_EMBEDDING_PROVIDER",
+          "description": "Embedding provider for local code indexing: hash, http, or openai.",
+          "default": "hash",
+          "isRequired": false,
+          "placeholder": "hash"
+        },
+        {
+          "name": "CODE_INDEXER_EMBEDDING_URL",
+          "description": "HTTP embedding endpoint when CODE_INDEXER_EMBEDDING_PROVIDER=http.",
+          "isRequired": false,
+          "placeholder": "http://localhost:9000/embed"
+        },
+        {
+          "name": "CODE_INDEXER_EMBEDDING_API_KEY",
+          "description": "Embedding provider API key.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "OPENAI_API_KEY",
+          "description": "OpenAI API key when CODE_INDEXER_EMBEDDING_PROVIDER=openai.",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://code-indexer.ydb-qdrant.tech/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Bearer MCP token created in the YDB Qdrant Code Indexer dashboard.",
+          "isRequired": true,
+          "isSecret": true,
+          "placeholder": "Bearer <token>"
+        }
+      ]
+    }
+  ]
+}

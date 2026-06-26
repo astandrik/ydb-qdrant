@@ -1,11 +1,15 @@
 {
   "name": "ydb-qdrant",
-  "version": "9.1.1",
+  "version": "9.2.0",
   "main": "dist/package/api.js",
   "types": "dist/package/api.d.ts",
   "exports": {
     ".": "./dist/package/api.js",
-    "./server": "./dist/server.js"
+    "./server": "./dist/server.js",
+    "./code-indexer/mcp-package": "./dist/code-indexer/mcpPackageServer.js",
+    "./mcp/config": "./dist/mcp/config.js",
+    "./mcp/http-server": "./dist/mcp/httpServer.js",
+    "./mcp/stdio": "./dist/mcp/stdio.js"
   },
   "files": [
     "dist",
@@ -16,7 +20,7 @@
   "scripts": {
     "test": "vitest run --exclude \"test/integration/**\"",
     "test:coverage": "vitest run --coverage --exclude \"test/integration/**\"",
-    "test:integration": "vitest run test/integration/YdbRealIntegration.test.ts && vitest run test/integration/YdbRealIntegration.one-table.test.ts",
+    "test:integration": "vitest run test/integration/YdbRealIntegration.test.ts && vitest run test/integration/YdbRealIntegration.one-table.test.ts && vitest run test/integration/YdbRealHttp.test.ts test/integration/YdbRealMcpHttp.test.ts",
     "test:e2e": "vitest run --config=vitest.config.e2e.mts",
     "test:recall": "vitest run test/integration/YdbRealIntegration.one-table.test.ts",
     "load:soak": "k6 run loadtest/soak-test.js",
@@ -30,6 +34,8 @@
     "start": "node --experimental-specifier-resolution=node --enable-source-maps dist/index.js",
     "start:code-indexer": "node --experimental-specifier-resolution=node --enable-source-maps dist/code-indexer/index.js",
     "mcp:code-indexer": "node --experimental-specifier-resolution=node --enable-source-maps dist/code-indexer/mcpServer.js",
+    "mcp:ydb-qdrant": "node --experimental-specifier-resolution=node --enable-source-maps dist/mcp/stdioServer.js",
+    "start:mcp:ydb-qdrant": "node --experimental-specifier-resolution=node --enable-source-maps dist/mcp/httpServerCli.js",
     "smoke": "npm run build && node --experimental-specifier-resolution=node --enable-source-maps dist/SmokeTest.js",
     "test:code-indexer": "vitest run test/code-indexer",
     "test:integration:code-indexer": "vitest run test/integration/CodeIndexerSmoke.test.ts",
