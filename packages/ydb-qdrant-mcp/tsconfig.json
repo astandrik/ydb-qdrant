@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
+    "types": ["node"],
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": true,
+    "declaration": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmitOnError": true,
+    "baseUrl": ".",
+    "paths": {
+      "ydb-qdrant/code-indexer/mcp-package": [
+        "../../dist/code-indexer/mcpPackageServer.d.ts"
+      ],
+      "ydb-qdrant/mcp/config": ["../../dist/mcp/config.d.ts"],
+      "ydb-qdrant/mcp/http-server": ["../../dist/mcp/httpServer.d.ts"],
+      "ydb-qdrant/mcp/stdio": ["../../dist/mcp/stdio.d.ts"]
+    }
+  },
+  "include": ["src"]
+}

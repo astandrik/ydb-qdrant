@@ -1,10 +1,12 @@
 import { beforeAll, describe, it, expect } from "vitest";
 import { createYdbQdrantClient } from "../../src/package/api.js";
+import { YdbQdrantMcpServer } from "../../src/mcp/mcp.js";
 import {
   GLOBAL_POINTS_TABLE,
   POINTS_BY_FILE_LOOKUP_TABLE,
 } from "../../src/ydb/schema.js";
 import { createMetaTableIfMissing } from "./helpers/bootstrap-meta-table.js";
+import { forceLocalYdbEndpointForSdkDiscovery } from "./helpers/local-ydb-discovery.js";
 import {
   withSession,
   TypedValues,
@@ -26,6 +28,44 @@ import { deriveUserUidFromApiKey, uidFor } from "../../src/utils/tenant.js";
 
 const RNG_SEED = 4242;
 
+type McpListCollectionsContent = {
+  collections?: Array<{
+    name?: string;
+    pointsCount?: number;
+  }>;
+};
+
+function expectMcpStructuredContent(
+  response: Awaited<ReturnType<YdbQdrantMcpServer["handleJsonRpcMessage"]>>
+): McpListCollectionsContent {
+  expect(response).toMatchObject({
+    jsonrpc: "2.0",
+  });
+  const structuredContent = (
+    response as {
+      result?: { structuredContent?: McpListCollectionsContent };
+    }
+  ).result?.structuredContent;
+  expect(Array.isArray(structuredContent?.collections)).toBe(true);
+  return structuredContent ?? {};
+}
+
+async function clearCollectionUserUid(metaKey: string): Promise<void> {
+  const query = `
+    DECLARE $collection AS Utf8;
+    DECLARE $user_uid AS Optional<Utf8>;
+    UPDATE qdr__collections
+    SET user_uid = $user_uid
+    WHERE collection = $collection;
+  `;
+  await withSession(async (s) => {
+    await s.executeQuery(query, {
+      $collection: TypedValues.utf8(metaKey),
+      $user_uid: TypedValues.optionalNull(Types.UTF8),
+    });
+  });
+}
+
 /**
  * Integration tests for one_table storage mode with realistic recall benchmark.
  *
@@ -41,8 +81,298 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
   let client: Awaited<ReturnType<typeof createYdbQdrantClient>>;
 
   beforeAll(async () => {
+    forceLocalYdbEndpointForSdkDiscovery();
     await createMetaTableIfMissing();
     client = await createYdbQdrantClient({ apiKey });
+  });
+
+  it("lists collections across normalized explicit userUid aliases", async () => {
+    const rawUserUid = `User-Name-${Date.now()}`;
+    const normalizedUserUid = rawUserUid.toLowerCase().replaceAll("-", "_");
+    const rawCollection = `Docs-ListCollections-Raw-${Date.now()}`;
+    const normalizedCollection = `Docs-ListCollections-Normalized-${Date.now()}`;
+    const expectedRawCollection = rawCollection
+      .toLowerCase()
+      .replaceAll("-", "_");
+    const expectedNormalizedCollection = normalizedCollection
+      .toLowerCase()
+      .replaceAll("-", "_");
+    const rawClient = await createYdbQdrantClient({ userUid: rawUserUid });
+    const normalizedClient = await createYdbQdrantClient({
+      userUid: normalizedUserUid,
+    });
+
+    try {
+      await rawClient.createCollection(rawCollection, {
+        vectors: {
+          size: 4,
+          distance: "Cosine",
+          data_type: "float",
+        },
+      });
+
+      await rawClient.upsertPoints(rawCollection, {
+        points: [
+          {
+            id: "raw_uid_point",
+            vector: [1, 0, 0, 0],
+            payload: { label: "raw-user" },
+          },
+        ],
+      });
+
+      const normalizedList = await normalizedClient.listCollections();
+      expect(normalizedList.collections).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: expectedRawCollection,
+            points_count: 1,
+          }),
+        ])
+      );
+
+      await normalizedClient.createCollection(normalizedCollection, {
+        vectors: {
+          size: 4,
+          distance: "Cosine",
+          data_type: "float",
+        },
+      });
+
+      await normalizedClient.upsertPoints(normalizedCollection, {
+        points: [
+          {
+            id: "normalized_uid_point",
+            vector: [1, 0, 0, 0],
+            payload: { label: "normalized-user" },
+          },
+        ],
+      });
+
+      const rawList = await rawClient.listCollections();
+      expect(rawList.collections).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: expectedNormalizedCollection,
+            points_count: 1,
+          }),
+        ])
+      );
+    } finally {
+      try {
+        await rawClient.deleteCollection(rawCollection);
+      } catch {
+        // ignore cleanup failures
+      }
+      try {
+        await normalizedClient.deleteCollection(normalizedCollection);
+      } catch {
+        // ignore cleanup failures
+      }
+    }
+  });
+
+  it("lists legacy null-user metadata rows by normalized collection prefix", async () => {
+    const rawUserUid = `Legacy-Null-${Date.now()}`;
+    const normalizedUserUid = rawUserUid.toLowerCase().replaceAll("-", "_");
+    const rawCollection = `Docs-Legacy-Null-${Date.now()}`;
+    const expectedCollection = rawCollection.toLowerCase().replaceAll("-", "_");
+    const metaKey = `${normalizedUserUid}/${expectedCollection}`;
+    const legacyClient = await createYdbQdrantClient({ userUid: rawUserUid });
+
+    try {
+      await legacyClient.createCollection(rawCollection, {
+        vectors: {
+          size: 4,
+          distance: "Cosine",
+          data_type: "float",
+        },
+      });
+
+      await legacyClient.upsertPoints(rawCollection, {
+        points: [
+          {
+            id: "legacy_null_point",
+            vector: [1, 0, 0, 0],
+            payload: { label: "legacy-null" },
+          },
+        ],
+      });
+
+      await clearCollectionUserUid(metaKey);
+
+      const collection = await legacyClient.getCollection(rawCollection);
+      expect(collection.name).toBe(expectedCollection);
+      expect(collection.points_count).toBe(1);
+
+      const collections = await legacyClient.listCollections();
+      expect(collections.collections).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: expectedCollection,
+            points_count: 1,
+          }),
+        ])
+      );
+    } finally {
+      try {
+        await legacyClient.deleteCollection(rawCollection);
+      } catch {
+        // ignore cleanup failures
+      }
+    }
+  });
+
+  it("lists multiple collections with real grouped point counts", async () => {
+    const userUid = `Grouped-Counts-${Date.now()}`;
+    const groupedClient = await createYdbQdrantClient({ userUid });
+    const firstCollection = `Docs-Grouped-One-${Date.now()}`;
+    const secondCollection = `Docs-Grouped-Two-${Date.now()}`;
+    const expectedFirstCollection = firstCollection
+      .toLowerCase()
+      .replaceAll("-", "_");
+    const expectedSecondCollection = secondCollection
+      .toLowerCase()
+      .replaceAll("-", "_");
+
+    try {
+      await groupedClient.createCollection(firstCollection, {
+        vectors: {
+          size: 4,
+          distance: "Cosine",
+          data_type: "float",
+        },
+      });
+      await groupedClient.createCollection(secondCollection, {
+        vectors: {
+          size: 4,
+          distance: "Cosine",
+          data_type: "float",
+        },
+      });
+
+      await groupedClient.upsertPoints(firstCollection, {
+        points: [
+          {
+            id: "grouped_one",
+            vector: [1, 0, 0, 0],
+            payload: { label: "one" },
+          },
+        ],
+      });
+      await groupedClient.upsertPoints(secondCollection, {
+        points: [
+          {
+            id: "grouped_two_a",
+            vector: [0, 1, 0, 0],
+            payload: { label: "two-a" },
+          },
+          {
+            id: "grouped_two_b",
+            vector: [0, 0, 1, 0],
+            payload: { label: "two-b" },
+          },
+        ],
+      });
+
+      const collections = await groupedClient.listCollections();
+      expect(collections.collections).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: expectedFirstCollection,
+            points_count: 1,
+          }),
+          expect.objectContaining({
+            name: expectedSecondCollection,
+            points_count: 2,
+          }),
+        ])
+      );
+    } finally {
+      try {
+        await groupedClient.deleteCollection(firstCollection);
+      } catch {
+        // ignore cleanup failures
+      }
+      try {
+        await groupedClient.deleteCollection(secondCollection);
+      } catch {
+        // ignore cleanup failures
+      }
+    }
+  });
+
+  it("serves MCP list_collections from the real YDB-backed client", async () => {
+    const rawUserUid = `Mcp-User-${Date.now()}`;
+    const normalizedUserUid = rawUserUid.toLowerCase().replaceAll("-", "_");
+    const rawCollection = `Mcp-Docs-${Date.now()}`;
+    const expectedCollection = rawCollection.toLowerCase().replaceAll("-", "_");
+    const rawClient = await createYdbQdrantClient({ userUid: rawUserUid });
+    const normalizedClient = await createYdbQdrantClient({
+      userUid: normalizedUserUid,
+    });
+    const server = new YdbQdrantMcpServer({
+      client: normalizedClient,
+      listCollections: async () => {
+        const result = await normalizedClient.listCollections();
+        return result.collections.map((collection) => ({
+          distance: collection.vectors.distance,
+          lastAccessedAt: collection.last_accessed_at,
+          name: collection.name,
+          pointsCount: collection.points_count,
+          vectorSize: collection.vectors.size,
+          vectorType: collection.vectors.data_type,
+        }));
+      },
+      userUid: normalizedUserUid,
+    });
+
+    try {
+      await rawClient.createCollection(rawCollection, {
+        vectors: {
+          size: 4,
+          distance: "Cosine",
+          data_type: "float",
+        },
+      });
+
+      await rawClient.upsertPoints(rawCollection, {
+        points: [
+          {
+            id: "mcp_point",
+            vector: [1, 0, 0, 0],
+            payload: { label: "mcp" },
+          },
+        ],
+      });
+
+      const response = await server.handleJsonRpcMessage(
+        JSON.stringify({
+          id: "list",
+          jsonrpc: "2.0",
+          method: "tools/call",
+          params: {
+            arguments: {},
+            name: "list_collections",
+          },
+        })
+      );
+      const structuredContent = expectMcpStructuredContent(response);
+      expect(structuredContent.collections).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: expectedCollection,
+            pointsCount: 1,
+          }),
+        ])
+      );
+    } finally {
+      try {
+        await rawClient.deleteCollection(rawCollection);
+      } catch {
+        // ignore cleanup failures
+      }
+    }
   });
 
   it(`achieves reasonable Recall@${RECALL_K} on ${DATASET_SIZE} random ${RECALL_DIM}D vectors (one_table)`, async () => {

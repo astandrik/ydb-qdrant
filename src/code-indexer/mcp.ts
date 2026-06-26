@@ -35,6 +35,8 @@ type JsonRpcResponse =
 
 const PROTOCOL_VERSION = "2025-11-25";
 const SERVER_NAME = "ydb-qdrant-code-indexer";
+const INDEX_REPOSITORY_TOOL_NAME = "index_repository";
+const GET_INDEX_STATUS_TOOL_NAME = "get_index_status";
 const LIST_REPOSITORIES_TOOL_NAME = "list_repositories";
 const LIST_REPOSITORY_INDEXES_TOOL_NAME = "list_repository_indexes";
 const SEARCH_TOOL_NAME = "search_code";
@@ -48,6 +50,11 @@ const HOSTED_AGENT_INSTRUCTIONS = [
 ].join(" ");
 const STANDALONE_AGENT_INSTRUCTIONS =
     "Use search_code to search indexed GitHub repository chunks stored in ydb-qdrant.";
+const LOCAL_AGENT_INSTRUCTIONS = [
+    "Use index_repository to index the configured local checkout into YDB-backed code memory.",
+    "Use get_index_status to inspect the current local index.",
+    "Use search_code after indexing; pass the installationId and repoId returned by index_repository.",
+].join(" ");
 
 export type CodeIndexerMcpAccessContext = {
     githubUserId: number | string;
@@ -121,7 +128,46 @@ export type CodeIndexerMcpRepositoryCatalog = {
     }): Promise<CodeIndexerMcpRepositoryIndexSummary | null>;
 };
 
+export type CodeIndexerMcpLocalIndexer = {
+    getIndexStatus(params: {
+        root?: string;
+    }): Promise<{
+        indexes: Array<{
+            chunkCount?: number;
+            collection: string;
+            installationId: number;
+            lastError?: string;
+            lastIndexedAt?: string;
+            lastIndexedSha?: string;
+            owner: string;
+            repo: string;
+            repoId: number;
+            root: string;
+            status: string;
+        }>;
+    }>;
+    indexRepository(params: {
+        root?: string;
+    }): Promise<{
+        chunkCount?: number;
+        collection: string;
+        installationId: number;
+        lastError?: string;
+        lastIndexedAt?: string;
+        lastIndexedSha?: string;
+        owner: string;
+        repo: string;
+        repoId: number;
+        root: string;
+        status: string;
+    }>;
+    listRepositoryIndexes(params: {
+        root?: string;
+    }): Promise<CodeIndexerMcpRepositoryIndexSummary | null>;
+};
+
 export type CodeIndexerMcpDeps = CodeSearchDeps & {
+    localIndexer?: CodeIndexerMcpLocalIndexer;
     repositoryCatalog?: CodeIndexerMcpRepositoryCatalog;
     repositoryResolver?: CodeIndexerMcpRepositoryResolver;
 };
@@ -214,13 +260,23 @@ function listRepositoriesInputSchema() {
     };
 }
 
+function localRootInputSchema() {
+    return {
+        additionalProperties: false,
+        properties: {
+            root: {
+                description:
+                    "Local repository root. Defaults to YDB_QDRANT_MCP_WORKSPACE_ROOT when configured.",
+                type: "string",
+            },
+        },
+        type: "object",
+    };
+}
+
 function listRepositoryIndexesInputSchema() {
     return {
         additionalProperties: false,
-        anyOf: [
-            { required: ["owner", "repo"] },
-            { required: ["installationId", "repoId"] },
-        ],
         properties: {
             installationId: {
                 description: "GitHub App installation id.",
@@ -243,6 +299,11 @@ function listRepositoryIndexesInputSchema() {
             repoId: {
                 description: "GitHub repository id.",
                 type: "number",
+            },
+            root: {
+                description:
+                    "Local repository root for local MCP indexing mode.",
+                type: "string",
             },
         },
         type: "object",
@@ -310,9 +371,11 @@ export class CodeIndexerMcpServer {
             capabilities: {
                 tools: {},
             },
-            instructions: this.deps.repositoryCatalog
-                ? HOSTED_AGENT_INSTRUCTIONS
-                : STANDALONE_AGENT_INSTRUCTIONS,
+            instructions: this.deps.localIndexer
+                ? LOCAL_AGENT_INSTRUCTIONS
+                : this.deps.repositoryCatalog
+                  ? HOSTED_AGENT_INSTRUCTIONS
+                  : STANDALONE_AGENT_INSTRUCTIONS,
             protocolVersion: PROTOCOL_VERSION,
             serverInfo: {
                 name: SERVER_NAME,
@@ -324,6 +387,31 @@ export class CodeIndexerMcpServer {
 
     private toolsListResult(): unknown {
         const tools = [];
+        if (this.deps.localIndexer) {
+            tools.push(
+                {
+                    annotations: {
+                        destructiveHint: false,
+                        readOnlyHint: false,
+                    },
+                    description:
+                        "Index a local repository checkout into YDB-backed code memory. Uses YDB_QDRANT_MCP_WORKSPACE_ROOT when root is omitted.",
+                    inputSchema: localRootInputSchema(),
+                    name: INDEX_REPOSITORY_TOOL_NAME,
+                    title: "Index local repository",
+                },
+                {
+                    annotations: {
+                        readOnlyHint: true,
+                    },
+                    description:
+                        "Return the latest local repository index status for the configured or provided root.",
+                    inputSchema: localRootInputSchema(),
+                    name: GET_INDEX_STATUS_TOOL_NAME,
+                    title: "Get local index status",
+                }
+            );
+        }
         if (this.deps.repositoryCatalog) {
             tools.push(
                 {
@@ -347,6 +435,18 @@ export class CodeIndexerMcpServer {
                     title: "List repository indexes",
                 }
             );
+        }
+        if (this.deps.localIndexer && !this.deps.repositoryCatalog) {
+            tools.push({
+                annotations: {
+                    readOnlyHint: true,
+                },
+                description:
+                    "List the local default branch index for the configured or provided checkout root.",
+                inputSchema: listRepositoryIndexesInputSchema(),
+                name: LIST_REPOSITORY_INDEXES_TOOL_NAME,
+                title: "List repository indexes",
+            });
         }
         tools.push({
             annotations: {
@@ -373,6 +473,12 @@ export class CodeIndexerMcpServer {
                 -32602,
                 `Unknown tool: ${isRecord(params) ? String(params.name) : ""}`
             );
+        }
+        if (params.name === INDEX_REPOSITORY_TOOL_NAME) {
+            return await this.indexRepositoryResult(params.arguments);
+        }
+        if (params.name === GET_INDEX_STATUS_TOOL_NAME) {
+            return await this.getIndexStatusResult(params.arguments);
         }
         if (params.name === LIST_REPOSITORIES_TOOL_NAME) {
             return await this.listRepositoriesResult(context);
@@ -418,6 +524,63 @@ export class CodeIndexerMcpServer {
         }
     }
 
+    private async indexRepositoryResult(args: unknown): Promise<unknown> {
+        const localIndexer = this.localIndexer(INDEX_REPOSITORY_TOOL_NAME);
+        let request;
+        try {
+            request = parseLocalRootArguments(args);
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            throw new McpProtocolError(-32602, message);
+        }
+        try {
+            const index = await localIndexer.indexRepository(request);
+            return {
+                content: [
+                    {
+                        text: formatLocalIndexResponse(index),
+                        type: "text",
+                    },
+                ],
+                structuredContent: {
+                    index,
+                },
+            };
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            return {
+                content: [
+                    {
+                        text: message,
+                        type: "text",
+                    },
+                ],
+                isError: true,
+            };
+        }
+    }
+
+    private async getIndexStatusResult(args: unknown): Promise<unknown> {
+        const localIndexer = this.localIndexer(GET_INDEX_STATUS_TOOL_NAME);
+        let request;
+        try {
+            request = parseLocalRootArguments(args);
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            throw new McpProtocolError(-32602, message);
+        }
+        const status = await localIndexer.getIndexStatus(request);
+        return {
+            content: [
+                {
+                    text: formatLocalIndexesResponse(status.indexes),
+                    type: "text",
+                },
+            ],
+            structuredContent: status,
+        };
+    }
+
     private async listRepositoriesResult(
         context: CodeIndexerMcpAccessContext | undefined
     ): Promise<unknown> {
@@ -452,6 +615,31 @@ export class CodeIndexerMcpServer {
         args: unknown,
         context: CodeIndexerMcpAccessContext | undefined
     ): Promise<unknown> {
+        if (!context && this.deps.localIndexer && !this.deps.repositoryCatalog) {
+            let request;
+            try {
+                request = parseLocalRootArguments(args);
+            } catch (err: unknown) {
+                const message = err instanceof Error ? err.message : String(err);
+                throw new McpProtocolError(-32602, message);
+            }
+            const repository =
+                await this.deps.localIndexer.listRepositoryIndexes(request);
+            if (!repository) {
+                throw new McpProtocolError(-32602, "local index not found");
+            }
+            return {
+                content: [
+                    {
+                        text: formatRepositoryIndexesResponse(repository),
+                        type: "text",
+                    },
+                ],
+                structuredContent: {
+                    repository,
+                },
+            };
+        }
         const catalog = this.authenticatedCatalog(
             context,
             "list_repository_indexes"
@@ -501,6 +689,16 @@ export class CodeIndexerMcpServer {
             );
         }
         return this.deps.repositoryCatalog;
+    }
+
+    private localIndexer(toolName: string): CodeIndexerMcpLocalIndexer {
+        if (!this.deps.localIndexer) {
+            throw new McpProtocolError(
+                -32602,
+                `${toolName} requires local indexing to be configured`
+            );
+        }
+        return this.deps.localIndexer;
     }
 
     private async parseSearchArguments(
@@ -616,6 +814,59 @@ function parseRepositoryIndexArguments(
     };
 }
 
+function parseLocalRootArguments(args: unknown): { root?: string } {
+    if (args === undefined || args === null) {
+        return {};
+    }
+    if (!isRecord(args)) {
+        throw new Error("arguments must be an object");
+    }
+    const root = readString(args.root);
+    return root ? { root } : {};
+}
+
+function formatLocalIndexResponse(index: {
+    chunkCount?: number;
+    collection: string;
+    installationId: number;
+    repoId: number;
+    root: string;
+    status: string;
+}): string {
+    const details = [
+        `status=${index.status}`,
+        `collection=${index.collection}`,
+        `installationId=${index.installationId}`,
+        `repoId=${index.repoId}`,
+        index.chunkCount === undefined ? undefined : `chunks=${index.chunkCount}`,
+    ].filter((value): value is string => Boolean(value));
+    return `Indexed ${index.root}\n${details.join(" ")}`;
+}
+
+function formatLocalIndexesResponse(
+    indexes: Array<{
+        chunkCount?: number;
+        collection: string;
+        repo: string;
+        root: string;
+        status: string;
+    }>
+): string {
+    if (indexes.length === 0) {
+        return "No local repository indexes found.";
+    }
+    const lines = ["Local repository indexes:"];
+    indexes.forEach((index, position) => {
+        const details = [
+            `status=${index.status}`,
+            `collection=${index.collection}`,
+            index.chunkCount === undefined ? undefined : `chunks=${index.chunkCount}`,
+        ].filter((value): value is string => Boolean(value));
+        lines.push(`${position + 1}. ${index.repo} ${index.root} ${details.join(" ")}`);
+    });
+    return lines.join("\n");
+}
+
 function formatRepositoriesResponse(
     repositories: CodeIndexerMcpRepositorySummary[]
 ): string {
@@ -707,7 +958,7 @@ function requiredString(value: unknown, name: string): string {
 }
 
 export function startMcpStdioServer(params: {
-    deps: CodeSearchDeps;
+    deps: CodeIndexerMcpDeps;
     input?: Readable;
     output?: Writable;
 }): void {

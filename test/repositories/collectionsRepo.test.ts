@@ -70,10 +70,13 @@ vi.mock("../../src/logging/logger.js", () => ({
     },
 }));
 import {
+    countPointsForCollections,
     countPointsForCollection,
     createCollection,
     getCollectionMeta,
     hasPointsForCollection,
+    listCollectionsForLegacyUserPrefix,
+    listCollectionsForUser,
 } from "../../src/repositories/collectionsRepo.js";
 import * as ydbClient from "../../src/ydb/client.js";
 import { UPSERT_OPERATION_TIMEOUT_MS } from "../../src/config/env.js";
@@ -167,6 +170,101 @@ describe("collectionsRepo (with mocked YDB)", () => {
         });
     });
 
+    it("lists collection metadata scoped by user_uid", async () => {
+        withSessionMock.mockResolvedValueOnce({
+            resultSets: [
+                {
+                    rows: [
+                        {
+                            items: [
+                                { textValue: "test_user/docs" },
+                                { uint32Value: 128 },
+                                { textValue: "Cosine" },
+                                { textValue: "float" },
+                                { textValue: "2026-06-25T09:00:00.000Z" },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        } as unknown as never);
+
+        const collections = await listCollectionsForUser("test_user");
+
+        expect(collections).toEqual([
+            {
+                distance: "Cosine",
+                lastAccessedAt: new Date("2026-06-25T09:00:00.000Z"),
+                metaKey: "test_user/docs",
+                name: "docs",
+                vectorSize: 128,
+                vectorType: "float",
+            },
+        ]);
+        const params = (
+            withSessionMock.mock.calls[0]?.[0] as (session: {
+                executeQuery: Mock;
+            }) => unknown
+        );
+        expect(params).toBeTypeOf("function");
+    });
+
+    it("lists legacy null-user metadata by collection prefix range", async () => {
+        const sessionMock = {
+            executeQuery: vi.fn().mockResolvedValue({
+                resultSets: [
+                    {
+                        rows: [
+                            {
+                                items: [
+                                    { textValue: "legacy_user/docs" },
+                                    { uint32Value: 128 },
+                                    { textValue: "Cosine" },
+                                    { textValue: "float" },
+                                    {
+                                        textValue:
+                                            "2026-06-25T09:00:00.000Z",
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            }),
+        };
+        withSessionMock.mockImplementation(
+            async (fn: (s: unknown) => unknown) => await fn(sessionMock)
+        );
+
+        const collections = await listCollectionsForLegacyUserPrefix(
+            "legacy_user"
+        );
+
+        expect(collections).toEqual([
+            {
+                distance: "Cosine",
+                lastAccessedAt: new Date("2026-06-25T09:00:00.000Z"),
+                metaKey: "legacy_user/docs",
+                name: "docs",
+                vectorSize: 128,
+                vectorType: "float",
+            },
+        ]);
+        const firstCall = sessionMock.executeQuery.mock.calls[0] as
+            | [string, Record<string, unknown>]
+            | undefined;
+        expect(firstCall).toBeDefined();
+        const query = firstCall?.[0] ?? "";
+        const params = firstCall?.[1];
+        expect(query).toContain("user_uid IS NULL");
+        expect(query).toContain("collection >= $collection_prefix");
+        expect(query).toContain("collection < $collection_prefix_end");
+        expect(params).toMatchObject({
+            $collection_prefix: { type: "utf8", v: "legacy_user/" },
+            $collection_prefix_end: { type: "utf8" },
+        });
+    });
+
     it("returns true from hasPointsForCollection when a row exists", async () => {
         withSessionMock.mockResolvedValueOnce({
             resultSets: [
@@ -214,6 +312,69 @@ describe("collectionsRepo (with mocked YDB)", () => {
         );
 
         expect(pointsCount).toBe(2);
+    });
+
+    it("returns point counts for multiple collections in one grouped query", async () => {
+        const sessionMock = {
+            executeQuery: vi.fn().mockResolvedValue({
+                resultSets: [
+                    {
+                        rows: [
+                            {
+                                items: [
+                                    { textValue: "tenant_a/docs" },
+                                    { textValue: "2" },
+                                ],
+                            },
+                            {
+                                items: [
+                                    { textValue: "tenant_a/images" },
+                                    { uint64Value: { low: 3, high: 0 } },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            }),
+        };
+        withSessionMock.mockImplementation(
+            async (fn: (s: unknown) => unknown) => await fn(sessionMock)
+        );
+
+        const pointsCounts = await countPointsForCollections([
+            "tenant_a/docs",
+            "tenant_a/images",
+        ]);
+
+        expect(pointsCounts).toEqual(
+            new Map([
+                ["tenant_a/docs", 2],
+                ["tenant_a/images", 3],
+            ])
+        );
+        expect(sessionMock.executeQuery).toHaveBeenCalledTimes(1);
+        const firstCall = sessionMock.executeQuery.mock.calls[0] as
+            | [string, Record<string, unknown>]
+            | undefined;
+        expect(firstCall).toBeDefined();
+        const query = firstCall?.[0] ?? "";
+        const params = firstCall?.[1];
+        expect(query).toContain("WHERE collection IN $collections");
+        expect(query).toContain("GROUP BY collection");
+        expect(params).toMatchObject({
+            $collections: {
+                type: "list",
+                t: "UTF8",
+                list: ["tenant_a/docs", "tenant_a/images"],
+            },
+        });
+    });
+
+    it("does not query YDB when counting an empty collection list", async () => {
+        const counts = await countPointsForCollections([]);
+
+        expect(counts).toEqual(new Map());
+        expect(withSessionMock).not.toHaveBeenCalled();
     });
 
     it("parses point count from YDB Long-like Uint64 values", async () => {

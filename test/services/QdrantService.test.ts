@@ -28,11 +28,14 @@ vi.mock("../../src/config/env.js", async () => {
 
 vi.mock("../../src/repositories/collectionsRepo.js", () => ({
     getCollectionMeta: vi.fn(),
+    listCollectionsForUser: vi.fn(),
+    listCollectionsForLegacyUserPrefix: vi.fn().mockResolvedValue([]),
     createCollection: vi.fn(),
     deleteCollection: vi.fn(),
     deleteAllPointsForCollection: vi.fn().mockResolvedValue(undefined),
     touchCollectionLastAccess: vi.fn().mockResolvedValue(undefined),
     countPointsForCollection: vi.fn().mockResolvedValue(0),
+    countPointsForCollections: vi.fn().mockResolvedValue(new Map()),
 }));
 
 vi.mock("../../src/repositories/pointsRepo.js", () => ({
@@ -49,6 +52,7 @@ import { logger } from "../../src/logging/logger.js";
 import {
     createCollection,
     getCollection,
+    listCollections,
     deleteCollection,
     putCollectionIndex,
 } from "../../src/services/CollectionService.js";
@@ -91,6 +95,34 @@ describe("QdrantService (with mocked YDB)", () => {
 
         expect(result).toEqual({ name: "my_collection" });
         expect(collectionsRepo.createCollection).toHaveBeenCalledTimes(1);
+    });
+
+    it("stores normalized user uid in collection metadata", async () => {
+        vi.mocked(collectionsRepo.getCollectionMeta).mockResolvedValueOnce(
+            null
+        );
+        vi.mocked(collectionsRepo.createCollection).mockResolvedValueOnce(
+            undefined
+        );
+
+        await createCollection(
+            { userUid: "User-Name", collection: "Docs", apiKey },
+            {
+                vectors: {
+                    size: 128,
+                    distance: "Cosine",
+                    data_type: "float",
+                },
+            }
+        );
+
+        expect(collectionsRepo.createCollection).toHaveBeenCalledWith(
+            "user_name/docs",
+            128,
+            "Cosine",
+            "float",
+            "user_name"
+        );
     });
 
     it("returns existing collection when config matches metadata", async () => {
@@ -175,6 +207,248 @@ describe("QdrantService (with mocked YDB)", () => {
                 },
             },
         });
+    });
+
+    it("lists collections for the current user namespace", async () => {
+        vi.mocked(collectionsRepo.listCollectionsForUser).mockResolvedValueOnce([
+            {
+                distance: "Cosine",
+                lastAccessedAt: new Date("2026-06-25T09:00:00.000Z"),
+                metaKey: "test_user/my_collection",
+                name: "my_collection",
+                vectorSize: 128,
+                vectorType: "float",
+            },
+        ]);
+        vi.mocked(collectionsRepo.countPointsForCollections).mockResolvedValueOnce(
+            new Map([["test_user/my_collection", 2]])
+        );
+
+        const result = await listCollections({ userUid, apiKey });
+
+        expect(result).toEqual({
+            collections: [
+                {
+                    last_accessed_at: "2026-06-25T09:00:00.000Z",
+                    name: "my_collection",
+                    points_count: 2,
+                    vectors: {
+                        data_type: "float",
+                        distance: "Cosine",
+                        size: 128,
+                    },
+                },
+            ],
+        });
+        expect(collectionsRepo.listCollectionsForUser).toHaveBeenCalledWith(
+            "test_user"
+        );
+        expect(collectionsRepo.countPointsForCollections).toHaveBeenCalledWith(
+            ["test_user/my_collection"]
+        );
+    });
+
+    it("lists collections by normalized user uid and counts by metadata key", async () => {
+        vi.mocked(collectionsRepo.listCollectionsForUser)
+            .mockResolvedValueOnce([
+                {
+                    distance: "Cosine",
+                    metaKey: "user_name/docs",
+                    name: "docs",
+                    vectorSize: 128,
+                    vectorType: "float",
+                },
+            ])
+            .mockResolvedValueOnce([]);
+        vi.mocked(collectionsRepo.countPointsForCollections).mockResolvedValueOnce(
+            new Map([["user_name/docs", 3]])
+        );
+
+        const result = await listCollections({
+            apiKey,
+            userUid: "User-Name",
+        });
+
+        expect(result.collections[0]?.points_count).toBe(3);
+        expect(collectionsRepo.listCollectionsForUser).toHaveBeenNthCalledWith(
+            1,
+            "user_name"
+        );
+        expect(collectionsRepo.listCollectionsForUser).toHaveBeenNthCalledWith(
+            2,
+            "User-Name"
+        );
+        expect(
+            collectionsRepo.listCollectionsForLegacyUserPrefix
+        ).toHaveBeenCalledWith("user_name");
+        expect(collectionsRepo.countPointsForCollections).toHaveBeenCalledWith(
+            ["user_name/docs"]
+        );
+    });
+
+    it("falls back to raw legacy user uid rows when listing collections", async () => {
+        vi.mocked(collectionsRepo.listCollectionsForUser)
+            .mockResolvedValueOnce([])
+            .mockResolvedValueOnce([
+                {
+                    distance: "Cosine",
+                    metaKey: "user_name/docs",
+                    name: "docs",
+                    vectorSize: 128,
+                    vectorType: "float",
+                },
+            ]);
+        vi.mocked(collectionsRepo.countPointsForCollections).mockResolvedValueOnce(
+            new Map([["user_name/docs", 4]])
+        );
+
+        const result = await listCollections({
+            apiKey,
+            userUid: "User-Name",
+        });
+
+        expect(result.collections).toEqual([
+            expect.objectContaining({
+                name: "docs",
+                points_count: 4,
+            }),
+        ]);
+        expect(collectionsRepo.listCollectionsForUser).toHaveBeenNthCalledWith(
+            1,
+            "user_name"
+        );
+        expect(collectionsRepo.listCollectionsForUser).toHaveBeenNthCalledWith(
+            2,
+            "User-Name"
+        );
+        expect(
+            collectionsRepo.listCollectionsForLegacyUserPrefix
+        ).toHaveBeenCalledWith("user_name");
+    });
+
+    it("deduplicates normalized and legacy listed collections by metadata key", async () => {
+        vi.mocked(collectionsRepo.listCollectionsForUser)
+            .mockResolvedValueOnce([
+                {
+                    distance: "Cosine",
+                    metaKey: "user_name/docs",
+                    name: "docs",
+                    vectorSize: 128,
+                    vectorType: "float",
+                },
+            ])
+            .mockResolvedValueOnce([
+                {
+                    distance: "Cosine",
+                    metaKey: "user_name/docs",
+                    name: "docs",
+                    vectorSize: 128,
+                    vectorType: "float",
+                },
+            ]);
+        vi.mocked(collectionsRepo.countPointsForCollections).mockResolvedValueOnce(
+            new Map([["user_name/docs", 5]])
+        );
+
+        const result = await listCollections({
+            apiKey,
+            userUid: "User-Name",
+        });
+
+        expect(result.collections).toHaveLength(1);
+        expect(result.collections[0]?.points_count).toBe(5);
+        expect(collectionsRepo.countPointsForCollections).toHaveBeenCalledTimes(
+            1
+        );
+        expect(collectionsRepo.countPointsForCollections).toHaveBeenCalledWith(
+            ["user_name/docs"]
+        );
+    });
+
+    it("lists legacy null user_uid rows by normalized metadata prefix", async () => {
+        vi.mocked(collectionsRepo.getCollectionMeta).mockResolvedValueOnce({
+            table: "qdrant_all_points",
+            dimension: 128,
+            distance: "Cosine",
+            vectorType: "float",
+        });
+        vi.mocked(collectionsRepo.countPointsForCollection).mockResolvedValueOnce(
+            7
+        );
+        vi.mocked(collectionsRepo.listCollectionsForUser).mockResolvedValueOnce(
+            []
+        );
+        vi.mocked(
+            collectionsRepo.listCollectionsForLegacyUserPrefix
+        ).mockResolvedValueOnce([
+            {
+                distance: "Cosine",
+                metaKey: "legacy_user/docs",
+                name: "docs",
+                vectorSize: 128,
+                vectorType: "float",
+            },
+        ]);
+        vi.mocked(collectionsRepo.countPointsForCollections).mockResolvedValueOnce(
+            new Map([["legacy_user/docs", 7]])
+        );
+
+        const getResult = await getCollection({
+            apiKey,
+            collection: "docs",
+            userUid: "legacy_user",
+        });
+        const listResult = await listCollections({
+            apiKey,
+            userUid: "legacy_user",
+        });
+
+        expect(getResult.name).toBe("docs");
+        expect(listResult.collections).toEqual([
+            expect.objectContaining({
+                name: "docs",
+                points_count: 7,
+            }),
+        ]);
+        expect(
+            collectionsRepo.listCollectionsForLegacyUserPrefix
+        ).toHaveBeenCalledWith("legacy_user");
+        expect(collectionsRepo.countPointsForCollections).toHaveBeenCalledWith([
+            "legacy_user/docs",
+        ]);
+    });
+
+    it("counts listed collection points in one repository call", async () => {
+        const collections = Array.from({ length: 100 }, (_, index) => ({
+            distance: "Cosine" as const,
+            metaKey: `test_user/docs_${index}`,
+            name: `docs_${index}`,
+            vectorSize: 128,
+            vectorType: "float",
+        }));
+        vi.mocked(collectionsRepo.listCollectionsForUser).mockResolvedValueOnce(
+            collections
+        );
+        vi.mocked(
+            collectionsRepo.listCollectionsForLegacyUserPrefix
+        ).mockResolvedValueOnce([]);
+        vi.mocked(collectionsRepo.countPointsForCollections).mockResolvedValueOnce(
+            new Map(collections.map((collection) => [collection.metaKey, 1]))
+        );
+
+        const result = await listCollections({ userUid, apiKey });
+
+        expect(result.collections).toHaveLength(100);
+        expect(collectionsRepo.countPointsForCollections).toHaveBeenCalledTimes(
+            1
+        );
+        const expectedMetaKeys = collections
+            .map((collection) => collection.metaKey)
+            .sort((a, b) => a.localeCompare(b));
+        expect(collectionsRepo.countPointsForCollections).toHaveBeenCalledWith(
+            expectedMetaKeys
+        );
+        expect(collectionsRepo.countPointsForCollection).not.toHaveBeenCalled();
     });
 
     it("throws when getting collection that does not exist", async () => {

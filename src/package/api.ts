@@ -5,6 +5,7 @@ import {
     createCollection as serviceCreateCollection,
     deleteCollection as serviceDeleteCollection,
     getCollection as serviceGetCollection,
+    listCollections as serviceListCollections,
     putCollectionIndex as servicePutCollectionIndex,
 } from "../services/CollectionService.js";
 import {
@@ -30,6 +31,9 @@ type CreateCollectionResult = Awaited<
     ReturnType<typeof serviceCreateCollection>
 >;
 type GetCollectionResult = Awaited<ReturnType<typeof serviceGetCollection>>;
+type ListCollectionsResult = Awaited<
+    ReturnType<typeof serviceListCollections>
+>;
 type DeleteCollectionResult = Awaited<
     ReturnType<typeof serviceDeleteCollection>
 >;
@@ -65,6 +69,7 @@ export interface YdbQdrantClient {
         collection: string,
         body: unknown
     ): Promise<CreateCollectionResult>;
+    listCollections(): Promise<ListCollectionsResult>;
     getCollection(collection: string): Promise<GetCollectionResult>;
     deleteCollection(collection: string): Promise<DeleteCollectionResult>;
     putCollectionIndex(collection: string): Promise<PutIndexResult>;
@@ -101,6 +106,10 @@ function buildClient(userUid: string, apiKey: string): YdbQdrantClient {
             body: unknown
         ): Promise<CreateCollectionResult> {
             return serviceCreateCollection({ userUid, collection, apiKey }, body);
+        },
+
+        listCollections(): Promise<ListCollectionsResult> {
+            return serviceListCollections({ userUid, apiKey });
         },
 
         getCollection(collection: string): Promise<GetCollectionResult> {

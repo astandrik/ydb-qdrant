@@ -12,7 +12,7 @@ export interface NormalizedCollectionContextLike {
     uid: string;
 }
 
-function requireAndSanitizeUserUid(userUid: string | undefined): string {
+export function normalizeUserUidShared(userUid: string | undefined): string {
     if (!userUid || userUid.trim() === "") {
         throw new QdrantServiceError(401, {
             status: "error",
@@ -52,7 +52,7 @@ export function normalizeCollectionContextShared(
     uid: string;
 } {
     void _userAgent;
-    const normalizedUserUid = requireAndSanitizeUserUid(userUid);
+    const normalizedUserUid = normalizeUserUidShared(userUid);
     const normalizedCollection = sanitizeCollectionName(collection);
     const metaKey = metaKeyFor(normalizedUserUid, normalizedCollection);
     return {
