@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782729764683,
+  "lastUpdate": 1782729766926,
   "repoUrl": "https://github.com/astandrik/ydb-qdrant",
   "entries": {
     "Load Test - Soak (one_table, 768D)": [
@@ -15742,6 +15742,45 @@ window.BENCHMARK_DATA = {
           {
             "name": "Stress: Throughput",
             "value": 159.45658758616065,
+            "unit": "ops/s"
+          },
+          {
+            "name": "Stress: Max VUs",
+            "value": 600,
+            "unit": "VUs"
+          },
+          {
+            "name": "Stress: Breaking Point VUs",
+            "value": 600,
+            "unit": "VUs"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "astandrik@yandex-team.ru",
+            "name": "Anton Standrik",
+            "username": "astandrik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "41f43e1c061e861b0d123c768e21faf823e17783",
+          "message": "refactor: remove legacy one-table naming (#202)",
+          "timestamp": "2026-06-29T13:34:52+03:00",
+          "tree_id": "7272604b72e72a82beef018222eae0fa8499ab93",
+          "url": "https://github.com/astandrik/ydb-qdrant/commit/41f43e1c061e861b0d123c768e21faf823e17783"
+        },
+        "date": 1782729766271,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Stress: Throughput",
+            "value": 170.41846505884533,
             "unit": "ops/s"
           },
           {
