@@ -251,11 +251,11 @@ function buildExactSearchQueryAndParams(args: {
     return {
         yql,
         params,
-        modeLog: "one_table_exact_client_side_serialization",
+        modeLog: "storage_exact_client_side_serialization",
     };
 }
 
-async function searchPointsOneTableExact(
+async function searchPointsExact(
     tableName: string,
     queryVector: number[],
     top: number,
@@ -294,7 +294,7 @@ async function searchPointsOneTableExact(
                         vectorPreview: queryVector.slice(0, 3),
                     },
                 },
-                "one_table search (exact): executing YQL"
+                "storage search (exact): executing YQL"
             );
         }
 
@@ -325,7 +325,7 @@ async function searchPointsOneTableExact(
     return results;
 }
 
-export async function searchPointsOneTable(
+export async function searchPoints(
     tableName: string,
     queryVector: number[],
     top: number,
@@ -336,7 +336,7 @@ export async function searchPointsOneTable(
     apiKey: string,
     filterPaths?: Array<Array<string>>
 ): Promise<YdbQdrantScoredPoint[]> {
-    return await searchPointsOneTableExact(
+    return await searchPointsExact(
         tableName,
         queryVector,
         top,

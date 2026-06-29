@@ -4,13 +4,13 @@ import type {
     YdbQdrantScoredPoint,
 } from "../qdrant/QdrantRestTypes.js";
 import {
-    upsertPointsOneTable,
-    searchPointsOneTable,
-    deletePointsOneTable,
-    deletePointsByPathSegmentsOneTable,
-    retrievePointsByIdsOneTable,
-} from "./pointsRepo.one-table.js";
-import type { RetrievedPoint } from "./pointsRepo.one-table/Retrieve.js";
+    upsertPoints as upsertPointsFromStorage,
+    searchPoints as searchPointsFromStorage,
+    deletePoints as deletePointsFromStorage,
+    deletePointsByPathSegments as deletePointsByPathSegmentsFromStorage,
+    retrievePointsByIds as retrievePointsByIdsFromStorage,
+} from "./pointsRepo.storage.js";
+import type { RetrievedPoint } from "./pointsRepo.storage/Retrieve.js";
 
 export async function upsertPoints(
     tableName: string,
@@ -19,7 +19,13 @@ export async function upsertPoints(
     uid: string,
     apiKey: string
 ): Promise<number> {
-    return await upsertPointsOneTable(tableName, points, dimension, uid, apiKey);
+    return await upsertPointsFromStorage(
+        tableName,
+        points,
+        dimension,
+        uid,
+        apiKey
+    );
 }
 
 export async function searchPoints(
@@ -33,7 +39,7 @@ export async function searchPoints(
     apiKey: string,
     filterPaths?: Array<Array<string>>
 ): Promise<YdbQdrantScoredPoint[]> {
-    return await searchPointsOneTable(
+    return await searchPointsFromStorage(
         tableName,
         queryVector,
         top,
@@ -51,7 +57,7 @@ export async function deletePoints(
     ids: Array<string | number>,
     uid: string
 ): Promise<number> {
-    return await deletePointsOneTable(tableName, ids, uid);
+    return await deletePointsFromStorage(tableName, ids, uid);
 }
 
 export async function deletePointsByPathSegments(
@@ -59,7 +65,7 @@ export async function deletePointsByPathSegments(
     uid: string,
     paths: Array<Array<string>>
 ): Promise<number> {
-    return await deletePointsByPathSegmentsOneTable(tableName, uid, paths);
+    return await deletePointsByPathSegmentsFromStorage(tableName, uid, paths);
 }
 
 export async function retrievePointsByIds(
@@ -69,5 +75,11 @@ export async function retrievePointsByIds(
     apiKey: string,
     withPayload: boolean
 ): Promise<RetrievedPoint[]> {
-    return await retrievePointsByIdsOneTable(tableName, ids, uid, apiKey, withPayload);
+    return await retrievePointsByIdsFromStorage(
+        tableName,
+        ids,
+        uid,
+        apiKey,
+        withPayload
+    );
 }

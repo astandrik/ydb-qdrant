@@ -85,7 +85,7 @@ describe("collectionsRepo (with mocked YDB)", () => {
         vi.clearAllMocks();
     });
 
-    it("upserts collection metadata (one-table; no per-collection table)", async () => {
+    it("upserts collection metadata (global table; no per-collection table)", async () => {
         const sessionMock = {
             createTable: vi.fn(),
             executeQuery: vi.fn(),

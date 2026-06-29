@@ -1,7 +1,7 @@
 import { type NormalizedCollectionContextLike } from "./CollectionService.shared.js";
 import { GLOBAL_POINTS_TABLE, ensureGlobalPointsTable } from "../ydb/schema.js";
 
-export async function resolvePointsTableAndUidOneTable(
+export async function resolvePointsTableAndUid(
     ctx: NormalizedCollectionContextLike
 ): Promise<{
     tableName: string;

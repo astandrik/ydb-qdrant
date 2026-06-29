@@ -85,12 +85,12 @@ function createDescribeTableMock() {
     });
 }
 
-describe("collectionsRepo/deleteCollection one-table (with mocked YDB)", () => {
+describe("collectionsRepo/deleteCollection global table (with mocked YDB)", () => {
     beforeEach(() => {
         vi.clearAllMocks();
     });
 
-    it("deletes points from global table in one_table mode", async () => {
+    it("deletes points from global table", async () => {
         const sessionMock = {
             describeTable: createDescribeTableMock(),
             createTable: vi.fn(),

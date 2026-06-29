@@ -30,7 +30,7 @@ import {
 } from "./errors.js";
 import { type CollectionContextInput } from "./CollectionService.js";
 import { normalizeCollectionContextShared } from "./CollectionService.shared.js";
-import { resolvePointsTableAndUidOneTable } from "./CollectionService.one-table.js";
+import { resolvePointsTableAndUid } from "./CollectionService.storage.js";
 import {
     normalizeSearchBodyForSearch,
     normalizeSearchBodyForQuery,
@@ -38,7 +38,7 @@ import {
 } from "../utils/normalization.js";
 import { normalizePathSegments } from "../utils/pathPrefix.js";
 import type { YdbQdrantScoredPoint } from "../qdrant/QdrantRestTypes.js";
-import type { RetrievedPoint } from "../repositories/pointsRepo.one-table/Retrieve.js";
+import type { RetrievedPoint } from "../repositories/pointsRepo.storage/Retrieve.js";
 
 type PointsContextInput = CollectionContextInput;
 const MAX_LOGGED_UPSERT_PATHS = 20;
@@ -180,7 +180,7 @@ export async function upsertPoints(
     }
 
     const uidResolveStartNs = getMonotonicTimeNs();
-    const { tableName, uid } = await resolvePointsTableAndUidOneTable(
+    const { tableName, uid } = await resolvePointsTableAndUid(
         normalized
     );
     const uidResolveMs = elapsedMsSince(uidResolveStartNs);
@@ -313,7 +313,7 @@ async function executeSearch(
         });
     }
 
-    const { tableName, uid } = await resolvePointsTableAndUidOneTable(
+    const { tableName, uid } = await resolvePointsTableAndUid(
         normalized
     );
 
@@ -449,7 +449,7 @@ export async function retrievePoints(
         });
     }
 
-    const { tableName, uid } = await resolvePointsTableAndUidOneTable(
+    const { tableName, uid } = await resolvePointsTableAndUid(
         normalized
     );
 
@@ -496,7 +496,7 @@ export async function deletePoints(
         });
     }
 
-    const { tableName, uid } = await resolvePointsTableAndUidOneTable(
+    const { tableName, uid } = await resolvePointsTableAndUid(
         normalized
     );
     let deleted: number;

@@ -10,7 +10,7 @@ import {
     buildExactPathSegmentsFilter,
     buildPrefixPathSegmentsFilter,
     buildPathSegmentsWhereClause,
-} from "../../src/repositories/pointsRepo.one-table/PathSegmentsFilter.js";
+} from "../../src/repositories/pointsRepo.storage/PathSegmentsFilter.js";
 
 describe("PathSegmentsFilter", () => {
     it("builds path_prefix-only where clause for a single path", () => {
