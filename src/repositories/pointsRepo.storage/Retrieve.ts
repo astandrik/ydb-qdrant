@@ -18,7 +18,7 @@ export interface RetrievedPoint {
     payload: Payload | null;
 }
 
-export async function retrievePointsByIdsOneTable(
+export async function retrievePointsByIds(
     tableName: string,
     ids: Array<string | number>,
     uid: string,
@@ -55,7 +55,7 @@ export async function retrievePointsByIdsOneTable(
             baseDelayMs: RETRIEVE_RETRY_BASE_DELAY_MS,
             maxBackoffMs: RETRIEVE_RETRY_MAX_BACKOFF_MS,
             context: {
-                operation: "retrievePointsByIdsOneTable",
+                operation: "retrievePointsByIds",
                 tableName,
                 collection: uid,
                 idCount: ids.length,

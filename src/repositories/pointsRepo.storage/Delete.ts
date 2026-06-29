@@ -33,7 +33,7 @@ const DELETE_BY_ID_RETRY_MAX_BACKOFF_MS = 1500;
 const DELETE_BY_FILTER_RETRY_MAX_RETRIES = 12;
 const DELETE_BY_FILTER_RETRY_BASE_DELAY_MS = 300;
 const DELETE_BY_FILTER_RETRY_MAX_BACKOFF_MS = 2000;
-export async function deletePointsOneTable(
+export async function deletePoints(
     tableName: string,
     ids: Array<string | number>,
     collection: string
@@ -332,7 +332,7 @@ async function deletePointsByPathSegmentsChunkWithRetry(
             baseDelayMs: DELETE_BY_FILTER_RETRY_BASE_DELAY_MS,
             maxBackoffMs: DELETE_BY_FILTER_RETRY_MAX_BACKOFF_MS,
             context: {
-                operation: "deletePointsByPathSegmentsOneTable",
+                operation: "deletePointsByPathSegments",
                 tableName,
                 collection,
                 filterPathsCount: totalInputPathsCount,
@@ -346,7 +346,7 @@ async function deletePointsByPathSegmentsChunkWithRetry(
     );
 }
 
-export async function deletePointsByPathSegmentsOneTable(
+export async function deletePointsByPathSegments(
     tableName: string,
     collection: string,
     paths: Array<Array<string>>

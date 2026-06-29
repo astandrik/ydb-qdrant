@@ -16,9 +16,9 @@
   "scripts": {
     "test": "vitest run --exclude \"test/integration/**\"",
     "test:coverage": "vitest run --coverage --exclude \"test/integration/**\"",
-    "test:integration": "vitest run test/integration/YdbRealIntegration.test.ts && vitest run test/integration/YdbRealIntegration.one-table.test.ts",
+    "test:integration": "vitest run test/integration/YdbRealIntegration.test.ts && vitest run test/integration/YdbRealIntegration.storage.test.ts",
     "test:e2e": "vitest run --config=vitest.config.e2e.mts",
-    "test:recall": "vitest run test/integration/YdbRealIntegration.one-table.test.ts",
+    "test:recall": "vitest run test/integration/YdbRealIntegration.storage.test.ts",
     "load:soak": "k6 run loadtest/soak-test.js",
     "load:stress": "k6 run loadtest/stress-test.js",
     "load:stress:pathsegments": "k6 run loadtest/pathsegments-stress.js",
@@ -57,7 +57,7 @@
   ],
   "author": "",
   "license": "Apache-2.0",
-  "description": "Qdrant-compatible Node.js/TypeScript API that stores/searches embeddings in YDB using a global one-table layout with exact KNN search over serialized vectors.",
+  "description": "Qdrant-compatible Node.js/TypeScript API that stores/searches embeddings in YDB using a global table layout with exact KNN search over serialized vectors.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/astandrik/ydb-qdrant.git"

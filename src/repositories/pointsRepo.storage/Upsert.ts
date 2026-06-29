@@ -54,7 +54,7 @@ function assertPointVectorsDimension(args: {
                     expectedDimension: args.dimension,
                     vectorPreview,
                 },
-                "upsertPointsOneTable: vector dimension mismatch"
+                "upsertPoints: vector dimension mismatch"
             );
             throw new Error(
                 `Vector dimension mismatch for id=${id}: got ${p.vector.length}, expected ${args.dimension}`
@@ -213,7 +213,7 @@ async function buildBulkUpsertRowsValueWithWorkers(args: {
     );
 }
 
-export async function upsertPointsOneTable(
+export async function upsertPoints(
     tableName: string,
     points: UpsertPoint[],
     dimension: number,
@@ -286,8 +286,8 @@ export async function upsertPointsOneTable(
                         {
                             tableName,
                             mode: usedWorkers
-                                ? "one_table_bulk_upsert_worker_serialization"
-                                : "one_table_bulk_upsert_client_side_serialization",
+                                ? "storage_bulk_upsert_worker_serialization"
+                                : "storage_bulk_upsert_client_side_serialization",
                             batchSize: batch.length,
                             params: {
                                 rows: batch.map((p) => ({
@@ -299,7 +299,7 @@ export async function upsertPointsOneTable(
                                 })),
                             },
                         },
-                        "one_table upsert: executing BulkUpsert"
+                        "storage upsert: executing BulkUpsert"
                     );
                 }
 

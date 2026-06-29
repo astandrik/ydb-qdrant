@@ -13,10 +13,10 @@ import { logger } from "../logging/logger.js";
 import type { DistanceKind, VectorType } from "../qdrant/QdrantRestTypes.js";
 import { uidFor } from "../utils/tenant.js";
 import {
-    createCollectionOneTable,
-    deleteAllPointsForCollectionOneTable,
-    deleteCollectionOneTable,
-} from "./collectionsRepo.one-table.js";
+    createCollection as createCollectionInStorage,
+    deleteAllPointsForCollection as deleteAllPointsForCollectionInStorage,
+    deleteCollection as deleteCollectionInStorage,
+} from "./collectionsRepo.storage.js";
 import { withRetry, isTransientYdbError } from "../utils/retry.js";
 import { GLOBAL_POINTS_TABLE } from "../ydb/schema.js";
 
@@ -62,7 +62,7 @@ export async function createCollection(
     vectorType: VectorType,
     userUid?: string
 ): Promise<void> {
-    await createCollectionOneTable(
+    await createCollectionInStorage(
         metaKey,
         dim,
         distance,
@@ -192,13 +192,13 @@ export async function deleteCollection(
         }
         effectiveUid = uidFor(userUid, collection);
     }
-    await deleteCollectionOneTable(metaKey, effectiveUid);
+    await deleteCollectionInStorage(metaKey, effectiveUid);
 }
 
 export async function deleteAllPointsForCollection(
     collection: string
 ): Promise<void> {
-    await deleteAllPointsForCollectionOneTable(collection);
+    await deleteAllPointsForCollectionInStorage(collection);
 }
 
 export async function hasPointsForCollection(

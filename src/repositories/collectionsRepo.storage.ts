@@ -194,7 +194,7 @@ async function deleteLookupRowsForCollectionInChunks(
     }
 }
 
-export async function createCollectionOneTable(
+export async function createCollection(
     metaKey: string,
     dim: number,
     distance: DistanceKind,
@@ -211,7 +211,7 @@ export async function createCollectionOneTable(
     );
 }
 
-export async function deleteAllPointsForCollectionOneTable(
+export async function deleteAllPointsForCollection(
     collection: string
 ): Promise<void> {
     await ensureGlobalPointsTable();
@@ -284,7 +284,7 @@ export async function deleteAllPointsForCollectionOneTable(
         {
             isTransient: isTransientYdbError,
             context: {
-                operation: "deleteAllPointsForCollectionOneTable",
+                operation: "deleteAllPointsForCollection",
                 tableName: GLOBAL_POINTS_TABLE,
                 collection,
                 mode: "batch_delete_with_lookup_cleanup",
@@ -293,11 +293,11 @@ export async function deleteAllPointsForCollectionOneTable(
     );
 }
 
-export async function deleteCollectionOneTable(
+export async function deleteCollection(
     metaKey: string,
     collection: string
 ): Promise<void> {
-    await deleteAllPointsForCollectionOneTable(collection);
+    await deleteAllPointsForCollection(collection);
 
     const delMeta = `
     DECLARE $collection AS Utf8;

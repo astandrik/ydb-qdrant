@@ -46,14 +46,14 @@ vi.mock("../../src/ydb/helpers.js", () => {
 
 import * as ydbClient from "../../src/ydb/client.js";
 import * as helpers from "../../src/ydb/helpers.js";
-import { searchPointsOneTable as searchPointsOneTableInternal } from "../../src/repositories/pointsRepo.one-table.js";
+import { searchPoints as searchPointsInternal } from "../../src/repositories/pointsRepo.storage.js";
 import { computePayloadSign } from "../../src/utils/PayloadSign.js";
 
 const withSessionMock = ydbClient.withSession as unknown as Mock;
 const buildVectorBinaryParamsMock =
     helpers.buildVectorBinaryParams as unknown as Mock;
 
-describe("pointsRepo one_table with client-side serialization", () => {
+describe("pointsRepo global table with client-side serialization", () => {
     beforeEach(() => {
         vi.clearAllMocks();
     });
@@ -88,7 +88,7 @@ describe("pointsRepo one_table with client-side serialization", () => {
             }
         );
 
-        const result = await searchPointsOneTableInternal(
+        const result = await searchPointsInternal(
             "qdrant_all_points",
             [0, 0, 0, 1],
             5,

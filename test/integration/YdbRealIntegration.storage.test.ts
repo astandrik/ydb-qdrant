@@ -27,12 +27,12 @@ import { deriveUserUidFromApiKey, uidFor } from "../../src/utils/tenant.js";
 const RNG_SEED = 4242;
 
 /**
- * Integration tests for one_table storage mode with realistic recall benchmark.
+ * Integration tests for global storage layout with realistic recall benchmark.
  *
  * Uses ANN-benchmarks methodology with random vectors and exact ground truth.
  * Reference: https://github.com/erikbern/ann-benchmarks
  */
-describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
+describe("YDB integration with global storage", () => {
   const apiKey =
     process.env.YDB_QDRANT_INTEGRATION_API_KEY ?? "itest-integration-api-key";
   const collectionBase =
@@ -45,8 +45,8 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
     client = await createYdbQdrantClient({ apiKey });
   });
 
-  it(`achieves reasonable Recall@${RECALL_K} on ${DATASET_SIZE} random ${RECALL_DIM}D vectors (one_table)`, async () => {
-    const collection = `${collectionBase}_one_table_recall_${Date.now()}`;
+  it(`achieves reasonable Recall@${RECALL_K} on ${DATASET_SIZE} random ${RECALL_DIM}D vectors (storage)`, async () => {
+    const collection = `${collectionBase}_storage_recall_${Date.now()}`;
 
     await client.createCollection(collection, {
       vectors: {
@@ -110,7 +110,7 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
   }, 120000); // Increased timeout for larger dataset with 768D vectors
 
   it("creates collection, upserts points to global table, and performs search", async () => {
-    const collection = `${collectionBase}_one_table_basic_${Date.now()}`;
+    const collection = `${collectionBase}_storage_basic_${Date.now()}`;
 
     await client.createCollection(collection, {
       vectors: {
@@ -147,7 +147,7 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
   });
 
   it("stores points in the global table with correct uid", async () => {
-    const collection = `${collectionBase}_one_table_uid_${Date.now()}`;
+    const collection = `${collectionBase}_storage_uid_${Date.now()}`;
     const expectedUid = uidFor(deriveUserUidFromApiKey(apiKey), collection);
 
     await client.createCollection(collection, {
@@ -195,7 +195,7 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
   });
 
   it("materializes qdrant_points_by_file rows and keeps ancestor rows after exact path delete", async () => {
-    const collection = `${collectionBase}_one_table_lookup_${Date.now()}`;
+    const collection = `${collectionBase}_storage_lookup_${Date.now()}`;
     const resolvedCollection = uidFor(
       deriveUserUidFromApiKey(apiKey),
       collection
@@ -309,9 +309,9 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
   });
 
   it("isolates data between api-key namespaces using collection filtering in global table", async () => {
-    const apiKeyA = `${apiKey}-one-table-a`;
-    const apiKeyB = `${apiKey}-one-table-b`;
-    const collection = `${collectionBase}_one_table_isolation_${Date.now()}`;
+    const apiKeyA = `${apiKey}-storage-a`;
+    const apiKeyB = `${apiKey}-storage-b`;
+    const collection = `${collectionBase}_storage_isolation_${Date.now()}`;
 
     const clientA = await createYdbQdrantClient({ apiKey: apiKeyA });
     const clientB = await createYdbQdrantClient({ apiKey: apiKeyB });
@@ -374,8 +374,8 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
   });
 
   it("deletes only the collection's points from global table, not other collections", async () => {
-    const collectionToDelete = `${collectionBase}_one_table_del_${Date.now()}`;
-    const collectionToKeep = `${collectionBase}_one_table_keep_${Date.now()}`;
+    const collectionToDelete = `${collectionBase}_storage_del_${Date.now()}`;
+    const collectionToKeep = `${collectionBase}_storage_keep_${Date.now()}`;
 
     // Create two collections
     await client.createCollection(collectionToDelete, {
@@ -420,7 +420,7 @@ describe("YDB integration with COLLECTION_STORAGE_MODE=one_table", () => {
   });
 
   it("deletes individual points from global table using uid filter", async () => {
-    const collection = `${collectionBase}_one_table_del_pts_${Date.now()}`;
+    const collection = `${collectionBase}_storage_del_pts_${Date.now()}`;
 
     await client.createCollection(collection, {
       vectors: { size: 4, distance: "Cosine", data_type: "float" },

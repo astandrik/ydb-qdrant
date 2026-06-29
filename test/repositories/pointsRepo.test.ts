@@ -130,7 +130,7 @@ describe("pointsRepo (with mocked YDB)", () => {
         expect(result).toBe(2);
     });
 
-    it("upserts points and notifies scheduler (one_table)", async () => {
+    it("upserts points and notifies scheduler (storage)", async () => {
         const sessionMock = {
             bulkUpsert: vi.fn(),
             executeQuery: vi.fn().mockResolvedValue(undefined),
@@ -433,7 +433,7 @@ describe("pointsRepo (with mocked YDB)", () => {
         ).rejects.toThrow("point_id is missing in YDB search result");
     });
 
-    it("upserts points with collection parameter for one_table mode", async () => {
+    it("upserts points with collection parameter for storage", async () => {
         const sessionMock = {
             bulkUpsert:
                 vi.fn<
@@ -530,7 +530,7 @@ describe("pointsRepo (with mocked YDB)", () => {
         });
     });
 
-    it("upserts more than UPSERT_BATCH_SIZE points in multiple batches (one_table)", async () => {
+    it("upserts more than UPSERT_BATCH_SIZE points in multiple batches (storage)", async () => {
         const sessionMock = {
             bulkUpsert:
                 vi.fn<
@@ -570,7 +570,7 @@ describe("pointsRepo (with mocked YDB)", () => {
         );
     });
 
-    it("searches points with collection parameter for one_table mode (Cosine)", async () => {
+    it("searches points with collection parameter for storage (Cosine)", async () => {
         const payload = {};
         const payloadSign = computePayloadSign({ apiKey, payload });
         const sessionMock = {
@@ -622,7 +622,7 @@ describe("pointsRepo (with mocked YDB)", () => {
         expect(yql).toContain("StartsWith(path_prefix, $ppfxd0)");
     });
 
-    it("searches points with collection parameter for one_table mode (Euclid)", async () => {
+    it("searches points with collection parameter for storage (Euclid)", async () => {
         const payload = {};
         const payloadSign = computePayloadSign({ apiKey, payload });
         const sessionMock = {
@@ -670,7 +670,7 @@ describe("pointsRepo (with mocked YDB)", () => {
         expect(yql).not.toContain("embedding_quantized");
     });
 
-    it("uses exact one_table search", async () => {
+    it("uses exact storage search", async () => {
         const payload = {};
         const payloadSign = computePayloadSign({ apiKey, payload });
         const sessionMock = {
@@ -722,7 +722,7 @@ describe("pointsRepo (with mocked YDB)", () => {
         expect(yql).not.toContain("DECLARE $p0_1 AS Utf8;");
     });
 
-    it("deletes points with collection parameter for one_table mode", async () => {
+    it("deletes points with collection parameter for storage", async () => {
         const sessionMock = {
             executeQuery: vi.fn(),
         };
@@ -767,7 +767,7 @@ describe("pointsRepo (with mocked YDB)", () => {
         expect(deleted).toBe(2);
     });
 
-    it("retries transient OVERLOADED errors for deletePoints (one_table)", async () => {
+    it("retries transient OVERLOADED errors for deletePoints (storage)", async () => {
         vi.useFakeTimers();
         const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
         try {
@@ -838,7 +838,7 @@ describe("pointsRepo (with mocked YDB)", () => {
         }
     });
 
-    it("deletes points by pathSegments directory filter for one_table mode", async () => {
+    it("deletes points by pathSegments directory filter for storage", async () => {
         const sessionMock = {
             executeQuery: vi
                 .fn()
@@ -873,7 +873,7 @@ describe("pointsRepo (with mocked YDB)", () => {
         expect(yql).toContain("DELETE FROM qdrant_points_by_file ON");
     });
 
-    it("retries transient OVERLOADED errors for deletePointsByPathSegments (one_table)", async () => {
+    it("retries transient OVERLOADED errors for deletePointsByPathSegments (storage)", async () => {
         vi.useFakeTimers();
         const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
         try {
