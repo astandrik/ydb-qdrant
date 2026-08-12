@@ -101,7 +101,7 @@ README.md                  Public usage and API documentation
 ## Repository Settings
 
 - Stack: Node.js 18+, TypeScript ESM, Express 5, Vitest, ESLint, YDB SDK.
-- Search mode: exact-only over `qdrant_all_points.embedding`; approximate search and `embedding_quantized` are no longer part of the active model.
+- Search mode: exact-only over `qdrant_all_points.embedding` up to a configured level threshold; approximate search using `embedding_quantized` is used thereafter.
 - HTTP tenancy: route layer combines base identity with sanitized `X-Tenant-Id` (`default` if absent) into the namespace `userUid`.
 - Programmatic API: `createYdbQdrantClient` accepts exactly one of `apiKey` or `userUid`; no `defaultTenant` / `forTenant`.
 - Metadata expectations: `qdr__collections` must already exist and include `last_accessed_at` and `user_uid`.
